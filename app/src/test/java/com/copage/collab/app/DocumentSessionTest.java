@@ -397,6 +397,43 @@ class DocumentSessionTest {
     }
 
     @Test
+    void 기록_창_밖의_순번을_다시_보내면_저장소로_걸러_처음_리비전으로_ack_한다() {
+        FakeConnection a = join("A");
+        submit(a, 1, 0, paragraph("X", "가"));
+        for (int seq = 2; seq <= 5; seq++) {
+            submit(a, seq, seq - 1, type("X", 0, "나"));
+        }
+        runAll();
+
+        // 기록 창은 rebaseMaxGap(3) 이다. 순번 1 은 이미 창 밖이다.
+        submit(a, 1, 4, paragraph("X", "가"));
+        runAll();
+
+        assertEquals(new Ack(1, 1), a.last());
+        assertEquals(5, store.load(DOC).rev());
+    }
+
+    @Test
+    void 기록_창보다_오래된_기준_리비전의_묶음은_nack_하고_리비전을_올리지_않는다() {
+        FakeConnection a = join("A");
+        FakeConnection b = join("B");
+        submit(a, 1, 0, paragraph("X", "가"));
+        for (int seq = 2; seq <= 5; seq++) {
+            submit(a, seq, seq - 1, type("X", 0, "나"));
+        }
+        runAll();
+
+        submit(b, 1, 1, type("X", 0, "다"));
+        runAll();
+
+        Nack nack = assertInstanceOf(Nack.class, b.last());
+        assertEquals(1, nack.clientSeq());
+        assertEquals(5, nack.rev());
+        assertTrue(nack.reason().contains("너무 오래"), nack.reason());
+        assertEquals(5, store.load(DOC).rev());
+    }
+
+    @Test
     void 규칙에_걸린_묶음은_nack_하고_리비전을_올리지_않는다() {
         FakeConnection a = join("A");
         FakeConnection viewer = join("V", 0, PageRole.VIEW);

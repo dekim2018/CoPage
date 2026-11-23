@@ -257,6 +257,50 @@ class SyncScenarioTest {
     }
 
     @Test
+    void 기록_창보다_오래된_확정_기록은_버리고_순번도_잊는다() {
+        Document start = sample();
+        ServerDocument server = new ServerDocument(start, 10, 3);
+        for (int seq = 1; seq <= 5; seq++) {
+            accepted(server.submit(new Submission("A", seq, server.rev(), type("X", 0, "가"))));
+        }
+
+        assertEquals(15, server.rev());
+        assertEquals(3, server.historySize());
+        assertEquals(12, server.oldestBaseRev());
+        assertEquals(List.of(13L, 14L, 15L), server.changesSince(12).stream().map(CommittedChange::rev).toList());
+        // 창 안의 순번은 알아본다.
+        assertEquals(new SubmitResult.Duplicate(15), server.submit(new Submission("A", 5, 14, type("X", 0, "가"))));
+        // 창 밖의 순번은 잊었으므로 저장소가 걸러야 한다. 여기서는 기준 리비전이 창 안이면 새 묶음으로 본다.
+        assertTrue(server.submit(new Submission("A", 1, 15, type("X", 0, "가"))) instanceof SubmitResult.Accepted);
+    }
+
+    @Test
+    void 기록_창보다_오래된_기준_리비전의_묶음은_거부하고_상태를_바꾸지_않는다() {
+        Document start = sample();
+        ServerDocument server = new ServerDocument(start, 0, 2);
+        for (int seq = 1; seq <= 3; seq++) {
+            accepted(server.submit(new Submission("A", seq, server.rev(), type("X", 0, "가"))));
+        }
+        Document before = server.document();
+
+        SubmitResult stale = server.submit(new Submission("B", 1, 0, type("X", 0, "B")));
+
+        assertTrue(stale instanceof SubmitResult.Rejected rejected && rejected.reason().contains("너무 오래"),
+                stale.toString());
+        assertEquals(3, server.rev());
+        assertEquals(before, server.document());
+        // 창의 첫 리비전을 기준으로 한 묶음은 받는다.
+        assertTrue(server.submit(new Submission("B", 1, 1, type("X", 0, "B"))) instanceof SubmitResult.Accepted);
+    }
+
+    @Test
+    void 아직_없는_기준_리비전의_묶음은_거부한다() {
+        ServerDocument server = new ServerDocument(sample(), 0, 2);
+
+        assertTrue(server.submit(new Submission("A", 1, 1, type("X", 0, "가"))) instanceof SubmitResult.Rejected);
+    }
+
+    @Test
     void 블록_목록으로_만든_문서는_원래_문서와_같다() {
         Document start = sample().apply(new DeleteBlock("Y", true));
         List<Block> blocks = new ArrayList<>();

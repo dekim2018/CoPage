@@ -219,7 +219,9 @@ public final class DocumentSession {
     private void ensureLoaded() {
         if (server == null) {
             DocumentStore.Snapshot snapshot = store.load(docId);
-            server = new ServerDocument(snapshot.document(), snapshot.rev());
+            // 재접속에서 대기 편집을 합치게 하는 최대 리비전 차이만큼 기록을 든다. 그보다 뒤처진 묶음은 nack 로 돌려보낸다.
+            int window = (int) Math.min(Integer.MAX_VALUE, Math.max(1, settings.rebaseMaxGap()));
+            server = new ServerDocument(snapshot.document(), snapshot.rev(), window);
             lastSnapshotRev = snapshot.snapshotRev();
         }
     }
