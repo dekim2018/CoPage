@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { blocks, caret, caretAtEnd, controlInbox, converged, newUser, sharedPage, open, prepare } from './helpers'
+import { blocks, caret, caretAtEnd, controlInbox, converged, newUser, newWorkspaceWith, sharedPage, open, prepare } from './helpers'
 
 /*
  * 브라우저 두 개로 같은 문서를 편집한다 (docs/12-ROADMAP.md 0단계 완료 기준, docs/11-TEST-PLAN.md 13.1 화면 테스트).
@@ -130,4 +130,22 @@ test('홈의 새 문서는 페이지를 만들어 열고, 권한이 없는 페�
   await b.goto(`/p/${pageId}`)
   await expect(b.getByTestId('status')).toHaveAttribute('data-status', 'error')
   await expect(b.getByTestId('status')).toContainText('404')
+})
+
+test('남의 워크스페이스에 게스트로만 있어도 새 문서는 내 워크스페이스에 만든다', async ({ browser }) => {
+  const [owner, guest] = await Promise.all([newUser(browser, 'owner'), newUser(browser, 'guest')])
+  const theirs = await newWorkspaceWith(owner, guest, 'GUEST')
+
+  await guest.reload()
+  await guest.getByRole('button', { name: '새 문서' }).click()
+  await guest.waitForURL(/\/p\/[0-9a-f-]{36}$/)
+  await expect(guest.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+  const workspaceId = await guest.evaluate(async (pageId) => {
+    const { accessToken } = (await (await fetch('/api/auth/refresh', { method: 'POST' })).json()) as {
+      accessToken: string
+    }
+    const page = await fetch(`/api/pages/${pageId}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+    return ((await page.json()) as { workspaceId: string }).workspaceId
+  }, guest.url().split('/p/')[1])
+  expect(workspaceId).not.toBe(theirs)
 })

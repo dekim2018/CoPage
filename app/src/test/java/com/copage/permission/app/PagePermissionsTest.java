@@ -154,6 +154,14 @@ class PagePermissionsTest {
     }
 
     @Test
+    void 휴지통에_있는_부모의_하위_목록은_등급을_내주지_않는다() {
+        jdbc.sql("UPDATE pages SET archived_at = now() WHERE id = :id").param("id", root).update();
+
+        assertEquals(Map.of(), permissions.childLevels(owner, workspaceId, root, List.of(child)));
+        assertEquals(Map.of(), permissions.childLevels(owner, workspaceId, child, List.of(grandchild)), "조상이 휴지통이어도");
+    }
+
+    @Test
     void 새_페이지를_만들_수_있는_등급() {
         assertEquals(PageLevel.EDIT, permissions.levelForNewChild(member, workspaceId, null));
         assertNull(permissions.levelForNewChild(guest, workspaceId, null));

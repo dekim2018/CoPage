@@ -57,7 +57,9 @@ class WorkspaceController {
     }
 
     /**
-     * @param hasChildren 보관되지 않은 하위 페이지가 있는지. 그 하위 페이지를 내가 볼 수 있는지는 펼쳐 봐야 안다
+     * @param hasChildren 보관되지 않은 하위 페이지가 있는지. 권한을 보지 않고 센다. 그래서 볼 수 없는 하위 페이지만 있어도
+     *     true 이고(그런 페이지가 있다는 사실이 드러난다, 제목과 ID 는 아니다), 펼치면 빈 목록이 올 수 있다. 권한을 반영할지는
+     *     화면(SEC-1-4)에서 펼침 단추를 쓰기 전에 정한다
      * @param level 이 페이지에 대한 내 등급
      */
     record PageResponse(UUID id, UUID workspaceId, UUID parentId, String title, boolean hasChildren, PageLevel level) {

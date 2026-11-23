@@ -61,6 +61,35 @@ export async function sharedPage(owner: Page, ...others: Page[]): Promise<string
   }, members)
 }
 
+/** owner 가 워크스페이스를 만들고 other 를 role 로 넣는다. 워크스페이스 ID 를 돌려준다. */
+export async function newWorkspaceWith(owner: Page, other: Page, role: 'MEMBER' | 'GUEST'): Promise<string> {
+  const email = emails.get(other)
+  if (email === undefined) {
+    throw new Error('newUser 로 만든 화면이 아니다')
+  }
+  return owner.evaluate(
+    async ({ email, role }) => {
+      const refreshed = await fetch('/api/auth/refresh', { method: 'POST' })
+      const { accessToken } = (await refreshed.json()) as { accessToken: string }
+      const call = async (path: string, body: unknown) => {
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        if (!response.ok) {
+          throw new Error(`${path} ${response.status} ${await response.text()}`)
+        }
+        return (await response.json()) as { id: string }
+      }
+      const workspace = await call('/api/workspaces', { name: '남의 팀' })
+      await call(`/api/workspaces/${workspace.id}/members`, { email, role })
+      return workspace.id
+    },
+    { email, role },
+  )
+}
+
 /**
  * 서버에서 이 화면으로 오는 WebSocket 메시지를 잠시 붙잡는다. 붙잡은 동안 이 화면은 다른 사람의 편집을 모르고 편집한다. 그래야
  * 두 편집이 정말로 겹친다. 붙잡지 않으면 커서를 옮기는 사이 상대 편집이 먼저 도착해 겹침이 생기지 않는다.

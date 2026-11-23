@@ -17,6 +17,9 @@ import java.util.UUID;
  *
  * <p>페이지가 없거나, 휴지통에 있거나(조상이 휴지통에 있어도), 사용자가 그 워크스페이스에 속하지 않으면 {@link Access.NotFound}
  * 다. 존재 여부를 흘리지 않기 위해서다. 속해 있지만 등급이 없으면 {@link Access.Denied} 다.
+ *
+ * <p>휴지통 페이지는 OWNER 에게도 NotFound 다. 열람과 편집에는 맞다. 휴지통 목록과 복원(docs/09-API.md 11.2, FULL)을 만들 때는
+ * 휴지통 페이지의 등급을 따로 계산하는 경로를 더한다. 이 검사를 빼서 해결하면 휴지통 페이지가 다시 열린다.
  */
 public final class PagePermissions {
 
@@ -75,7 +78,9 @@ public final class PagePermissions {
             parentLinks = List.of();
         } else {
             Chain chain = repository.chain(userId, parentId);
-            if (chain == null || !chain.workspaceId().equals(workspaceId)) {
+            // access 와 같은 기준이다. 호출자가 먼저 부모를 확인하지 않아도 휴지통 아래의 등급을 내주지 않는다.
+            if (chain == null || !chain.workspaceId().equals(workspaceId)
+                    || chain.rows().stream().anyMatch(ChainRow::archived)) {
                 return Map.of();
             }
             role = chain.role();
