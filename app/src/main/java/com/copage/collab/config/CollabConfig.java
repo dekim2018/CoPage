@@ -9,7 +9,7 @@ import com.copage.collab.app.TicketStore;
 import com.copage.collab.in.CollabWebSocketHandler;
 import com.copage.collab.in.ProtocolCodec;
 import com.copage.collab.out.JdbcDocumentStore;
-import com.copage.collab.out.InMemoryTicketStore;
+import com.copage.collab.out.RedisTicketStore;
 import java.time.Clock;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -18,6 +18,7 @@ import java.util.concurrent.TimeUnit;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
@@ -57,8 +58,8 @@ public class CollabConfig {
     }
 
     @Bean
-    TicketStore ticketStore(Clock collabClock) {
-        return new InMemoryTicketStore(collabClock);
+    TicketStore ticketStore(StringRedisTemplate redis) {
+        return new RedisTicketStore(redis);
     }
 
     @Bean

@@ -1,5 +1,5 @@
 # 로컬 개발용. docker compose up -d 로 띄운다. 값은 app 의 application.yml 기본값과 같다.
-# 5432 를 다른 것이 쓰고 있으면 COPAGE_DB_PORT 로 바꾼다. 서버를 띄울 때도 같은 값을 준다.
+# 5432, 6379 를 다른 것이 쓰고 있으면 COPAGE_DB_PORT, COPAGE_REDIS_PORT 로 바꾼다. 서버를 띄울 때도 같은 값을 준다.
 services:
   postgres:
     image: postgres:17
@@ -11,6 +11,11 @@ services:
       - "${COPAGE_DB_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "${COPAGE_REDIS_PORT:-6379}:6379"
 
 volumes:
   postgres-data:
