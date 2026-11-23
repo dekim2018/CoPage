@@ -7,6 +7,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 /**
  * 협업 모듈의 설정 값. 기본값은 docs/05-PROTOCOL.md 7.7, docs/03-ARCHITECTURE.md 5.2, docs/07-SECURITY.md 9.3 을 따른다.
  *
+ * @param maxPresencePerSecond 연결마다 초당 받을 presence 수. 넘는 것은 연결을 끊지 않고 버린다
  * @param maxTextLength 문서 하나의 글자 수 한도. UTF-16 코드 단위로 센다
  * @param rebaseMaxGap 재접속할 때 이보다 리비전 차이가 크면 대기 편집을 합치지 않게 한다 (7.5)
  * @param rebaseMaxAge 재접속할 때 이보다 오래 확인하지 못했으면 대기 편집을 합치지 않게 한다 (7.5)
@@ -19,6 +20,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record CollabProperties(
         @DefaultValue("65536") int maxMessageBytes,
         @DefaultValue("30") int maxChangesPerSecond,
+        @DefaultValue("30") int maxPresencePerSecond,
         @DefaultValue("5000") int maxBlocks,
         @DefaultValue("2097152") long maxTextLength,
         @DefaultValue("100") int maxConnectionsPerDocument,
