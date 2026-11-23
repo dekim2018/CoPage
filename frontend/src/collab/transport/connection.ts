@@ -7,6 +7,11 @@
 
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'fatal'
 
+/** 티켓을 받는 쪽이 이 오류를 던지면 다시 붙지 않는다. 로그인이 끝났거나 문서에 접근할 수 없는 경우다. */
+export class FatalConnectionError extends Error {
+  override name = 'FatalConnectionError'
+}
+
 export interface ConnectionHandlers {
   /** 연결이 열렸다. hello 를 보낼 차례다. */
   onOpen(): void
@@ -66,6 +71,10 @@ export class DocConnection {
     try {
       ticket = await this.ticket()
     } catch (e) {
+      if (e instanceof FatalConnectionError) {
+        this.handlers.onState('fatal', e.message)
+        return
+      }
       this.scheduleRetry(String(e))
       return
     }

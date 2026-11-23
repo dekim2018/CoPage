@@ -43,12 +43,20 @@ async function errorOf(response: Response): Promise<ApiError> {
   return new ApiError(response.status, detail)
 }
 
-/** Refresh 쿠키로 새 토큰을 받는다. 로그인 상태가 아니면 null. 동시에 여러 번 불러도 요청은 하나만 나간다. */
+/**
+ * Refresh 쿠키로 새 토큰을 받는다. 로그인 상태가 아니면 null. 동시에 여러 번 불러도 요청은 하나만 나간다. 서버에 닿지 못한
+ * 경우(꺼져 있거나 오프라인)도 null 이다. 예외를 던지면 첫 화면의 라우터 가드가 실패해 빈 화면이 된다.
+ */
 export function refresh(): Promise<TokenResponse | null> {
   refreshing ??= (async () => {
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
-        const response = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
+        let response: Response
+        try {
+          response = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
+        } catch {
+          return null
+        }
         if (response.ok) {
           const tokens = (await response.json()) as TokenResponse
           accessToken = tokens.accessToken

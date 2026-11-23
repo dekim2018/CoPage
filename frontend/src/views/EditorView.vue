@@ -1,13 +1,34 @@
 <script setup lang="ts">
 import { Editor, EditorContent } from '@tiptap/vue-3'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
-import { api } from '../api/http'
+import { useRouter } from 'vue-router'
+import { ApiError, api } from '../api/http'
 import { EditorBinding, keyboardExtension } from '../collab/adapter/editorBinding'
 import { schemaExtensions } from '../collab/adapter/schema'
 import { CollabClient } from '../collab/client/collabClient'
 import type { SyncStatus } from '../collab/client/collabClient'
+import { FatalConnectionError } from '../collab/transport/connection'
 
 const props = defineProps<{ pageId: string }>()
+const router = useRouter()
+
+/**
+ * 연결할 때마다 티켓을 받는다. 401(로그인이 끝남), 403(접근 권한 없음), 404 는 다시 시도해도 소용없으니 재접속을 멈춘다. 401 이면
+ * 로그인 화면으로 보낸다. 그 밖의 실패(서버에 닿지 못함 등)는 연결이 재접속을 이어 간다.
+ */
+async function ticket(): Promise<string> {
+  try {
+    return (await api<{ ticket: string }>(`/api/docs/${props.pageId}/ws-ticket`, { method: 'POST' })).ticket
+  } catch (e) {
+    if (e instanceof ApiError && [401, 403, 404].includes(e.status)) {
+      if (e.status === 401) {
+        void router.push({ path: '/login', query: { next: `/p/${props.pageId}` } })
+      }
+      throw new FatalConnectionError(`${e.status} ${e.detail}`)
+    }
+    throw e
+  }
+}
 
 const editor = shallowRef<Editor | undefined>(undefined)
 const status = ref<SyncStatus>('connecting')
@@ -43,7 +64,7 @@ onMounted(() => {
   editor.value = instance
   client = new CollabClient(
     props.pageId,
-    async () => (await api<{ ticket: string }>(`/api/docs/${props.pageId}/ws-ticket`, { method: 'POST' })).ticket,
+    ticket,
     {
       onRemote: () => {
         instance.setEditable(true)

@@ -252,8 +252,11 @@ export function mergeForward(view: Document, blockId: string): { ops: Op[]; curs
 /**
  * 화면 문서를 편집기에 반영하는 트랜잭션. 바뀐 것이 없으면 null.
  *
- * 블록의 순서와 ID 가 같으면 글이 바뀐 블록만 그 부분을 바꾼다. 편집기가 바뀐 범위에 맞춰 내 커서를 옮겨 준다. 블록이 생기거나
- * 사라지거나 순서가 바뀌면 문서 전체를 바꾸고 커서를 (블록 ID, 위치)로 되돌린다. cursor 를 주면 그 자리로 커서를 놓는다.
+ * 블록의 순서와 ID 가 같으면 글이 바뀐 블록만 그 부분을 바꾼다. 편집기가 바뀐 범위에 맞춰 내 커서를 옮겨 준다. ID 가 없는
+ * 노드(붙여넣기 등으로 방금 생긴 블록)는 그 자리의 블록 ID 를 속성으로만 붙인다. 내용을 바꾸지 않으니 커서도 그대로다.
+ *
+ * 블록이 생기거나 사라지거나 순서가 바뀌면 문서 전체를 바꾸고 커서를 (블록 ID, 위치)로 되돌린다. 커서가 있던 블록이 없어졌으면
+ * 원래 위치에서 가장 가까운 곳에 둔다. cursor 를 주면 그 자리로 커서를 놓는다.
  */
 export function renderView(state: EditorState, view: Document, cursor?: BlockPosition): Transaction | null {
   const target = toPm(state.schema, view)
@@ -261,8 +264,10 @@ export function renderView(state: EditorState, view: Document, cursor?: BlockPos
   const tr = state.tr.setMeta(REMOTE, true).setMeta('addToHistory', false)
   const currentBlocks = readBlocks(current)
   const targetBlocks = readBlocks(target)
+  // 방금 생겨 아직 ID 가 없는 노드는 그 자리의 블록과 같은 것으로 본다. 연산이 그 순서대로 블록을 만들었다.
   const sameShape =
-    currentBlocks.length === targetBlocks.length && currentBlocks.every((b, i) => b.id === targetBlocks[i]?.id)
+    currentBlocks.length === targetBlocks.length &&
+    currentBlocks.every((b, i) => b.id === null || b.id === targetBlocks[i]?.id)
 
   if (sameShape) {
     // 뒤에서부터 바꿔야 앞 블록의 위치가 흔들리지 않는다.
@@ -273,8 +278,14 @@ export function renderView(state: EditorState, view: Document, cursor?: BlockPos
       start += node.nodeSize
     })
     for (let i = currentBlocks.length - 1; i >= 0; i--) {
-      const before = (currentBlocks[i] as PmBlock).text
-      const after = (targetBlocks[i] as PmBlock).text
+      const currentBlock = currentBlocks[i] as PmBlock
+      const targetBlock = targetBlocks[i] as PmBlock
+      if (currentBlock.id === null) {
+        const node = current.child(i)
+        tr.setNodeMarkup(starts[i] as number, undefined, { ...node.attrs, blockId: targetBlock.id })
+      }
+      const before = currentBlock.text
+      const after = targetBlock.text
       if (before === after) {
         continue
       }
@@ -292,7 +303,7 @@ export function renderView(state: EditorState, view: Document, cursor?: BlockPos
     if (a !== null && h !== null) {
       tr.setSelection(TextSelection.create(tr.doc, a, h))
     } else {
-      tr.setSelection(Selection.atStart(tr.doc))
+      tr.setSelection(Selection.near(tr.doc.resolve(Math.min(state.selection.head, tr.doc.content.size))))
     }
   }
 

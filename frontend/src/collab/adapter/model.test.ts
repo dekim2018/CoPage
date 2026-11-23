@@ -3,7 +3,7 @@ import { EditorState, TextSelection } from '@tiptap/pm/state'
 import { describe, expect, it } from 'vitest'
 import * as A from '../ot/attrs'
 import { Document } from '../ot/document'
-import { insertBlock, textOp } from '../ot/op'
+import { deleteBlock, insertBlock, textOp } from '../ot/op'
 import type { Op } from '../ot/op'
 import { Delta } from '../ot/delta'
 import { RichText } from '../ot/richText'
@@ -182,6 +182,45 @@ describe('연산에서 편집기로', () => {
 
     expect(readBlocks(next.doc).map((b) => b.id)).toEqual([ROOT, 'X', 'N', 'Y'])
     expect(toBlockPosition(next.doc, next.selection.head)).toEqual({ blockId: 'Y', offset: 1 })
+  })
+
+  it('여러 줄을 붙여넣어 생긴 블록에는 ID 만 붙이고 커서는 붙여넣은 글 끝에 남는다', () => {
+    const view = sample()
+    const pm = toPm(schema, view)
+    const end = toPmPosition(pm, { blockId: 'Y', offset: 2 }) as number
+    const state = EditorState.create({ schema, doc: pm, selection: TextSelection.create(pm, end) })
+    // 마지막 문단 끝에서 "둘째\n셋째" 를 붙여넣은 것과 같다. 새 노드 둘에는 아직 ID 가 없다.
+    const pasted = state.apply(
+      state.tr.insert(pm.content.size, [
+        schema.node('paragraph', null, [schema.text('둘째')]),
+        schema.node('paragraph', null, [schema.text('셋째')]),
+      ]),
+    )
+    const afterPaste = pasted.apply(pasted.tr.setSelection(TextSelection.create(pasted.doc, pasted.doc.content.size - 1)))
+    const next = view.apply(localOps(view, state.doc, afterPaste.doc))
+
+    const tr = renderView(afterPaste, next)
+    // 문서를 통째로 바꾸지 않고 속성만 붙였다. 그래서 위치가 하나도 옮겨지지 않는다.
+    const head = afterPaste.selection.head
+    expect(tr?.mapping.map(head)).toBe(head)
+    const rendered = afterPaste.apply(tr as never)
+
+    expect(readBlocks(rendered.doc)).toEqual(readBlocks(toPm(schema, next)))
+    expect(readBlocks(rendered.doc).every((b) => b.id !== null)).toBe(true)
+    const lastId = readBlocks(rendered.doc).at(-1)?.id as string
+    expect(toBlockPosition(rendered.doc, rendered.selection.head)).toEqual({ blockId: lastId, offset: 2 })
+  })
+
+  it('커서가 있던 블록이 사라지면 원래 위치에서 가까운 곳에 둔다', () => {
+    const view = sample()
+    const pm = toPm(schema, view)
+    const cursor = toPmPosition(pm, { blockId: 'Y', offset: 1 }) as number
+    const state = EditorState.create({ schema, doc: pm, selection: TextSelection.create(pm, cursor) })
+    const remote = view.apply(deleteBlock('Y', true))
+
+    const next = state.apply(renderView(state, remote) as never)
+
+    expect(toBlockPosition(next.doc, next.selection.head)?.blockId).toBe('X')
   })
 
   it('바뀐 것이 없으면 트랜잭션을 만들지 않는다', () => {

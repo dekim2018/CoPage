@@ -183,6 +183,23 @@ test('한글을 조합하는 동안 다른 사람이 편집해도 조합이 깨�
   expect(await converged(a, b)).toEqual(['제목', '맨앞한글', '뒤쪽'])
 })
 
+test('여러 줄을 붙여넣은 뒤 이어 친 글자는 붙여넣은 글 끝에 들어간다', async ({ browser }) => {
+  const docId = crypto.randomUUID()
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  await Promise.all([open(a, docId), open(b, docId)])
+  await prepare(a, b, '제목', ['첫째'])
+
+  await caretAtEnd(a, 1)
+  await a.locator('.ProseMirror').evaluate((editor) => {
+    const data = new DataTransfer()
+    data.setData('text/plain', '둘째\n셋째')
+    editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  })
+  await a.keyboard.type('!')
+
+  expect(await converged(a, b)).toEqual(['제목', '첫째둘째', '셋째!'])
+})
+
 test('새로고침해도 로그인과 내용이 남는다', async ({ browser }) => {
   const docId = crypto.randomUUID()
   const a = await newUser(browser, 'a')

@@ -27,11 +27,17 @@ export const useAuth = defineStore('auth', () => {
     await login(email, password)
   }
 
+  /** 서버 호출이 실패해도(토큰이 모두 만료되었거나 서버에 닿지 못함) 이 화면에서는 로그아웃한다. */
   async function logout(): Promise<void> {
-    // Authorization 헤더를 붙여 보내야 서버가 지금 Access 토큰도 막는다.
-    await api('/api/auth/logout', { method: 'POST' })
-    setAccessToken(null)
-    user.value = null
+    try {
+      // Authorization 헤더를 붙여 보내야 서버가 지금 Access 토큰도 막는다.
+      await api('/api/auth/logout', { method: 'POST' })
+    } catch (e) {
+      console.warn('서버에 로그아웃을 알리지 못했다', e)
+    } finally {
+      setAccessToken(null)
+      user.value = null
+    }
   }
 
   return { user, restored, restore, login, signup, logout }
