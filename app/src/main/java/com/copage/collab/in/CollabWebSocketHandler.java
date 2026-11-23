@@ -13,6 +13,7 @@ import java.util.Deque;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -33,8 +34,8 @@ public final class CollabWebSocketHandler extends TextWebSocketHandler {
             int maxMessageBytes,
             int maxChangesPerSecond,
             Duration idleTimeout,
-            int sendTimeLimitMillis,
-            int sendBufferBytes) {
+            Duration sendTimeLimit,
+            long sendBufferBytes) {
     }
 
     private static final class State {
@@ -57,13 +58,17 @@ public final class CollabWebSocketHandler extends TextWebSocketHandler {
     private final ProtocolCodec codec;
     private final Limits limits;
     private final Clock clock;
+    private final Executor sendExecutor;
     private final Map<String, State> states = new ConcurrentHashMap<>();
 
-    public CollabWebSocketHandler(DocumentSessions sessions, ProtocolCodec codec, Limits limits, Clock clock) {
+    /** @param sendExecutor 연결마다의 전송 작업을 돌리는 곳. 가상 스레드를 쓴다 */
+    public CollabWebSocketHandler(
+            DocumentSessions sessions, ProtocolCodec codec, Limits limits, Clock clock, Executor sendExecutor) {
         this.sessions = sessions;
         this.codec = codec;
         this.limits = limits;
         this.clock = clock;
+        this.sendExecutor = sendExecutor;
     }
 
     @Override
@@ -79,7 +84,7 @@ public final class CollabWebSocketHandler extends TextWebSocketHandler {
         }
         UUID docId = (UUID) attributes.get(TicketHandshakeInterceptor.DOC_ID);
         WebSocketConnection connection = new WebSocketConnection(
-                session, ticket.userId(), codec, limits.sendTimeLimitMillis(), limits.sendBufferBytes());
+                session, ticket.userId(), codec, sendExecutor, clock, limits.sendTimeLimit(), limits.sendBufferBytes());
         states.put(session.getId(), new State(connection, docId, ticket, clock.instant()));
     }
 
@@ -153,12 +158,17 @@ public final class CollabWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
-    /** idleTimeout 동안 아무 메시지도 보내지 않은 연결을 닫는다. 설정에서 주기적으로 부른다. */
+    /**
+     * idleTimeout 동안 아무 메시지도 보내지 않은 연결을 닫고, 쓰기가 오래 막힌 연결을 4011 로 닫는다. 설정에서 주기적으로
+     * 부른다.
+     */
     public void closeIdleConnections() {
         Instant deadline = clock.instant().minus(limits.idleTimeout());
         for (State state : states.values()) {
             if (state.lastReceived.isBefore(deadline)) {
                 state.connection.close(CloseStatus.GOING_AWAY.getCode(), "응답이 없다");
+            } else {
+                state.connection.checkSendLimits();
             }
         }
     }

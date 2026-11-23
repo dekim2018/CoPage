@@ -37,7 +37,7 @@ public class CollabConfig {
         return Clock.systemUTC();
     }
 
-    /** 문서 세션의 일을 실제로 돌리는 곳. 세션마다 직렬 실행기를 이 위에 얹는다. */
+    /** 문서 세션의 일과 연결마다의 전송 작업을 돌리는 곳. 세션마다 직렬 실행기를 이 위에 얹는다. */
     @Bean(destroyMethod = "close")
     ExecutorService collabExecutor() {
         return Executors.newVirtualThreadPerTaskExecutor();
@@ -89,6 +89,7 @@ public class CollabConfig {
             DocumentSessions documentSessions,
             JsonMapper jsonMapper,
             ScheduledExecutorService collabScheduler,
+            ExecutorService collabExecutor,
             Clock collabClock) {
         CollabWebSocketHandler handler = new CollabWebSocketHandler(
                 documentSessions,
@@ -97,9 +98,10 @@ public class CollabConfig {
                         properties.maxMessageBytes(),
                         properties.maxChangesPerSecond(),
                         properties.idleTimeout(),
-                        (int) properties.sendTimeLimit().toMillis(),
+                        properties.sendTimeLimit(),
                         properties.sendBufferBytes()),
-                collabClock);
+                collabClock,
+                collabExecutor);
         collabScheduler.scheduleWithFixedDelay(handler::closeIdleConnections, 5, 5, TimeUnit.SECONDS);
         return handler;
     }
