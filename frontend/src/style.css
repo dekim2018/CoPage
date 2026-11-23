@@ -45,3 +45,102 @@ form {
 .ProseMirror p {
   margin: 4px 0;
 }
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  padding: 6px 0 10px;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 12px;
+}
+.toolbar .link {
+  display: flex;
+  gap: 4px;
+}
+.ProseMirror .block {
+  margin: 4px 0;
+  min-height: 1.5em;
+  position: relative;
+}
+.ProseMirror .heading[data-level='1'] {
+  font-size: 1.6em;
+  font-weight: 700;
+}
+.ProseMirror .heading[data-level='2'] {
+  font-size: 1.35em;
+  font-weight: 700;
+}
+.ProseMirror .heading[data-level='3'] {
+  font-size: 1.15em;
+  font-weight: 700;
+}
+.ProseMirror .bulleted,
+.ProseMirror .numbered {
+  padding-left: 22px;
+}
+.ProseMirror .bulleted::before {
+  content: '•';
+  position: absolute;
+  left: 6px;
+}
+.ProseMirror .numbered::before {
+  content: attr(data-number);
+  position: absolute;
+  left: 0;
+}
+.ProseMirror .todo,
+.ProseMirror .toggle,
+.ProseMirror .callout {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.ProseMirror .todo.checked .block-content {
+  text-decoration: line-through;
+  color: #6b7280;
+}
+.ProseMirror .block-content {
+  flex: 1;
+  min-height: 1.5em;
+}
+.ProseMirror .toggle-button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.8em;
+  width: 1.4em;
+}
+.ProseMirror .toggle-button.empty {
+  opacity: 0.4;
+}
+.ProseMirror .quote {
+  border-left: 3px solid #1f2328;
+  padding-left: 12px;
+}
+.ProseMirror .callout {
+  background: #f6f8fa;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.ProseMirror .code {
+  background: #f6f8fa;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: ui-monospace, monospace;
+  white-space: pre-wrap;
+}
+.ProseMirror code {
+  background: #f0f1f3;
+  border-radius: 4px;
+  padding: 0 4px;
+  font-family: ui-monospace, monospace;
+}
+.ProseMirror .divider hr {
+  border: none;
+  border-top: 1px solid #d0d7de;
+  margin: 12px 0;
+}
+.ProseMirror .divider.ProseMirror-selectednode hr {
+  border-top-color: #0969da;
+}
