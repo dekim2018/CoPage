@@ -4,6 +4,7 @@ import com.copage.workspace.domain.Page;
 import com.copage.workspace.domain.Workspace;
 import com.copage.workspace.domain.WorkspaceRole;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,6 +36,9 @@ public interface WorkspaceRepository {
 
     /** 보관되지 않은 페이지. 다른 워크스페이스의 페이지면 비어 있다. */
     Optional<Page> findPage(UUID workspaceId, UUID pageId);
+
+    /** 보관되지 않은 페이지들. 없는 ID 는 뺀다. 순서는 정하지 않는다. */
+    List<Page> findPages(UUID workspaceId, Collection<UUID> pageIds);
 
     /** parentId 의 한 단계 하위 페이지를 순서대로. 보관된 페이지는 뺀다. parentId 가 null 이면 최상위 페이지다. */
     List<PageSummary> children(UUID workspaceId, UUID parentId);

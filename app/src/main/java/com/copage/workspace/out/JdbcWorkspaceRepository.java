@@ -12,6 +12,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -119,6 +120,22 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
                 .param("workspaceId", workspaceId)
                 .query((rs, row) -> page(rs))
                 .optional();
+    }
+
+    @Override
+    public List<Page> findPages(UUID workspaceId, Collection<UUID> pageIds) {
+        if (pageIds.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("SELECT " + PAGE_COLUMNS + """
+
+                        FROM pages p
+                        WHERE p.id = ANY(:ids) AND p.workspace_id = :workspaceId AND p.archived_at IS NULL
+                        """)
+                .param("ids", pageIds.toArray(UUID[]::new))
+                .param("workspaceId", workspaceId)
+                .query((rs, row) -> page(rs))
+                .list();
     }
 
     @Override
