@@ -4,6 +4,11 @@ spring:
   threads:
     virtual:
       enabled: true
+  # 로컬 개발용 기본값. 저장소 루트의 compose.yaml 로 띄운 PostgreSQL 과 같다. 배포 환경은 환경 변수로 덮어쓴다.
+  datasource:
+    url: jdbc:postgresql://localhost:${COPAGE_DB_PORT:5432}/copage
+    username: copage
+    password: copage
 
 # 협업 모듈. 한도 기본값은 CollabProperties 에 있다.
 copage:

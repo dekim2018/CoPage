@@ -84,4 +84,32 @@ class ChangePolicyTest {
                 new InsertBlock("B", "r", "b", "paragraph", Attrs.NONE, RichText.EMPTY),
                 new InsertBlock("C", "r", "c", "paragraph", Attrs.NONE, RichText.EMPTY)))));
     }
+
+    @Test
+    void jsonb_에_그대로_저장할_수_없는_값은_거부한다() {
+        String nul = "a" + (char) 0 + "b";
+        String loneSurrogate = "a" + (char) 0xD83D;
+        List<Op> rejected = List.of(
+                text(Delta.builder().insert(nul).build()),
+                text(Delta.builder().insert(loneSurrogate).build()),
+                text(Delta.builder().insert("a", Attrs.of("link", "https://a" + nul)).build()),
+                new InsertBlock(nul, "r", "a", "paragraph", Attrs.NONE, RichText.EMPTY),
+                new InsertBlock("N", "r", "a", "paragraph", Attrs.NONE, RichText.of(nul)),
+                new SplitBlock("X", 0, "N", "r", "a" + nul, "paragraph", Attrs.NONE),
+                new SetProps("X", "level", 1e19),
+                new SetProps("X", "level", 1.5),
+                new SetProps("X", "level", List.of(1, 2.5)),
+                new SetProps("X", "language", nul));
+        for (Op op : rejected) {
+            assertTrue(check(PageRole.EDIT, op).isPresent(), op.toString());
+        }
+    }
+
+    @Test
+    void 이모지와_long_범위_정수는_저장할_수_있다() {
+        assertEquals(Optional.empty(), check(PageRole.EDIT, text(Delta.builder().insert("가😀").build())));
+        assertEquals(Optional.empty(), check(PageRole.EDIT, new SetProps("X", "level", Long.MAX_VALUE)));
+        assertEquals(Optional.empty(), check(PageRole.EDIT, new SetProps("X", "level", 2)));
+        assertEquals(Optional.empty(), check(PageRole.EDIT, new SetProps("X", "checked", null)));
+    }
 }

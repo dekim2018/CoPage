@@ -6,13 +6,13 @@ Java 25, Spring Boot 4.1, Spring Security 7.1, Vue 3을 쓴다.
 
 ## 지금 상태
 
-1단계(OT 코어)까지 구현했고 2단계(협업 서버)를 진행하고 있다. Java 구현과 TypeScript 구현이 적합성 벡터 11,000건에서 같은 결과를 낸다. 협업 서버는 문서 세션과 WebSocket 규약까지 있고, 저장소는 아직 메모리다. 전체 계획은 [docs/12-ROADMAP.md](docs/12-ROADMAP.md)에 있다.
+1단계(OT 코어)까지 구현했고 2단계(협업 서버)를 진행하고 있다. Java 구현과 TypeScript 구현이 적합성 벡터 11,000건에서 같은 결과를 낸다. 협업 서버는 문서 세션, WebSocket 규약, PostgreSQL 연산 로그와 스냅샷까지 있다. 서버를 다시 띄워도 문서가 남는다. 전체 계획은 [docs/12-ROADMAP.md](docs/12-ROADMAP.md)에 있다.
 
 | 단계 | 내용 | 상태 |
 | --- | --- | --- |
 | 0 | 검증 실험 (편집기 어댑터 시제품) | 아직 |
 | 1 | OT 코어 (Java, TypeScript, 적합성 벡터) | 완료 |
-| 2 | 협업 서버 | 진행 중. 문서 세션과 WebSocket 규약 완료. 연산 로그와 스냅샷(PostgreSQL), 로그인과 토큰, 프레즌스, 편집기는 아직 |
+| 2 | 협업 서버 | 진행 중. 문서 세션, WebSocket 규약, 연산 로그와 스냅샷(PostgreSQL) 완료. 로그인과 토큰, 프레즌스, 편집기는 아직 |
 | 3~7 | 워크스페이스와 권한, 오프라인과 다중 노드, 부가 기능, 측정, 배포 | 아직 |
 
 ## 모듈
@@ -20,13 +20,13 @@ Java 25, Spring Boot 4.1, Spring Security 7.1, Vue 3을 쓴다.
 | 모듈 | 내용 |
 | --- | --- |
 | `ot-core` | 문서 모델, 연산 7종, 적용, 변환, 합성, 역연산, 서버와 클라이언트의 동기화 규칙. 외부 의존성이 없다 (테스트의 벡터 생성기만 Jackson을 쓴다) |
-| `app` | 협업 서버. 지금은 협업 모듈(`com.copage.collab`)만 있다. 문서 세션, WebSocket 규약, 1회용 티켓 검사, 연산과 문서의 JSON 변환. 연산 로그와 티켓 저장소는 메모리 구현이다 |
+| `app` | 협업 서버. 지금은 협업 모듈(`com.copage.collab`)만 있다. 문서 세션, WebSocket 규약, 1회용 티켓 검사, 연산과 문서의 JSON 변환, PostgreSQL 연산 로그와 스냅샷. 티켓 저장소는 아직 메모리다 |
 | `loadgen` | 부하 도구. 지금은 비어 있다 |
 | `frontend` | 프론트엔드. 지금은 `ot-core` 의 TypeScript 구현(`src/collab/ot/`)과 클라이언트 상태 기계(`src/collab/client/`)만 있다. Vue와 Vite는 2단계에서 붙인다 |
 
 ## 빌드와 테스트
 
-JDK 25가 필요하다.
+JDK 25와 Docker가 필요하다. `app` 의 테스트는 Testcontainers로 PostgreSQL 17을 띄운다.
 
 ```bash
 ./gradlew build
@@ -54,9 +54,10 @@ JDK 25가 필요하다.
 
 ## 협업 서버 띄워 보기
 
-로그인이 아직 없어서 dev 프로필의 임시 경로로 티켓을 받는다. 저장소가 메모리라 서버를 내리면 문서가 사라진다.
+로그인이 아직 없어서 dev 프로필의 임시 경로로 티켓을 받는다. 연산 로그와 스냅샷은 PostgreSQL에 두므로 먼저 DB를 띄운다. 5432 포트를 다른 것이 쓰고 있으면 두 명령 모두 앞에 `COPAGE_DB_PORT=55432` 처럼 다른 포트를 준다.
 
 ```bash
+docker compose up -d
 ./gradlew :app:bootRun --args='--spring.profiles.active=dev'
 
 # 다른 터미널에서. 문서 ID 는 아무 UUID 나 쓴다.
@@ -76,6 +77,9 @@ curl -X POST http://localhost:8080/api/dev/docs/3f0c6a8e-0000-4000-8000-00000000
 | `DocumentSessionTest` | 문서 세션의 규칙을 네트워크 없이. 동시 편집의 변환, 묶음 커밋, 커밋 실패 시 세션 버리기, 재접속과 중복 순번, 오래된 연결의 `rebase: false`, 연결 한도, 거부 |
 | `ChangePolicyTest` | 권한 등급별로 허용하는 연산, 블록 종류와 서식 이름, 링크 주소, 문서 크기 한도 |
 | `ProtocolCodecTest`, `OpJsonVectorTest` | 메시지 형식. 적합성 벡터의 연산과 문서를 읽었다 다시 쓰면 원래 JSON과 같은지 (TypeScript 구현과 같은 형식인지) |
+| `JdbcDocumentStoreTest` | PostgreSQL 저장소. 묶음 쓰기와 읽기, 제약 위반이면 한 행도 남지 않는지, 스냅샷에 그 뒤 연산을 적용해 여는지, 스냅샷을 세 개만 남기는지 |
+| `RestartTest` | 서버를 띄워 편집하고 완전히 내린 뒤 새로 띄운 서버에서 같은 문서를 받는지 (2단계 완료 기준) |
+| `WebSocketConnectionTest` | 받는 쪽이 느린 연결이 보내는 쪽을 막지 않고, 대기열이나 시간 한도를 넘으면 4011로 끊기는지 |
 | `CollabWebSocketIntegrationTest` | 서버를 띄우고 실제 WebSocket으로. 클라이언트 3개가 무작위로 편집하고 끊겼다 붙은 뒤 모두 서버와 같은 문서가 되는지, 종료 코드 4001, 4008, 4010 |
 | `DevTicketTest` | 개발용 티켓 발급이 dev 프로필에서만 열리는지 |
 

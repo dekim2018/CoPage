@@ -26,6 +26,10 @@ import java.util.Set;
  *   <li>연산 단위 인가 (docs/07-SECURITY.md 9.5): VIEW 는 편집 불가, COMMENT 는 comment 서식만 바꾸는 retain 만 가능
  *   <li>입력 검사 (9.6): 허용한 블록 종류와 서식 이름, 링크 주소의 형식
  *   <li>문서 크기 한도 (docs/05-PROTOCOL.md 7.7): 변환하고 적용한 결과를 본다
+ *   <li>저장할 수 있는 값인지: 연산은 PostgreSQL jsonb 에 그대로 들어간다. jsonb 는 문자열 안의 U+0000 을 받지 않고, 숫자를
+ *       정규화해서 돌려준다(1e19 는 10000000000000000000 이 된다). 짝이 없는 서로게이트는 UTF-8 로 바꿀 때 ? 로 바뀐다.
+ *       이런 값이 DB 에 닿으면 커밋이 실패해 세션이 버려지거나, 다시 연 문서가 세션의 문서와 달라진다. 그래서 문자열은
+ *       U+0000 과 짝 없는 서로게이트가 없어야 하고, 숫자는 long 범위의 정수만 받는다
  * </ul>
  *
  * <p>없는 블록이나 길이를 넘는 위치는 여기서 보지 않는다. 적용할 때 ot-core 가 거부한다.
@@ -59,7 +63,7 @@ public final class ChangePolicy {
     /** 변환하기 전, 클라이언트가 보낸 그대로의 묶음을 검사한다. 거부 사유가 있으면 돌려준다. */
     public Optional<String> check(List<Op> ops, PageRole role) {
         for (Op op : ops) {
-            Optional<String> reason = checkRole(op, role).or(() -> checkInput(op));
+            Optional<String> reason = checkRole(op, role).or(() -> checkInput(op)).or(() -> checkStorable(op));
             if (reason.isPresent()) {
                 return reason;
             }
@@ -130,6 +134,100 @@ public final class ChangePolicy {
             case SetProps setProps when Op.TYPE_KEY.equals(setProps.key()) ->
                     setProps.value() instanceof String type ? checkType(type) : Optional.of("블록 종류가 문자열이 아니다");
             default -> Optional.empty();
+        };
+    }
+
+    private static Optional<String> checkStorable(Op op) {
+        return switch (op) {
+            case TextOp text -> {
+                Optional<String> reason = checkString(text.blockId());
+                for (Component component : text.delta().components()) {
+                    reason = reason.or(() -> switch (component) {
+                        case Retain retain -> checkValue(retain.attrs());
+                        case Insert insert -> checkString(insert.text()).or(() -> checkValue(insert.attrs()));
+                        case Component.Delete delete -> Optional.empty();
+                    });
+                }
+                yield reason;
+            }
+            case SplitBlock split -> checkStrings(split.blockId(), split.newBlockId(), split.parentId(), split.pos(), split.type())
+                    .or(() -> checkValue(split.props()));
+            case Op.MergeBlock merge -> checkStrings(merge.blockId(), merge.intoId());
+            case InsertBlock insert -> {
+                Optional<String> reason = checkStrings(insert.blockId(), insert.parentId(), insert.pos(), insert.type())
+                        .or(() -> checkValue(insert.props()));
+                for (Segment segment : insert.text().segments()) {
+                    reason = reason.or(() -> checkString(segment.text())).or(() -> checkValue(segment.attrs()));
+                }
+                yield reason;
+            }
+            case Op.DeleteBlock delete -> checkString(delete.blockId());
+            case Op.MoveBlock move -> checkStrings(move.blockId(), move.parentId(), move.pos());
+            case SetProps setProps -> checkStrings(setProps.blockId(), setProps.key()).or(() -> checkValue(setProps.value()));
+        };
+    }
+
+    private static Optional<String> checkStrings(String... values) {
+        for (String value : values) {
+            Optional<String> reason = checkString(value);
+            if (reason.isPresent()) {
+                return reason;
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** U+0000 과 짝 없는 서로게이트가 없으면 통과. null 은 다른 검사가 맡는다. */
+    static Optional<String> checkString(String value) {
+        if (value == null) {
+            return Optional.empty();
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == 0) {
+                return Optional.of("U+0000 은 저장할 수 없다");
+            }
+            if (Character.isHighSurrogate(c)) {
+                if (i + 1 < value.length() && Character.isLowSurrogate(value.charAt(i + 1))) {
+                    i++;
+                    continue;
+                }
+                return Optional.of("짝이 없는 서로게이트는 저장할 수 없다");
+            }
+            if (Character.isLowSurrogate(c)) {
+                return Optional.of("짝이 없는 서로게이트는 저장할 수 없다");
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** 서식이나 속성 값. 문자열, 참거짓, long 범위 정수, null 과 그것들의 목록과 객체만 받는다. */
+    static Optional<String> checkValue(Object value) {
+        return switch (value) {
+            case null -> Optional.empty();
+            case String s -> checkString(s);
+            case Boolean b -> Optional.empty();
+            case Integer i -> Optional.empty();
+            case Long l -> Optional.empty();
+            case List<?> list -> {
+                for (Object item : list) {
+                    Optional<String> reason = checkValue(item);
+                    if (reason.isPresent()) {
+                        yield reason;
+                    }
+                }
+                yield Optional.empty();
+            }
+            case Map<?, ?> map -> {
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    Optional<String> reason = checkString((String) entry.getKey()).or(() -> checkValue(entry.getValue()));
+                    if (reason.isPresent()) {
+                        yield reason;
+                    }
+                }
+                yield Optional.empty();
+            }
+            default -> Optional.of("값은 문자열, 참거짓, 정수만 쓸 수 있다");
         };
     }
 

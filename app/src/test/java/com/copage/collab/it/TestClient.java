@@ -1,6 +1,6 @@
 package com.copage.collab.it;
 
-import com.copage.collab.in.OpJson;
+import com.copage.collab.domain.OpJson;
 import com.copage.ot.op.Op;
 import com.copage.ot.sync.ClientSession;
 import com.copage.ot.sync.CommittedChange;

@@ -5,6 +5,7 @@ import com.copage.collab.domain.ClientMessage.Hello;
 import com.copage.collab.domain.PageRole;
 import com.copage.collab.domain.ServerMessage;
 import com.copage.collab.domain.StoredChange;
+import com.copage.ot.model.Document;
 import com.copage.ot.sync.ServerDocument;
 import com.copage.ot.sync.Submission;
 import com.copage.ot.sync.SubmitResult;
@@ -19,6 +20,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * 문서 하나의 세션 (docs/03-ARCHITECTURE.md 5.2). 누군가 문서를 열면 메모리에 올라오고, 마지막 연결이 끊기고
@@ -29,6 +31,10 @@ import java.util.concurrent.Executor;
  * <p>받은 묶음은 바로 처리하지 않고 모아 둔다. 실행기가 돌 차례가 되면 그때까지 모인 묶음을 차례로 변환, 적용한 뒤 한 번에
  * 커밋하고, 커밋이 끝난 뒤에야 ack 와 remote 를 보낸다 (docs/06-DATA-MODEL.md 8.2, ADR 0005). 한가할 때는 묶음 하나가 바로
  * 커밋되고, 바쁠 때는 저절로 여러 개가 함께 커밋된다.
+ *
+ * <p>마지막 스냅샷 이후 확정된 묶음이 {@link Settings#snapshotInterval()} 개 쌓이면, 그리고 세션을 내릴 때 스냅샷을 남긴다.
+ * 문서는 바뀌지 않는 값이라 그대로 넘겨 별도 스레드에서 저장하고, 편집 처리는 기다리지 않는다 (docs/06-DATA-MODEL.md
+ * 8.3). 스냅샷 저장이 실패해도 연산 로그가 원본이라 잃는 것은 없다.
  */
 public final class DocumentSession {
 
@@ -36,7 +42,7 @@ public final class DocumentSession {
 
     /** 세션 동작에 쓰는 값. */
     public record Settings(
-            int maxConnections, long rebaseMaxGap, Duration rebaseMaxAge, Duration unloadDelay) {
+            int maxConnections, long rebaseMaxGap, Duration rebaseMaxAge, Duration unloadDelay, long snapshotInterval) {
     }
 
     /** 세션이 스스로 내려갈 때 등록처에서 빼 달라고 부른다. */
@@ -60,11 +66,13 @@ public final class DocumentSession {
     private final ChangePolicy policy;
     private final Settings settings;
     private final Executor executor;
+    private final Executor background;
     private final Scheduler scheduler;
     private final Clock clock;
     private final Unloader unloader;
 
     private ServerDocument server;
+    private long lastSnapshotRev;
     private boolean closed;
     private final Map<String, Member> members = new LinkedHashMap<>();
     private List<Pending> pending = new ArrayList<>();
@@ -77,6 +85,7 @@ public final class DocumentSession {
             ChangePolicy policy,
             Settings settings,
             Executor executor,
+            Executor background,
             Scheduler scheduler,
             Clock clock,
             Unloader unloader) {
@@ -85,6 +94,7 @@ public final class DocumentSession {
         this.policy = policy;
         this.settings = settings;
         this.executor = new SerialExecutor(executor);
+        this.background = background;
         this.scheduler = scheduler;
         this.clock = clock;
         this.unloader = unloader;
@@ -154,6 +164,7 @@ public final class DocumentSession {
         if (server == null) {
             DocumentStore.Snapshot snapshot = store.load(docId);
             server = new ServerDocument(snapshot.document(), snapshot.rev());
+            lastSnapshotRev = snapshot.snapshotRev();
         }
     }
 
@@ -215,6 +226,9 @@ public final class DocumentSession {
                 LOG.log(System.Logger.Level.ERROR, "문서 " + docId + " 커밋 실패. 세션을 버린다", e);
                 discard();
                 return;
+            }
+            if (server.rev() - lastSnapshotRev >= settings.snapshotInterval()) {
+                saveSnapshot();
             }
         }
         replies.forEach(Runnable::run);
@@ -280,7 +294,28 @@ public final class DocumentSession {
             return;
         }
         closed = true;
+        if (server != null && server.rev() > lastSnapshotRev) {
+            saveSnapshot();
+        }
         unloader.unloaded(this);
+    }
+
+    /** 지금 문서를 별도 스레드에서 스냅샷으로 남긴다. */
+    private void saveSnapshot() {
+        Document document = server.document();
+        long rev = server.rev();
+        lastSnapshotRev = rev;
+        try {
+            background.execute(() -> {
+                try {
+                    store.saveSnapshot(docId, document, rev);
+                } catch (RuntimeException e) {
+                    LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 리비전 " + rev + " 스냅샷 저장 실패", e);
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            LOG.log(System.Logger.Level.WARNING, "실행기가 닫혀 문서 " + docId + " 의 스냅샷을 남기지 못했다", e);
+        }
     }
 
     private void discard() {

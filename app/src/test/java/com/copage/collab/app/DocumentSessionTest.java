@@ -17,6 +17,7 @@ import com.copage.collab.domain.ServerMessage.Remote;
 import com.copage.collab.domain.ServerMessage.Welcome;
 import com.copage.collab.domain.StoredChange;
 import com.copage.collab.out.InMemoryDocumentStore;
+import com.copage.ot.model.Document;
 import com.copage.ot.op.Op;
 import com.copage.ot.op.Op.InsertBlock;
 import com.copage.ot.op.Op.TextOp;
@@ -68,7 +69,8 @@ class DocumentSessionTest {
         return new DocumentSessions(
                 store,
                 new ChangePolicy(20, 100),
-                new DocumentSession.Settings(maxConnections, 3, Duration.ofDays(7), Duration.ofSeconds(60)),
+                new DocumentSession.Settings(maxConnections, 3, Duration.ofDays(7), Duration.ofSeconds(60), 3),
+                tasks::add,
                 tasks::add,
                 (task, delay) -> scheduled.add(task),
                 clock);
@@ -97,6 +99,11 @@ class DocumentSessionTest {
         @Override
         public OptionalLong committedRev(UUID docId, String clientId, long clientSeq) {
             return delegate.committedRev(docId, clientId, clientSeq);
+        }
+
+        @Override
+        public void saveSnapshot(UUID docId, Document document, long rev) {
+            delegate.saveSnapshot(docId, document, rev);
         }
 
         @Override
@@ -294,6 +301,38 @@ class DocumentSessionTest {
 
         store.failLoad = false;
         assertEquals(0, join("B").last(Welcome.class).rev());
+    }
+
+    @Test
+    void 마지막_스냅샷_이후_묶음이_간격만큼_쌓이면_스냅샷을_남긴다() {
+        FakeConnection a = join("A");
+        for (int i = 1; i <= 7; i++) {
+            submit(a, i, i - 1, paragraph("B" + i, "가"));
+            runAll();
+        }
+
+        assertEquals(List.of(3L, 6L), store.delegate.snapshotRevs(DOC));
+    }
+
+    @Test
+    void 세션을_내릴_때_마지막_스냅샷_이후_묶음이_있으면_스냅샷을_남긴다() {
+        FakeConnection a = join("A");
+        submit(a, 1, 0, paragraph("X", "가"));
+        runAll();
+        sessions.leave(DOC, a);
+        runAll();
+        now = now.plusSeconds(61);
+        scheduled.forEach(Runnable::run);
+        runAll();
+
+        assertEquals(List.of(1L), store.delegate.snapshotRevs(DOC));
+
+        // 다시 올라온 세션은 그 스냅샷부터 센다. 묶음 두 개로는 아직 다음 스냅샷을 남기지 않는다.
+        FakeConnection again = join("B");
+        submit(again, 1, 1, paragraph("Y", "나"));
+        submit(again, 2, 1, paragraph("Z", "다"));
+        runAll();
+        assertEquals(List.of(1L), store.delegate.snapshotRevs(DOC));
     }
 
     @Test

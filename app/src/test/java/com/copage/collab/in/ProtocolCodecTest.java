@@ -62,6 +62,7 @@ class ProtocolCodecTest {
                 json("{'t':'unknown'}"),
                 json("{'t':'hello','lastRev':0}"),
                 json("{'t':'hello','clientId':'','lastRev':0}"),
+                json("{'t':'hello','clientId':'a\\u0000b','lastRev':0}"),
                 json("{'t':'change','clientSeq':1,'baseRev':0,'ops':[{'op':'text','blockId':'x','delta':[{'retain':0}]}]}"),
                 json("{'t':'change','clientSeq':1,'baseRev':0,'ops':[{'op':'explode','blockId':'x'}]}"),
                 json("{'t':'change','clientSeq':'1','baseRev':0,'ops':[]}"));
