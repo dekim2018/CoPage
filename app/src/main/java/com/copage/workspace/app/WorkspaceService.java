@@ -2,6 +2,7 @@ package com.copage.workspace.app;
 
 import com.copage.identity.app.UserDirectory;
 import com.copage.identity.domain.User;
+import com.copage.permission.app.PageGrants;
 import com.copage.permission.app.PagePermissions;
 import com.copage.permission.app.PagePermissions.Access;
 import com.copage.permission.domain.PageLevel;
@@ -50,13 +51,19 @@ public final class WorkspaceService {
     private final WorkspaceRepository repository;
     private final UserDirectory users;
     private final PagePermissions permissions;
+    private final PageGrants grants;
     private final Clock clock;
 
     public WorkspaceService(
-            WorkspaceRepository repository, UserDirectory users, PagePermissions permissions, Clock clock) {
+            WorkspaceRepository repository,
+            UserDirectory users,
+            PagePermissions permissions,
+            PageGrants grants,
+            Clock clock) {
         this.repository = repository;
         this.users = users;
         this.permissions = permissions;
+        this.grants = grants;
         this.clock = clock;
     }
 
@@ -106,6 +113,39 @@ public final class WorkspaceService {
             throw new WorkspaceException(Kind.CONFLICT, "이미 이 워크스페이스의 멤버다");
         }
         return new MemberView(user.id(), user.email(), user.name(), role);
+    }
+
+    /**
+     * 멤버의 역할을 바꾼다. OWNER 만 할 수 있다. 마지막 OWNER 는 내릴 수 없다 (D-15). 바꾼 뒤 그 사람의 열린 연결이 등급을 다시
+     * 계산하게 알린다 (D-17).
+     */
+    public void changeRole(UUID userId, UUID workspaceId, UUID memberId, WorkspaceRole role) {
+        requireOwner(workspaceId, userId);
+        apply(repository.changeRole(workspaceId, memberId, role));
+        grants.memberChanged(workspaceId, memberId);
+    }
+
+    /** 멤버를 내보낸다. OWNER 만 할 수 있다. 그 워크스페이스에서 받은 페이지 권한도 지운다 (D-16). */
+    public void removeMember(UUID userId, UUID workspaceId, UUID memberId) {
+        requireOwner(workspaceId, userId);
+        apply(repository.removeMember(workspaceId, memberId));
+        grants.removeAllInWorkspace(workspaceId, memberId);
+        grants.memberChanged(workspaceId, memberId);
+    }
+
+    private void requireOwner(UUID workspaceId, UUID userId) {
+        if (!roleOf(workspaceId, userId).managesMembers()) {
+            throw new WorkspaceException(Kind.FORBIDDEN, "멤버 관리는 OWNER 만 할 수 있다");
+        }
+    }
+
+    private static void apply(WorkspaceRepository.MemberUpdate result) {
+        switch (result) {
+            case UPDATED -> {
+            }
+            case NOT_MEMBER -> throw new WorkspaceException(Kind.NOT_FOUND, "그 사용자는 이 워크스페이스의 멤버가 아니다");
+            case LAST_OWNER -> throw new WorkspaceException(Kind.CONFLICT, "마지막 OWNER 는 내리거나 내보낼 수 없다");
+        }
     }
 
     /** parentId 의 한 단계 하위 페이지. parentId 가 null 이면 최상위. GUEST 는 지금 빈 목록이다. */
