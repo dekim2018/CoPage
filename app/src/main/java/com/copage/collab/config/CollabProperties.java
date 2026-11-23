@@ -9,10 +9,11 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  *
  * @param maxTextLength 문서 하나의 글자 수 한도. UTF-16 코드 단위로 센다
  * @param rebaseMaxGap 재접속할 때 이보다 리비전 차이가 크면 대기 편집을 합치지 않게 한다 (7.5)
- *     세션은 최근 이만큼의 확정 기록만 들고, 이보다 오래된 기준 리비전의 묶음은 nack 한다
  * @param rebaseMaxAge 재접속할 때 이보다 오래 확인하지 못했으면 대기 편집을 합치지 않게 한다 (7.5)
  * @param snapshotInterval 마지막 스냅샷 이후 확정된 묶음이 이만큼 쌓이면 스냅샷을 남긴다 (docs/06-DATA-MODEL.md 8.3)
  * @param snapshotsKept 문서마다 남길 스냅샷 수
+ * @param historyWindow 세션이 들고 있을 최근 확정 기록 수. 이보다 오래된 기준 리비전의 묶음을 보낸 연결은 4011 로 닫아
+ *     재접속하게 한다. 1 이상
  */
 @ConfigurationProperties("copage.collab")
 public record CollabProperties(
@@ -29,5 +30,6 @@ public record CollabProperties(
         @DefaultValue("5000") long rebaseMaxGap,
         @DefaultValue("7d") Duration rebaseMaxAge,
         @DefaultValue("200") long snapshotInterval,
-        @DefaultValue("3") int snapshotsKept) {
+        @DefaultValue("3") int snapshotsKept,
+        @DefaultValue("5000") int historyWindow) {
 }

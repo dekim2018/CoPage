@@ -13,7 +13,7 @@ public final class CloseCodes {
     public static final int MOVED = 4009;
     /** 규약 버전 불일치. */
     public static final int VERSION = 4010;
-    /** 받는 속도가 느려 보낼 메시지가 너무 쌓임. */
+    /** 받는 속도가 느려 보낼 메시지가 너무 쌓임, 또는 보낸 묶음의 기준 리비전이 기록 창보다 오래됨. 재접속해 다시 맞춘다. */
     public static final int SLOW = 4011;
 
     private CloseCodes() {

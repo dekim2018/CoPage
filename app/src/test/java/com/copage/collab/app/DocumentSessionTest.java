@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.copage.collab.domain.ClientMessage.Change;
@@ -71,7 +72,7 @@ class DocumentSessionTest {
         return new DocumentSessions(
                 store,
                 new ChangePolicy(20, 100),
-                new DocumentSession.Settings(maxConnections, 3, Duration.ofDays(7), Duration.ofSeconds(60), 3),
+                new DocumentSession.Settings(maxConnections, 3, Duration.ofDays(7), Duration.ofSeconds(60), 3, 3),
                 tasks::add,
                 tasks::add,
                 (task, delay) -> scheduled.add(task),
@@ -405,7 +406,7 @@ class DocumentSessionTest {
         }
         runAll();
 
-        // 기록 창은 rebaseMaxGap(3) 이다. 순번 1 은 이미 창 밖이다.
+        // 기록 창은 3 이다. 순번 1 은 이미 창 밖이다.
         submit(a, 1, 4, paragraph("X", "가"));
         runAll();
 
@@ -414,7 +415,7 @@ class DocumentSessionTest {
     }
 
     @Test
-    void 기록_창보다_오래된_기준_리비전의_묶음은_nack_하고_리비전을_올리지_않는다() {
+    void 기록_창보다_오래된_기준_리비전의_묶음을_보낸_연결은_4011_로_닫아_재접속하게_한다() {
         FakeConnection a = join("A");
         FakeConnection b = join("B");
         submit(a, 1, 0, paragraph("X", "가"));
@@ -426,11 +427,17 @@ class DocumentSessionTest {
         submit(b, 1, 1, type("X", 0, "다"));
         runAll();
 
-        Nack nack = assertInstanceOf(Nack.class, b.last());
-        assertEquals(1, nack.clientSeq());
-        assertEquals(5, nack.rev());
-        assertTrue(nack.reason().contains("너무 오래"), nack.reason());
+        // nack 하면 클라이언트가 묶음을 버리므로 보내지 않는다.
+        assertFalse(b.sync.stream().anyMatch(Nack.class::isInstance));
+        assertEquals(CloseCodes.SLOW, b.closedWith);
         assertEquals(5, store.load(DOC).rev());
+        assertNull(a.closedWith);
+    }
+
+    @Test
+    void 기록_창은_1_이상이어야_한다() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new DocumentSession.Settings(2, 3, Duration.ofDays(7), Duration.ofSeconds(60), 3, 0));
     }
 
     @Test

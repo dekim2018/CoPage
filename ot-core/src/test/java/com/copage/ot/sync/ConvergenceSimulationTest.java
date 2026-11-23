@@ -183,6 +183,8 @@ class ConvergenceSimulationTest {
                         sender.toClient.add(new Message.Nack(submission.clientSeq()));
                     }
                 }
+                case SubmitResult.Stale stale ->
+                        throw new AssertionError("기록 창 없이 만든 서버는 Stale 을 돌려주지 않는다");
             }
         }
 

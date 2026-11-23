@@ -47,7 +47,18 @@ public final class DocumentSession {
 
     /** 세션 동작에 쓰는 값. */
     public record Settings(
-            int maxConnections, long rebaseMaxGap, Duration rebaseMaxAge, Duration unloadDelay, long snapshotInterval) {
+            int maxConnections,
+            long rebaseMaxGap,
+            Duration rebaseMaxAge,
+            Duration unloadDelay,
+            long snapshotInterval,
+            int historyWindow) {
+
+        public Settings {
+            if (historyWindow < 1) {
+                throw new IllegalArgumentException("기록 창(history-window)은 1 이상이어야 한다: " + historyWindow);
+            }
+        }
     }
 
     /** 세션이 스스로 내려갈 때 등록처에서 빼 달라고 부른다. */
@@ -219,9 +230,7 @@ public final class DocumentSession {
     private void ensureLoaded() {
         if (server == null) {
             DocumentStore.Snapshot snapshot = store.load(docId);
-            // 재접속에서 대기 편집을 합치게 하는 최대 리비전 차이만큼 기록을 든다. 그보다 뒤처진 묶음은 nack 로 돌려보낸다.
-            int window = (int) Math.min(Integer.MAX_VALUE, Math.max(1, settings.rebaseMaxGap()));
-            server = new ServerDocument(snapshot.document(), snapshot.rev(), window);
+            server = new ServerDocument(snapshot.document(), snapshot.rev(), settings.historyWindow());
             lastSnapshotRev = snapshot.snapshotRev();
         }
     }
@@ -333,6 +342,12 @@ public final class DocumentSession {
             case SubmitResult.Rejected rejected -> {
                 long rev = server.rev();
                 replies.add(() -> sender.send(new ServerMessage.Nack(seq, rejected.reason(), rev)));
+            }
+            case SubmitResult.Stale stale -> {
+                // nack 하면 클라이언트는 묶음을 버린다. 연결을 닫아 resume 으로 다시 붙게 하면 대기 편집을 살려 다시 맞춘다.
+                String reason = "기준 리비전 " + change.baseRev() + " 이 기록 창(" + stale.oldestBaseRev()
+                        + " 부터)보다 오래되었다. 다시 접속해 맞춘다";
+                replies.add(() -> sender.close(CloseCodes.SLOW, reason));
             }
         }
     }

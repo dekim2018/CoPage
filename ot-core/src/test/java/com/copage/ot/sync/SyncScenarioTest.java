@@ -268,6 +268,8 @@ class SyncScenarioTest {
         assertEquals(3, server.historySize());
         assertEquals(12, server.oldestBaseRev());
         assertEquals(List.of(13L, 14L, 15L), server.changesSince(12).stream().map(CommittedChange::rev).toList());
+        assertEquals(List.of(15L), server.changesSince(14).stream().map(CommittedChange::rev).toList());
+        assertEquals(List.of(), server.changesSince(15));
         // 창 안의 순번은 알아본다.
         assertEquals(new SubmitResult.Duplicate(15), server.submit(new Submission("A", 5, 14, type("X", 0, "가"))));
         // 창 밖의 순번은 잊었으므로 저장소가 걸러야 한다. 여기서는 기준 리비전이 창 안이면 새 묶음으로 본다.
@@ -275,7 +277,7 @@ class SyncScenarioTest {
     }
 
     @Test
-    void 기록_창보다_오래된_기준_리비전의_묶음은_거부하고_상태를_바꾸지_않는다() {
+    void 기록_창보다_오래된_기준_리비전의_묶음은_Stale_로_돌려주고_상태를_바꾸지_않는다() {
         Document start = sample();
         ServerDocument server = new ServerDocument(start, 0, 2);
         for (int seq = 1; seq <= 3; seq++) {
@@ -285,8 +287,7 @@ class SyncScenarioTest {
 
         SubmitResult stale = server.submit(new Submission("B", 1, 0, type("X", 0, "B")));
 
-        assertTrue(stale instanceof SubmitResult.Rejected rejected && rejected.reason().contains("너무 오래"),
-                stale.toString());
+        assertEquals(new SubmitResult.Stale(1), stale);
         assertEquals(3, server.rev());
         assertEquals(before, server.document());
         // 창의 첫 리비전을 기준으로 한 묶음은 받는다.

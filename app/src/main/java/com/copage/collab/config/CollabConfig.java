@@ -96,7 +96,8 @@ public class CollabConfig {
                 properties.rebaseMaxGap(),
                 properties.rebaseMaxAge(),
                 properties.sessionUnloadDelay(),
-                properties.snapshotInterval());
+                properties.snapshotInterval(),
+                properties.historyWindow());
         return new DocumentSessions(
                 documentStore,
                 new ChangePolicy(properties.maxBlocks(), properties.maxTextLength()),
