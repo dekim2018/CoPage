@@ -10,9 +10,9 @@ Java 25, Spring Boot 4.1, Spring Security 7.1, Vue 3을 쓴다.
 
 | 단계 | 내용 | 상태 |
 | --- | --- | --- |
-| 0 | 검증 실험 (편집기 어댑터 시제품) | 아직 |
+| 0 | 검증 실험 (편집기 어댑터 시제품) | 편집기 어댑터 완료(문단 블록, 브라우저 두 개의 동시 편집, 한글 조합). pg_bigm 확인은 아직 |
 | 1 | OT 코어 (Java, TypeScript, 적합성 벡터) | 완료 |
-| 2 | 협업 서버 | 진행 중. 문서 세션, WebSocket 규약, 연산 로그와 스냅샷(PostgreSQL), 로그인과 토큰 완료. 프레즌스, 편집기는 아직 |
+| 2 | 협업 서버 | 진행 중. 문서 세션, WebSocket 규약, 연산 로그와 스냅샷(PostgreSQL), 로그인과 토큰, 문단 편집기 완료. 블록 10종, 프레즌스는 아직 |
 | 3~7 | 워크스페이스와 권한, 오프라인과 다중 노드, 부가 기능, 측정, 배포 | 아직 |
 
 ## 모듈
@@ -22,7 +22,7 @@ Java 25, Spring Boot 4.1, Spring Security 7.1, Vue 3을 쓴다.
 | `ot-core` | 문서 모델, 연산 7종, 적용, 변환, 합성, 역연산, 서버와 클라이언트의 동기화 규칙. 외부 의존성이 없다 (테스트의 벡터 생성기만 Jackson을 쓴다) |
 | `app` | 협업 서버. 협업 모듈(`com.copage.collab`): 문서 세션, WebSocket 규약, 1회용 티켓, PostgreSQL 연산 로그와 스냅샷. 계정 모듈(`com.copage.identity`): 가입, 로그인, JWT와 Refresh 토큰 회전. 토큰과 티켓은 Redis에 둔다 |
 | `loadgen` | 부하 도구. 지금은 비어 있다 |
-| `frontend` | 프론트엔드. 지금은 `ot-core` 의 TypeScript 구현(`src/collab/ot/`)과 클라이언트 상태 기계(`src/collab/client/`)만 있다. Vue와 Vite는 2단계에서 붙인다 |
+| `frontend` | 프론트엔드 (Vue 3, Vite, Pinia, Tiptap 3). 로그인과 가입, 편집기 화면. `src/collab/` 아래에 OT 코어(`ot`), 상태 기계와 협업 클라이언트(`client`), WebSocket 연결(`transport`), 편집기 어댑터(`adapter`)가 있다. 지금 편집기는 제목과 문단만 다룬다 |
 
 ## 빌드와 테스트
 
@@ -75,6 +75,39 @@ curl -X POST localhost:8080/api/docs/3f0c6a8e-0000-4000-8000-000000000001/ws-tic
 # ws://localhost:8080/ws/docs/3f0c6a8e-0000-4000-8000-000000000001?ticket=...&v=1
 # {"t":"hello","clientId":"tab-1","lastRev":0,"resume":false}
 ```
+
+## 편집기 띄워 보기
+
+백엔드를 위처럼 띄운 뒤 Vite 개발 서버를 띄운다. 개발 서버는 `/api` 와 `/ws` 를 백엔드(기본 `http://localhost:8080`, `COPAGE_BACKEND` 로 바꿈)로 넘긴다.
+
+```bash
+cd frontend
+npm ci
+npm run dev
+# http://localhost:5173 에서 가입하고 "새 문서" 를 누른다. 주소를 다른 브라우저(다른 사용자)에서 열면 같이 편집된다.
+```
+
+## 화면 테스트
+
+Playwright가 백엔드 jar와 Vite 개발 서버를 띄우고 브라우저 두 개로 같은 문서를 편집한다. PostgreSQL과 Redis가 떠 있어야 한다.
+
+```bash
+docker compose up -d
+./gradlew :app:bootJar
+cd frontend
+npx playwright install chromium
+npm run e2e
+```
+
+| 테스트 | 확인하는 것 |
+| --- | --- |
+| 앞과 끝을 동시에 | 같은 문단의 앞과 끝을 동시에 고치면 둘 다 반영된다 |
+| Enter와 타이핑 | Enter 뒤쪽에 다른 사람이 치던 글자가 새 블록을 따라간다 |
+| Backspace와 타이핑 | 합쳐지는 블록에 다른 사람이 치던 글자가 합쳐진 자리로 간다 |
+| 한글 조합 | 조합하는 동안 다른 사람이 편집해도 조합이 깨지지 않는다. 입력기 조합은 Chrome DevTools Protocol로 흉내 낸다 |
+| 새로고침 | 로그인(Refresh 쿠키)과 내용이 남는다 |
+
+겹치는 편집이 정말 겹치도록, 한쪽 브라우저로 가는 WebSocket 메시지를 잠시 붙잡은 채 양쪽이 편집하게 한다.
 
 ## app 테스트가 확인하는 것
 

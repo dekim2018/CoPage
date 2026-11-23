@@ -7,12 +7,30 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.1",
     "@types/node": "22.20.5",
-    "typescript": "7.0.2",
-    "vitest": "5.1.1"
+    "@vitejs/plugin-vue": "6.0.11",
+    "typescript": "5.9.3",
+    "vite": "8.3.8",
+    "vitest": "5.1.1",
+    "vue-tsc": "3.3.14"
+  },
+  "dependencies": {
+    "@tiptap/core": "3.35.0",
+    "@tiptap/extension-document": "3.35.0",
+    "@tiptap/extension-paragraph": "3.35.0",
+    "@tiptap/extension-text": "3.35.0",
+    "@tiptap/pm": "3.35.0",
+    "@tiptap/vue-3": "3.35.0",
+    "pinia": "4.1.0",
+    "vue": "3.5.46",
+    "vue-router": "5.5.1"
   }
 }

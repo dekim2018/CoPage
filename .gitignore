@@ -20,6 +20,8 @@ bin/
 # 프론트엔드
 node_modules/
 dist/
+test-results/
+playwright-report/
 
 # 환경 설정
 .env
