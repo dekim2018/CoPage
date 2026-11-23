@@ -430,14 +430,78 @@ class DocumentSessionTest {
     void 권한을_잃으면_4003_으로_닫고_등급이_같으면_아무것도_보내지_않는다() {
         FakeConnection a = join("A");
         FakeConnection b = join("B");
-        int before = b.received.size();
+        int before = b.sync.size();
 
         sessions.reauthorize(doc -> true, user -> true, resolver(Map.of(b.userId(), PageRole.EDIT), new ArrayList<>()));
         runAll();
 
         assertEquals(CloseCodes.FORBIDDEN, a.closedWith);
         assertNull(b.closedWith);
+        assertEquals(before, b.sync.size(), "등급이 같은 b 에게는 role 을 보내지 않는다");
+    }
+
+    @Test
+    void 권한을_잃은_뒤_닫히기_전에_도착한_묶음은_확정하지_않는다() {
+        FakeConnection a = join("A");
+        sessions.reauthorize(doc -> true, user -> true, resolver(Map.of(), new ArrayList<>()));
+        runAll();
+        assertEquals(CloseCodes.FORBIDDEN, a.closedWith);
+
+        // 닫기는 비동기라 소켓이 정말 닫히기 전에 이미 받은 메시지가 세션에 들어올 수 있다.
+        submit(a, 1, 0, paragraph("X", "가"));
+        runAll();
+
+        assertEquals(0, store.load(DOC).rev());
+        assertFalse(a.sync.stream().anyMatch(Ack.class::isInstance));
+    }
+
+    @Test
+    void 권한을_잃으면_남은_연결에_퇴장을_알린다() {
+        FakeConnection a = join("A");
+        FakeConnection b = join("B");
+
+        sessions.reauthorize(doc -> true, a.userId()::equals, resolver(Map.of(), new ArrayList<>()));
+        runAll();
+
+        ServerMessage.Presence left = b.last(ServerMessage.Presence.class);
+        assertTrue(left.left());
+        assertEquals("client-A", left.peer().clientId());
+        // 소켓이 닫힌 뒤 오는 leave 는 아무것도 하지 않는다.
+        int before = b.received.size();
+        sessions.leave(DOC, a);
+        runAll();
         assertEquals(before, b.received.size());
+    }
+
+    @Test
+    void 다시_계산이_늦게_끝나도_나중에_시작한_계산의_결과가_남는다() {
+        // background 를 따로 쥐고 끝나는 순서를 뒤집는다.
+        List<Runnable> background = new ArrayList<>();
+        DocumentSessions ordered = new DocumentSessions(
+                store,
+                new ChangePolicy(20, 100),
+                new DocumentSession.Settings(2, 3, Duration.ofDays(7), Duration.ofSeconds(60), 3, 3),
+                tasks::add,
+                background::add,
+                (task, delay) -> scheduled.add(task),
+                Clock.systemUTC());
+        FakeConnection a = new FakeConnection("A");
+        ordered.join(DOC, a, new Hello("client-A", 0, false), PageRole.EDIT, "이름");
+        runAll();
+
+        // 먼저 시작한 계산은 VIEW(낡은 상태), 나중 계산은 EDIT(새 상태)를 읽는다.
+        ordered.reauthorize(doc -> true, user -> true, (userId, docId) -> Optional.of(PageRole.VIEW));
+        runAll();
+        ordered.reauthorize(doc -> true, user -> true, (userId, docId) -> Optional.of(PageRole.EDIT));
+        runAll();
+        assertEquals(2, background.size());
+        background.get(1).run();
+        runAll();
+        background.get(0).run();
+        runAll();
+
+        assertFalse(a.received.stream().anyMatch(new ServerMessage.Role(PageRole.VIEW)::equals),
+                "낡은 계산이 나중에 끝나 VIEW 로 덮었다");
     }
 
     @Test
