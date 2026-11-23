@@ -6,7 +6,8 @@ build/
 # IDE
 .idea/
 *.iml
-out/
+/out/
+/*/out/
 .vscode/
 .settings/
 .classpath
