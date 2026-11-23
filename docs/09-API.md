@@ -22,6 +22,7 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | GET | `/api/workspaces` | 내가 속한 워크스페이스 | 로그인 |
 | POST | `/api/workspaces` | 생성 | 로그인 |
 | GET | `/api/workspaces/{wsId}/members` | 멤버 목록 | MEMBER |
+| POST | `/api/workspaces/{wsId}/members` | 가입한 사용자를 이메일로 바로 넣는다. 역할은 MEMBER 또는 GUEST. 초대(아래 invites)가 생기기 전까지 쓰는 임시 경로 | OWNER |
 | POST | `/api/workspaces/{wsId}/invites` | 이메일로 초대 | OWNER |
 | POST | `/api/invites/{token}/accept` | 초대 수락 | 로그인 |
 | PATCH | `/api/workspaces/{wsId}/members/{userId}` | 역할 변경 | OWNER |
@@ -34,6 +35,8 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | POST | `/api/pages/{pageId}/restore` | 휴지통에서 복구 | FULL |
 | GET | `/api/workspaces/{wsId}/trash` | 휴지통 목록 | MEMBER |
 | GET | `/api/workspaces/{wsId}/events?ticket=` | 사이드바용 SSE (트리 변경) | MEMBER 또는 GUEST |
+
+워크스페이스에 속하지 않은 사용자에게는 워크스페이스가 있는지도 알리지 않는다. 없는 워크스페이스와 같은 404 를 준다. 지금은 접근을 워크스페이스 역할로만 판단한다. OWNER, MEMBER 는 모든 페이지를 보고 만들고, GUEST 는 권한을 받은 페이지만 본다(권한 부여가 생기기 전까지는 아무것도 보지 못한다). 페이지 목록의 `title` 은 아직 루트 블록과 동기화하지 않아 빈 문자열이다.
 
 ## 11.3 공유와 권한
 

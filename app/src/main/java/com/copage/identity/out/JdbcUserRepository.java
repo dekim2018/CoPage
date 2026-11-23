@@ -58,7 +58,7 @@ public final class JdbcUserRepository implements UserRepository {
         jdbc.sql("UPDATE users SET name = :name WHERE id = :id").param("id", id).param("name", name).update();
     }
 
-    private static User user(ResultSet rs) throws SQLException {
+    static User user(ResultSet rs) throws SQLException {
         return new User(
                 rs.getObject("id", UUID.class),
                 rs.getString("email"),
