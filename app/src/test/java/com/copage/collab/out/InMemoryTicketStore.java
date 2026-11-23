@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** 메모리에 두는 티켓 저장소. 노드가 하나일 때만 맞다. Redis 구현이 붙을 때까지 쓴다. */
+/** 테스트용 메모리 티켓 저장소. */
 public final class InMemoryTicketStore implements TicketStore {
 
     private record Entry(WsTicket value, Instant expiresAt) {

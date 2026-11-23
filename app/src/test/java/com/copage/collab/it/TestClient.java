@@ -27,7 +27,7 @@ import tools.jackson.databind.node.ObjectNode;
  * <p>받은 메시지는 큐에 쌓아 두고 테스트 스레드가 {@link #process()} 에서 처리한다. ClientSession 은 테스트 스레드에서만
  * 만진다. 연결마다 번호를 붙여, 끊긴 연결로 늦게 도착한 메시지는 버린다.
  */
-final class TestClient {
+public final class TestClient {
 
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
@@ -47,12 +47,12 @@ final class TestClient {
     ClientSession session;
     int nacks;
 
-    TestClient(String clientId) {
+    public TestClient(String clientId) {
         this.clientId = clientId;
     }
 
     /** 티켓을 붙여 연결하고 hello 를 보낸다. 확정 문서가 있으면 이어 붙는다. */
-    void connect(URI uri) throws Exception {
+    public void connect(URI uri) throws Exception {
         int myGeneration = ++generation;
         welcomed = false;
         socket = client.execute(new TextWebSocketHandler() {
@@ -115,7 +115,7 @@ final class TestClient {
     }
 
     /** 다음 메시지 하나를 처리하지 않고 꺼낸다. 규약 검사 테스트에서 쓴다. */
-    JsonNode take() throws InterruptedException {
+    public JsonNode take() throws InterruptedException {
         Incoming incoming = inbox.poll(5, TimeUnit.SECONDS);
         return incoming == null ? null : incoming.message();
     }

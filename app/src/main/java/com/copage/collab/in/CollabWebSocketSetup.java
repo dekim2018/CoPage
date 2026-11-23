@@ -1,7 +1,7 @@
 package com.copage.collab.in;
 
 import com.copage.collab.app.TicketService;
-import com.copage.collab.config.CollabProperties;
+import com.copage.web.WebProperties;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
@@ -14,18 +14,18 @@ class CollabWebSocketSetup implements WebSocketConfigurer {
 
     private final CollabWebSocketHandler handler;
     private final TicketService tickets;
-    private final CollabProperties properties;
+    private final WebProperties web;
 
-    CollabWebSocketSetup(CollabWebSocketHandler handler, TicketService tickets, CollabProperties properties) {
+    CollabWebSocketSetup(CollabWebSocketHandler handler, TicketService tickets, WebProperties web) {
         this.handler = handler;
         this.tickets = tickets;
-        this.properties = properties;
+        this.web = web;
     }
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(handler, "/ws/docs/*")
                 .addInterceptors(new TicketHandshakeInterceptor(tickets))
-                .setAllowedOrigins(properties.allowedOrigins().toArray(String[]::new));
+                .setAllowedOrigins(web.allowedOrigins().toArray(String[]::new));
     }
 }

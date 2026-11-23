@@ -4,16 +4,26 @@ spring:
   threads:
     virtual:
       enabled: true
-  # 로컬 개발용 기본값. 저장소 루트의 compose.yaml 로 띄운 PostgreSQL 과 같다. 배포 환경은 환경 변수로 덮어쓴다.
+  # 로컬 개발용 기본값. 저장소 루트의 compose.yaml 로 띄운 PostgreSQL, Redis 와 같다. 배포 환경은 환경 변수로 덮어쓴다.
   datasource:
     url: jdbc:postgresql://localhost:${COPAGE_DB_PORT:5432}/copage
     username: copage
     password: copage
+  data:
+    redis:
+      host: localhost
+      port: ${COPAGE_REDIS_PORT:6379}
+  mvc:
+    problemdetails:
+      enabled: true
 
-# 협업 모듈. 한도 기본값은 CollabProperties 에 있다.
 copage:
-  collab:
+  web:
+    # 브라우저에서 API 와 WebSocket 을 부를 수 있는 Origin. 비어 있으면 같은 출처만 받는다.
     allowed-origins: []
+  auth:
+    # 32 바이트 이상. 저장소에 두지 않는다. 없으면 서버가 뜨지 않는다.
+    jwt-secret: ${COPAGE_JWT_SECRET:}
 
 ---
 spring:
@@ -22,7 +32,10 @@ spring:
       on-profile: dev
 
 copage:
-  collab:
+  web:
     # Vite 개발 서버
     allowed-origins:
       - http://localhost:5173
+  auth:
+    # 개발용 키. dev 프로필에서만 쓴다.
+    jwt-secret: ${COPAGE_JWT_SECRET:dev-only-secret-do-not-use-in-production-0123456789}

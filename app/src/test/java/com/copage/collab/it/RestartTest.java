@@ -13,7 +13,7 @@ import com.copage.ot.op.Op.TextOp;
 import com.copage.ot.text.Attrs;
 import com.copage.ot.text.Delta;
 import com.copage.ot.text.RichText;
-import com.copage.support.TestDatabase;
+import com.copage.support.TestInfra;
 import java.net.URI;
 import java.util.HashMap;
 import java.util.List;
@@ -31,7 +31,7 @@ import tools.jackson.databind.JsonNode;
 class RestartTest {
 
     private static ConfigurableApplicationContext start(Map<String, Object> extra) {
-        Map<String, Object> properties = new HashMap<>(TestDatabase.properties());
+        Map<String, Object> properties = new HashMap<>(TestInfra.properties());
         properties.put("server.port", 0);
         properties.putAll(extra);
         // properties() 로 넘기면 application.yml 보다 우선순위가 낮다. 명령줄 인자로 넘겨 테스트 DB 를 가리키게 한다.

@@ -17,7 +17,7 @@ import com.copage.ot.op.Op.TextOp;
 import com.copage.ot.text.Attrs;
 import com.copage.ot.text.Delta;
 import com.copage.ot.text.RichText;
-import com.copage.support.TestDatabase;
+import com.copage.support.TestInfra;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -38,7 +38,7 @@ class JdbcDocumentStoreTest {
     private static final UUID USER = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
 
     private final DriverManagerDataSource dataSource = new DriverManagerDataSource(
-            TestDatabase.POSTGRES.getJdbcUrl(), TestDatabase.POSTGRES.getUsername(), TestDatabase.POSTGRES.getPassword());
+            TestInfra.POSTGRES.getJdbcUrl(), TestInfra.POSTGRES.getUsername(), TestInfra.POSTGRES.getPassword());
     private final JdbcClient jdbc = JdbcClient.create(dataSource);
     private final DocumentStore store = new JdbcDocumentStore(
             jdbc, new TransactionTemplate(new DataSourceTransactionManager(dataSource)), JsonMapper.builder().build(), 3);
