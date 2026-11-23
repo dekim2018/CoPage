@@ -11,6 +11,7 @@ import com.copage.collab.app.TicketService;
 import com.copage.collab.domain.PageRole;
 import com.copage.ot.model.Document;
 import com.copage.ot.op.Op;
+import com.copage.support.TestDatabase;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,7 +28,7 @@ import tools.jackson.databind.json.JsonMapper;
  * 서버를 띄우고 실제 WebSocket 으로 붙어 규약과 수렴을 확인한다. 클라이언트의 상태 기계는 ot-core 의 ClientSession 이다.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class CollabWebSocketIntegrationTest {
+class CollabWebSocketIntegrationTest extends TestDatabase {
 
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 

@@ -12,10 +12,9 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 메모리에 두는 연산 로그. 서버를 다시 띄우면 사라진다. PostgreSQL 구현이 붙을 때까지 쓴다.
+ * 테스트용 메모리 저장소. 문서 세션의 규칙을 DB 없이 확인할 때 쓴다.
  *
- * <p>문서의 루트 블록 ID 는 문서 ID 다 (docs/06-DATA-MODEL.md 의 pages: id 가 곧 문서 ID). 스냅샷은 따로 두지 않고 최신
- * 문서를 함께 들고 있다.
+ * <p>최신 문서를 함께 들고 있어서 load 가 스냅샷을 읽지 않는다. 저장한 스냅샷은 리비전만 기록해 테스트가 확인한다.
  */
 public final class InMemoryDocumentStore implements DocumentStore {
 
@@ -25,6 +24,7 @@ public final class InMemoryDocumentStore implements DocumentStore {
         Document document;
         final List<StoredChange> changes = new ArrayList<>();
         final Map<String, Long> revBySeq = new HashMap<>();
+        final List<Long> snapshotRevs = new ArrayList<>();
 
         Log(Document document) {
             this.document = document;
@@ -35,7 +35,8 @@ public final class InMemoryDocumentStore implements DocumentStore {
     public Snapshot load(UUID docId) {
         Log log = log(docId);
         synchronized (log) {
-            return new Snapshot(log.document, log.changes.size());
+            long snapshotRev = log.snapshotRevs.isEmpty() ? 0 : log.snapshotRevs.get(log.snapshotRevs.size() - 1);
+            return new Snapshot(log.document, log.changes.size(), snapshotRev);
         }
     }
 
@@ -84,6 +85,24 @@ public final class InMemoryDocumentStore implements DocumentStore {
                 log.revBySeq.put(key(change.clientId(), change.clientSeq()), change.rev());
             }
             log.document = next;
+        }
+    }
+
+    @Override
+    public void saveSnapshot(UUID docId, Document document, long rev) {
+        Log log = log(docId);
+        synchronized (log) {
+            if (!log.snapshotRevs.contains(rev)) {
+                log.snapshotRevs.add(rev);
+            }
+        }
+    }
+
+    /** 지금까지 저장한 스냅샷의 리비전. */
+    public List<Long> snapshotRevs(UUID docId) {
+        Log log = log(docId);
+        synchronized (log) {
+            return List.copyOf(log.snapshotRevs);
         }
     }
 

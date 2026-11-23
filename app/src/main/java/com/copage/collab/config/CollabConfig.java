@@ -8,7 +8,7 @@ import com.copage.collab.app.TicketService;
 import com.copage.collab.app.TicketStore;
 import com.copage.collab.in.CollabWebSocketHandler;
 import com.copage.collab.in.ProtocolCodec;
-import com.copage.collab.out.InMemoryDocumentStore;
+import com.copage.collab.out.JdbcDocumentStore;
 import com.copage.collab.out.InMemoryTicketStore;
 import java.time.Clock;
 import java.util.concurrent.ExecutorService;
@@ -18,6 +18,8 @@ import java.util.concurrent.TimeUnit;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -50,8 +52,8 @@ public class CollabConfig {
     }
 
     @Bean
-    DocumentStore documentStore() {
-        return new InMemoryDocumentStore();
+    DocumentStore documentStore(JdbcClient jdbcClient, TransactionTemplate transactionTemplate, JsonMapper jsonMapper) {
+        return new JdbcDocumentStore(jdbcClient, transactionTemplate, jsonMapper, properties.snapshotsKept());
     }
 
     @Bean
@@ -74,11 +76,13 @@ public class CollabConfig {
                 properties.maxConnectionsPerDocument(),
                 properties.rebaseMaxGap(),
                 properties.rebaseMaxAge(),
-                properties.sessionUnloadDelay());
+                properties.sessionUnloadDelay(),
+                properties.snapshotInterval());
         return new DocumentSessions(
                 documentStore,
                 new ChangePolicy(properties.maxBlocks(), properties.maxTextLength()),
                 settings,
+                collabExecutor,
                 collabExecutor,
                 (task, delay) -> collabScheduler.schedule(task, delay.toMillis(), TimeUnit.MILLISECONDS),
                 collabClock);

@@ -6,6 +6,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import com.copage.support.TestDatabase;
 import java.util.UUID;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,7 @@ class DevTicketTest {
     @Nested
     @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
     @ActiveProfiles("dev")
-    class Dev_프로필 {
+    class Dev_프로필 extends TestDatabase {
 
         @LocalServerPort
         int port;
@@ -53,7 +54,7 @@ class DevTicketTest {
 
     @Nested
     @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-    class 기본_프로필 {
+    class 기본_프로필 extends TestDatabase {
 
         @LocalServerPort
         int port;
