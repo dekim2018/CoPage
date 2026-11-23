@@ -1,6 +1,8 @@
 package com.copage.identity.config;
 
 import com.copage.identity.app.AuthService;
+import com.copage.identity.app.UserDirectory;
+import com.copage.identity.out.JdbcUserDirectory;
 import com.copage.identity.out.JdbcUserRepository;
 import com.copage.identity.out.RedisAccessTokenRevocations;
 import com.copage.identity.out.RedisLoginAttempts;
@@ -51,6 +53,11 @@ public class IdentityConfig {
     @Bean
     PasswordEncoder passwordEncoder() {
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+    }
+
+    @Bean
+    UserDirectory userDirectory(JdbcClient jdbcClient) {
+        return new JdbcUserDirectory(jdbcClient);
     }
 
     @Bean
