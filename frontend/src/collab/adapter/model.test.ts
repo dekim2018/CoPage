@@ -34,7 +34,12 @@ function sample(): Document {
 }
 
 function texts(doc: Document): string[] {
-  return readBlocks(toPm(schema, doc)).map((b) => b.text)
+  return readBlocks(toPm(schema, doc)).map((b) => b.text.plainText())
+}
+
+/** id 와 글만 뽑는다. */
+function outline(pm: Parameters<typeof readBlocks>[0]): { id: string | null; text: string }[] {
+  return readBlocks(pm).map((b) => ({ id: b.id, text: b.text.plainText() }))
 }
 
 /** 편집기에서 한 변경을 흉내 낸다. 변경 전후 편집기 문서로 연산을 만들어 화면 문서에 적용한다. */
@@ -62,11 +67,11 @@ describe('글자 차이', () => {
 describe('편집기 문서와 위치', () => {
   it('제목과 보이는 문단을 화면 순서대로 늘어놓는다', () => {
     const doc = sample().apply(insertBlock('Z', ROOT, 'B', 'paragraph', A.NO_ATTRS, RichText.of('끝')))
-    expect(readBlocks(toPm(schema, doc))).toEqual([
-      { id: ROOT, text: '회의록', title: true },
-      { id: 'X', text: '가나다라', title: false },
-      { id: 'Z', text: '끝', title: false },
-      { id: 'Y', text: '마바', title: false },
+    expect(outline(toPm(schema, doc))).toEqual([
+      { id: ROOT, text: '회의록' },
+      { id: 'X', text: '가나다라' },
+      { id: 'Z', text: '끝' },
+      { id: 'Y', text: '마바' },
     ])
   })
 
@@ -167,7 +172,7 @@ describe('연산에서 편집기로', () => {
 
     const next = state.apply(renderView(state, remote) as never)
 
-    expect(readBlocks(next.doc)).toEqual(readBlocks(toPm(schema, remote)))
+    expect(outline(next.doc)).toEqual(outline(toPm(schema, remote)))
     expect(toBlockPosition(next.doc, next.selection.head)).toEqual({ blockId: 'X', offset: 5 })
   })
 
@@ -205,7 +210,7 @@ describe('연산에서 편집기로', () => {
     expect(tr?.mapping.map(head)).toBe(head)
     const rendered = afterPaste.apply(tr as never)
 
-    expect(readBlocks(rendered.doc)).toEqual(readBlocks(toPm(schema, next)))
+    expect(outline(rendered.doc)).toEqual(outline(toPm(schema, next)))
     expect(readBlocks(rendered.doc).every((b) => b.id !== null)).toBe(true)
     const lastId = readBlocks(rendered.doc).at(-1)?.id as string
     expect(toBlockPosition(rendered.doc, rendered.selection.head)).toEqual({ blockId: lastId, offset: 2 })

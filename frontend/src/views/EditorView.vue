@@ -8,6 +8,7 @@ import { schemaExtensions } from '../collab/adapter/schema'
 import { CollabClient } from '../collab/client/collabClient'
 import type { SyncStatus } from '../collab/client/collabClient'
 import { FatalConnectionError } from '../collab/transport/connection'
+import EditorToolbar from '../components/EditorToolbar.vue'
 
 const props = defineProps<{ pageId: string }>()
 const router = useRouter()
@@ -38,6 +39,7 @@ const savingSince = ref<number | null>(null)
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
 let binding: EditorBinding | null = null
+const bindingRef = shallowRef<EditorBinding | null>(null)
 let client: CollabClient | null = null
 
 const label = computed(() => {
@@ -83,6 +85,7 @@ onMounted(() => {
     },
   )
   binding = new EditorBinding(instance, client)
+  bindingRef.value = binding
   client.start()
   timer = setInterval(() => (now.value = Date.now()), 500)
 })
@@ -99,5 +102,6 @@ onBeforeUnmount(() => {
 
 <template>
   <p class="status" data-testid="status" :data-status="status">{{ label }}</p>
+  <EditorToolbar v-if="editor && bindingRef" :editor="editor" :binding="bindingRef" />
   <EditorContent :editor="editor" />
 </template>
