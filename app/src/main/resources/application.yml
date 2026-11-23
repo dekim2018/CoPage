@@ -4,3 +4,20 @@ spring:
   threads:
     virtual:
       enabled: true
+
+# 협업 모듈. 한도 기본값은 CollabProperties 에 있다.
+copage:
+  collab:
+    allowed-origins: []
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+copage:
+  collab:
+    # Vite 개발 서버
+    allowed-origins:
+      - http://localhost:5173
