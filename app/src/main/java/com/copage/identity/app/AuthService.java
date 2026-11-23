@@ -112,11 +112,19 @@ public final class AuthService {
         if (refreshToken == null || refreshToken.isEmpty()) {
             throw new AuthException(Kind.INVALID_REFRESH_TOKEN, "Refresh 토큰이 없다");
         }
-        return switch (refreshTokens.use(hash(refreshToken))) {
+        String tokenHash = hash(refreshToken);
+        // 회전하기 전에 사용자를 읽는다. 회전한 뒤에 DB 에서 실패하면 옛 토큰은 쓰였는데 새 토큰은 클라이언트에 닿지 않는다.
+        UUID owner = refreshTokens.owner(tokenHash)
+                .orElseThrow(() -> new AuthException(Kind.INVALID_REFRESH_TOKEN, "Refresh 토큰이 없거나 만료되었다"));
+        Optional<User> user = users.findById(owner);
+        String next = newRefreshToken();
+        return switch (refreshTokens.rotate(tokenHash, hash(next), settings.refreshTokenTtl())) {
             case RefreshTokenStore.Use.Active active -> {
-                User user = users.findById(active.userId())
-                        .orElseThrow(() -> new AuthException(Kind.INVALID_REFRESH_TOKEN, "사용자가 없다"));
-                yield issue(user);
+                if (user.isEmpty()) {
+                    refreshTokens.delete(hash(next));
+                    throw new AuthException(Kind.INVALID_REFRESH_TOKEN, "사용자가 없다");
+                }
+                yield session(user.get(), next);
             }
             case RefreshTokenStore.Use.RecentlyUsed recent ->
                     // 탭 두 개나 재시도가 같은 쿠키로 동시에 왔다. 먼저 온 요청이 새 토큰을 쿠키로 내려 주었으니 이 요청만
@@ -130,6 +138,8 @@ public final class AuthService {
             }
             case RefreshTokenStore.Use.Unknown unknown ->
                     throw new AuthException(Kind.INVALID_REFRESH_TOKEN, "Refresh 토큰이 없거나 만료되었다");
+            case RefreshTokenStore.Use.Late late ->
+                    throw new IllegalStateException("저장소가 기한 지남을 밖으로 돌려주었다");
         };
     }
 
@@ -177,6 +187,18 @@ public final class AuthService {
     }
 
     private Session issue(User user) {
+        String refreshToken = newRefreshToken();
+        refreshTokens.save(hash(refreshToken), user.id(), settings.refreshTokenTtl());
+        return session(user, refreshToken);
+    }
+
+    private String newRefreshToken() {
+        byte[] bytes = new byte[32];
+        random.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private Session session(User user, String refreshToken) {
         Instant now = clock.instant().truncatedTo(ChronoUnit.SECONDS);
         Instant expiresAt = now.plus(settings.accessTokenTtl());
         JwtClaimsSet claims = JwtClaimsSet.builder()
@@ -188,10 +210,6 @@ public final class AuthService {
         String accessToken = jwtEncoder
                 .encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims))
                 .getTokenValue();
-        byte[] bytes = new byte[32];
-        random.nextBytes(bytes);
-        String refreshToken = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        refreshTokens.save(hash(refreshToken), user.id(), settings.refreshTokenTtl());
         return new Session(user, accessToken, expiresAt, refreshToken);
     }
 

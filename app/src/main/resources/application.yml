@@ -9,10 +9,17 @@ spring:
     url: jdbc:postgresql://localhost:${COPAGE_DB_PORT:5432}/copage
     username: copage
     password: copage
+    hikari:
+      # 기본값(30초)이면 DB 가 답하지 않을 때 요청이 30초 매달린다. 짧게 끊고 503 으로 답한다 (docs/07-SECURITY.md 9.7).
+      # Hikari 의 값은 밀리초 숫자다("3s" 를 받지 않는다).
+      connection-timeout: ${COPAGE_DB_CONNECT_TIMEOUT_MS:3000}
   data:
     redis:
       host: localhost
       port: ${COPAGE_REDIS_PORT:6379}
+      # 기본값(60초)이면 Redis 가 답하지 않을 때 요청이 1분 동안 매달린다. 짧게 끊고 503 으로 답한다 (docs/07-SECURITY.md 9.7).
+      timeout: ${COPAGE_REDIS_TIMEOUT:2s}
+      connect-timeout: ${COPAGE_REDIS_CONNECT_TIMEOUT:2s}
   mvc:
     problemdetails:
       enabled: true
