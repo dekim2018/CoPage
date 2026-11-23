@@ -7,8 +7,10 @@ import com.copage.identity.out.RedisLoginAttempts;
 import com.copage.identity.out.RedisRefreshTokenStore;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -53,10 +55,14 @@ public class IdentityConfig {
 
     @Bean
     AuthService authService(
-            JdbcClient jdbcClient, StringRedisTemplate redis, PasswordEncoder passwordEncoder, JwtEncoder jwtEncoder) {
+            JdbcClient jdbcClient,
+            StringRedisTemplate redis,
+            PasswordEncoder passwordEncoder,
+            JwtEncoder jwtEncoder,
+            @Value("${spring.data.redis.timeout:2s}") Duration redisTimeout) {
         return new AuthService(
                 new JdbcUserRepository(jdbcClient),
-                new RedisRefreshTokenStore(redis, properties.refreshReuseGrace()),
+                new RedisRefreshTokenStore(redis, properties.refreshReuseGrace(), redisTimeout, Clock.systemUTC()),
                 new RedisAccessTokenRevocations(redis),
                 new RedisLoginAttempts(
                         redis, properties.loginMaxFailures(), properties.loginWindow(), properties.loginLock()),

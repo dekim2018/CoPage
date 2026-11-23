@@ -121,7 +121,11 @@ class RedisOutageTest {
         String email = "u-" + UUID.randomUUID() + "@example.com";
         assertEquals(201, send("POST", "/api/auth/signup", Map.of("email", email, "password", PASSWORD, "name", "a"))
                 .status());
-        Response session = login(email);
+        // 운영과 같게 재발급 스크립트를 Redis 에 먼저 올려 둔다. 올라가 있지 않으면 정지 중 밀린 재발급이 되살린 뒤 NOSCRIPT 로
+        // 끝나 아무것도 바꾸지 않으므로, 밀린 명령이 나중에 실행되는 경우를 시험하지 못한다.
+        Response first = login(email);
+        Response session = send("POST", "/api/auth/refresh", null, "Cookie", "copage_refresh=" + first.refreshCookie());
+        assertEquals(200, session.status());
         String bearer = "Bearer " + session.body().get("accessToken").stringValue();
         UUID docId = UUID.randomUUID();
         String ticket = send("POST", "/api/docs/" + docId + "/ws-ticket", null, "Authorization", bearer)
@@ -162,7 +166,13 @@ class RedisOutageTest {
         unpause();
 
         assertEquals(200, send("GET", "/api/me", null, "Authorization", bearer).status());
-        assertEquals(200, send("POST", "/api/auth/refresh", null, "Cookie", "copage_refresh=" + session.refreshCookie())
+        // 정지 중 503 을 받은 재발급은 되살린 뒤에도 토큰을 쓰지 않는다. 같은 쿠키로 다시 받을 수 있다. 재발급은 주인을 먼저
+        // 읽으므로(owner) 완전히 멈춘 동안에는 회전 스크립트를 보내지도 않는다. 두 호출 사이에 Redis 가 멈추는 경우는 회전
+        // 스크립트의 기한이 막고, RedisRefreshTokenStoreTest 가 확인한다.
+        Response again = send("POST", "/api/auth/refresh", null, "Cookie", "copage_refresh=" + session.refreshCookie());
+        assertEquals(200, again.status(), String.valueOf(again.body()));
+        // 유예 시간이 지난 뒤에도 재사용으로 몰리지 않는다. 새 쿠키로 계속 쓸 수 있다.
+        assertEquals(200, send("POST", "/api/auth/refresh", null, "Cookie", "copage_refresh=" + again.refreshCookie())
                 .status());
     }
 }

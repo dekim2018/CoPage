@@ -108,6 +108,7 @@ Redis 는 Access 토큰 차단 목록, Refresh 토큰, 로그인 잠금 카운�
 | 이미 열린 편집 연결 | 영향 없음. 편집, ack, remote, presence 는 Redis 를 쓰지 않는다 |
 
 - 401 이 아니라 503 과 `Retry-After: 5` 로 답한다. 클라이언트는 로그인이 끝난 것으로 보지 않는다. 재발급이 5xx 이거나 서버에 닿지 못하면 Access 토큰을 지우지 않고, 원래 요청을 그 오류로 실패시킨다. 편집기는 이를 일시적인 실패로 보고 재접속을 이어 간다
-- 저장소 오류는 토큰 검증(보안 필터) 안에서도 나므로, 보안 필터보다 바깥의 필터가 연결 실패(`DataAccessResourceFailureException`)와 응답 시간 초과(`QueryTimeoutException`)만 503 으로 바꾼다. 그 밖의 데이터 오류는 500 그대로다. PostgreSQL 에 닿지 못할 때도 같은 필터가 503 으로 답한다
-- Redis 명령과 연결의 시간 한도는 2초다(`COPAGE_REDIS_TIMEOUT`, `COPAGE_REDIS_CONNECT_TIMEOUT`). 기본값(60초)이면 Redis 가 답하지 않을 때 요청이 1분 동안 매달린다
+- 저장소 오류는 토큰 검증(보안 필터) 안에서도 나므로, 보안 필터보다 바깥의 필터가 연결 실패(`DataAccessResourceFailureException`)와 응답 시간 초과(`QueryTimeoutException`)만 503 으로 바꾼다. 그 밖의 데이터 오류는 500 그대로다. PostgreSQL 연결 풀이 시간 안에 연결을 내주지 못할 때(`SQLTransientConnectionException`. 트랜잭션 안이면 `CannotCreateTransactionException` 의 원인으로 온다)도 같은 필터가 503 으로 바꾼다. `CannotCreateTransactionException` 자체는 보지 않는다. 중첩 트랜잭션 미지원 같은 프로그램 오류도 그 하위 타입이기 때문이다. 이 경로는 예외 판정 단위 테스트로만 확인했고, PostgreSQL 장애 시험은 4단계(장애와 부하 테스트)에서 한다. 장애 동안 로그는 예외 종류마다 10초에 한 번만 WARNING 이다
+- Redis 명령과 연결의 시간 한도는 2초다(`COPAGE_REDIS_TIMEOUT`, `COPAGE_REDIS_CONNECT_TIMEOUT`). 기본값(60초)이면 Redis 가 답하지 않을 때 요청이 1분 동안 매달린다. PostgreSQL 연결 풀의 대기 한도는 3초다(`COPAGE_DB_CONNECT_TIMEOUT_MS`, 밀리초, 기본값 30초)
+- 시간 초과로 포기한 명령도 Redis 가 돌아오면 처리된다(일시 정지한 Redis 로 확인했다). 대부분은 늦게 처리되어도 괜찮지만(로그아웃, 잠금 카운터, 티켓 소비), Refresh 토큰 회전은 옛 토큰을 써 버리고 새 토큰은 클라이언트에 닿지 않아 세션을 잃게 만든다. 그래서 재발급은 (1) 주인을 먼저 읽고 사용자를 DB 에서 읽은 뒤에 회전하고, (2) 옛 토큰 표시와 새 토큰 저장을 스크립트 하나로 하며, (3) 그 스크립트에 기한(명령 시간 한도의 절반)을 붙여 기한이 지난 뒤의 실행은 아무것도 바꾸지 않게 한다. 기한 지남을 답으로 받으면 시계가 어긋난 것이므로 기한 없이 한 번 더 실행한다
 - 확인: `RedisOutageTest` 가 Redis 컨테이너를 일시 정지해(연결은 받되 답하지 않는 가장 나쁜 경우) 위 표를 실제 서버로 확인하고, 되살린 뒤 다시 되는지 본다
