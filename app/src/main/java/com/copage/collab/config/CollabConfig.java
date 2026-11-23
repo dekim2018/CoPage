@@ -121,6 +121,7 @@ public class CollabConfig {
                 new CollabWebSocketHandler.Limits(
                         properties.maxMessageBytes(),
                         properties.maxChangesPerSecond(),
+                        properties.maxPresencePerSecond(),
                         properties.idleTimeout(),
                         properties.sendTimeLimit(),
                         properties.sendBufferBytes()),
