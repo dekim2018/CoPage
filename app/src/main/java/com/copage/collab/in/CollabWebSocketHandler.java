@@ -114,7 +114,7 @@ public final class CollabWebSocketHandler extends TextWebSocketHandler {
                     throw new ProtocolException("hello 는 한 번만 보낸다");
                 }
                 state.joined = true;
-                sessions.join(state.docId, state.connection, hello, state.ticket.role());
+                sessions.join(state.docId, state.connection, hello, state.ticket.role(), state.ticket.name());
             }
             case ClientMessage.Change change -> {
                 if (!state.joined) {
@@ -124,7 +124,10 @@ public final class CollabWebSocketHandler extends TextWebSocketHandler {
                 sessions.submit(state.docId, state.connection, change);
             }
             case ClientMessage.Presence presence -> {
-                // 프레즌스는 아직 구현하지 않았다. 받기만 하고 버린다.
+                if (!state.joined) {
+                    throw new ProtocolException("hello 보다 presence 가 먼저 왔다");
+                }
+                sessions.presence(state.docId, state.connection, presence.cursor());
             }
             case ClientMessage.Ping ping -> {
                 // lastReceived 를 갱신한 것으로 충분하다.

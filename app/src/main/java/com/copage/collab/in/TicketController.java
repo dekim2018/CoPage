@@ -1,6 +1,7 @@
 package com.copage.collab.in;
 
 import com.copage.collab.app.TicketService;
+import com.copage.collab.app.UserNames;
 import com.copage.collab.domain.PageRole;
 import java.util.Map;
 import java.util.UUID;
@@ -19,15 +20,17 @@ import org.springframework.web.bind.annotation.RestController;
 class TicketController {
 
     private final TicketService tickets;
+    private final UserNames names;
 
-    TicketController(TicketService tickets) {
+    TicketController(TicketService tickets, UserNames names) {
         this.tickets = tickets;
+        this.names = names;
     }
 
     @PostMapping("/api/docs/{docId}/ws-ticket")
     Map<String, Object> issue(@PathVariable UUID docId, @AuthenticationPrincipal Jwt jwt) {
         UUID userId = UUID.fromString(jwt.getSubject());
         PageRole role = PageRole.EDIT;
-        return Map.of("ticket", tickets.issue(userId, docId, role), "role", role);
+        return Map.of("ticket", tickets.issue(userId, docId, role, names.nameOf(userId)), "role", role);
     }
 }

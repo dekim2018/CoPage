@@ -8,7 +8,8 @@ const PASSWORD = 'correct horse 1'
 export async function newUser(browser: Browser, name: string): Promise<Page> {
   const page = await (await browser.newContext()).newPage()
   await page.goto('/signup')
-  await page.fill('input[name=email]', `${name}-${crypto.randomUUID()}@example.com`)
+  // 이름은 한글일 수 있어서 이메일에는 쓰지 않는다.
+  await page.fill('input[name=email]', `user-${crypto.randomUUID()}@example.com`)
   await page.fill('input[name=password]', PASSWORD)
   await page.fill('input[name=name]', name)
   await page.click('button[type=submit]')

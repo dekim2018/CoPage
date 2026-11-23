@@ -6,9 +6,12 @@ import com.copage.collab.app.DocumentSessions;
 import com.copage.collab.app.DocumentStore;
 import com.copage.collab.app.TicketService;
 import com.copage.collab.app.TicketStore;
+import com.copage.collab.app.UserNames;
 import com.copage.collab.in.CollabWebSocketHandler;
 import com.copage.collab.in.ProtocolCodec;
 import com.copage.collab.out.JdbcDocumentStore;
+import com.copage.identity.app.AuthException;
+import com.copage.identity.app.AuthService;
 import com.copage.collab.out.RedisTicketStore;
 import java.time.Clock;
 import java.util.concurrent.ExecutorService;
@@ -60,6 +63,21 @@ public class CollabConfig {
     @Bean
     TicketStore ticketStore(StringRedisTemplate redis) {
         return new RedisTicketStore(redis);
+    }
+
+    /**
+     * 협업 모듈이 사용자 이름을 물을 때 계정 모듈에 넘긴다. 모듈끼리는 이 설정에서만 이어진다. 사용자를 못 찾으면(지워졌거나
+     * 테스트가 바로 만든 티켓) 이름 없음으로 둔다.
+     */
+    @Bean
+    UserNames userNames(AuthService authService) {
+        return userId -> {
+            try {
+                return authService.me(userId).name();
+            } catch (AuthException e) {
+                return "이름 없음";
+            }
+        };
     }
 
     @Bean

@@ -2,7 +2,9 @@ package com.copage.collab.app;
 
 import com.copage.collab.domain.ClientMessage.Change;
 import com.copage.collab.domain.ClientMessage.Hello;
+import com.copage.collab.domain.Cursor;
 import com.copage.collab.domain.PageRole;
+import com.copage.collab.domain.Peer;
 import com.copage.collab.domain.ServerMessage;
 import com.copage.collab.domain.StoredChange;
 import com.copage.ot.model.Document;
@@ -32,6 +34,9 @@ import java.util.concurrent.RejectedExecutionException;
  * 커밋하고, 커밋이 끝난 뒤에야 ack 와 remote 를 보낸다 (docs/06-DATA-MODEL.md 8.2, ADR 0005). 한가할 때는 묶음 하나가 바로
  * 커밋되고, 바쁠 때는 저절로 여러 개가 함께 커밋된다.
  *
+ * <p>프레즌스(커서와 입장, 퇴장)는 저장하지 않는다. 연결마다 마지막 커서 하나만 기억해 다른 연결에 그대로 넘기고, 새로 들어온
+ * 연결에는 welcome 의 peers 로 알려 준다 (docs/05-PROTOCOL.md 7.6).
+ *
  * <p>마지막 스냅샷 이후 확정된 묶음이 {@link Settings#snapshotInterval()} 개 쌓이면, 그리고 세션을 내릴 때 스냅샷을 남긴다.
  * 문서는 바뀌지 않는 값이라 그대로 넘겨 별도 스레드에서 저장하고, 편집 처리는 기다리지 않는다 (docs/06-DATA-MODEL.md
  * 8.3). 스냅샷 저장이 실패해도 연산 로그가 원본이라 잃는 것은 없다.
@@ -55,7 +60,35 @@ public final class DocumentSession {
         void schedule(Runnable task, Duration delay);
     }
 
-    private record Member(Connection connection, String clientId, PageRole role) {
+    private static final class Member {
+        final Connection connection;
+        final String clientId;
+        final PageRole role;
+        final String name;
+        Cursor cursor;
+
+        Member(Connection connection, String clientId, PageRole role, String name) {
+            this.connection = connection;
+            this.clientId = clientId;
+            this.role = role;
+            this.name = name;
+        }
+
+        Connection connection() {
+            return connection;
+        }
+
+        String clientId() {
+            return clientId;
+        }
+
+        PageRole role() {
+            return role;
+        }
+
+        Peer peer() {
+            return new Peer(clientId, connection.userId(), name, Peer.colorOf(connection.userId()), cursor);
+        }
     }
 
     private record Pending(Connection connection, Change change) {
@@ -108,8 +141,9 @@ public final class DocumentSession {
      * 연결을 세션에 넣고 welcome 을 보낸다. 세션이 이미 내려갔으면 retry 를 불러 새 세션으로 다시 시도하게 한다.
      *
      * @param role 티켓에 담긴 권한. 문서당 연결 한도를 넘으면 읽기로 낮춘다
+     * @param name 접속자 목록과 남의 커서에 보일 이름
      */
-    public void join(Connection connection, Hello hello, PageRole role, Runnable retry) {
+    public void join(Connection connection, Hello hello, PageRole role, String name, Runnable retry) {
         executor.execute(() -> {
             if (closed) {
                 retry.run();
@@ -117,7 +151,7 @@ public final class DocumentSession {
             }
             try {
                 ensureLoaded();
-                doJoin(connection, hello, role);
+                doJoin(connection, hello, role, name);
             } catch (RuntimeException e) {
                 LOG.log(System.Logger.Level.ERROR, "문서 " + docId + " 에 연결을 넣지 못했다", e);
                 connection.close(1011, "서버 오류");
@@ -144,13 +178,35 @@ public final class DocumentSession {
         });
     }
 
-    /** 연결이 끊겼다. 마지막 연결이었으면 일정 시간 뒤 세션을 내린다. */
+    /** 커서가 움직였다. 기억해 두고 다른 연결에 넘긴다. 읽기 권한도 보낼 수 있다 (docs/07-SECURITY.md 9.5). */
+    public void presence(Connection connection, Cursor cursor) {
+        executor.execute(() -> {
+            Member member = members.get(connection.id());
+            if (closed || member == null) {
+                return;
+            }
+            member.cursor = cursor;
+            tellOthers(member, new ServerMessage.Presence(member.peer(), false));
+        });
+    }
+
+    /** 연결이 끊겼다. 다른 연결에 퇴장을 알린다. 마지막 연결이었으면 일정 시간 뒤 세션을 내린다. */
     public void leave(Connection connection) {
         executor.execute(() -> {
-            if (members.remove(connection.id()) != null) {
+            Member member = members.remove(connection.id());
+            if (member != null) {
+                tellOthers(member, new ServerMessage.Presence(member.peer(), true));
                 scheduleUnloadIfEmpty();
             }
         });
+    }
+
+    private void tellOthers(Member from, ServerMessage message) {
+        for (Member member : members.values()) {
+            if (member != from) {
+                member.connection().send(message);
+            }
+        }
     }
 
     private void scheduleUnloadIfEmpty() {
@@ -168,7 +224,7 @@ public final class DocumentSession {
         }
     }
 
-    private void doJoin(Connection connection, Hello hello, PageRole role) {
+    private void doJoin(Connection connection, Hello hello, PageRole role, String name) {
         long rev = server.rev();
         if (hello.lastRev() < 0 || (hello.resume() && hello.lastRev() > rev)) {
             connection.close(CloseCodes.PROTOCOL, "lastRev " + hello.lastRev() + " 은 이 문서에 없는 리비전이다");
@@ -177,9 +233,13 @@ public final class DocumentSession {
         if (members.size() >= settings.maxConnections()) {
             role = role.cap(PageRole.VIEW);
         }
-        members.put(connection.id(), new Member(connection, hello.clientId(), role));
+        List<Peer> peers = members.values().stream().map(Member::peer).toList();
+        Member member = new Member(connection, hello.clientId(), role, name);
+        members.put(connection.id(), member);
         idleSince = null;
-        connection.send(welcome(hello, role));
+        connection.send(welcome(hello, role, peers));
+        // 입장을 알린다. 아직 커서는 없다.
+        tellOthers(member, new ServerMessage.Presence(member.peer(), false));
     }
 
     /**
@@ -187,20 +247,20 @@ public final class DocumentSession {
      * 놓친 첫 묶음이 너무 오래전에 확정되었으면(그 뒤로 한 번도 확인하지 못했다는 뜻이다) 전체 문서와 rebase=false 를 보낸다
      * (7.5).
      */
-    private ServerMessage.Welcome welcome(Hello hello, PageRole role) {
+    private ServerMessage.Welcome welcome(Hello hello, PageRole role, List<Peer> peers) {
         long rev = server.rev();
         long lastRev = hello.lastRev();
         if (!hello.resume()) {
-            return new ServerMessage.Welcome(rev, role, true, server.document(), null);
+            return new ServerMessage.Welcome(rev, role, true, server.document(), null, peers);
         }
         if (rev - lastRev > settings.rebaseMaxGap()) {
-            return new ServerMessage.Welcome(rev, role, false, server.document(), null);
+            return new ServerMessage.Welcome(rev, role, false, server.document(), null, peers);
         }
         List<StoredChange> missed = store.changesSince(docId, lastRev);
         if (!missed.isEmpty() && missed.get(0).committedAt().plus(settings.rebaseMaxAge()).isBefore(clock.instant())) {
-            return new ServerMessage.Welcome(rev, role, false, server.document(), null);
+            return new ServerMessage.Welcome(rev, role, false, server.document(), null, peers);
         }
-        return new ServerMessage.Welcome(rev, role, true, null, missed);
+        return new ServerMessage.Welcome(rev, role, true, null, missed, peers);
     }
 
     /** 모인 묶음을 처리하고 한 번에 커밋한 뒤 결과를 보낸다. */

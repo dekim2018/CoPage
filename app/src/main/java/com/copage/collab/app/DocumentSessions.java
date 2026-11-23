@@ -2,6 +2,7 @@ package com.copage.collab.app;
 
 import com.copage.collab.domain.ClientMessage.Change;
 import com.copage.collab.domain.ClientMessage.Hello;
+import com.copage.collab.domain.Cursor;
 import com.copage.collab.domain.PageRole;
 import java.time.Clock;
 import java.util.Map;
@@ -39,10 +40,17 @@ public final class DocumentSessions {
     }
 
     /** hello 를 받은 연결을 문서 세션에 넣는다. welcome 은 세션이 보낸다. */
-    public void join(UUID docId, Connection connection, Hello hello, PageRole role) {
+    public void join(UUID docId, Connection connection, Hello hello, PageRole role, String name) {
         DocumentSession session = sessions.computeIfAbsent(docId, this::create);
         // 세션이 막 내려가는 중이었으면 새 세션으로 다시 시도한다.
-        session.join(connection, hello, role, () -> join(docId, connection, hello, role));
+        session.join(connection, hello, role, name, () -> join(docId, connection, hello, role, name));
+    }
+
+    public void presence(UUID docId, Connection connection, Cursor cursor) {
+        DocumentSession session = sessions.get(docId);
+        if (session != null) {
+            session.presence(connection, cursor);
+        }
     }
 
     public void submit(UUID docId, Connection connection, Change change) {

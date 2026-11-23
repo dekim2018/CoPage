@@ -7,6 +7,8 @@ import { EditorBinding, keyboardExtension } from '../collab/adapter/editorBindin
 import { schemaExtensions } from '../collab/adapter/schema'
 import { CollabClient } from '../collab/client/collabClient'
 import type { SyncStatus } from '../collab/client/collabClient'
+import type { Peer } from '../collab/client/presence'
+import { RemoteCursors } from '../collab/adapter/remoteCursors'
 import { FatalConnectionError } from '../collab/transport/connection'
 import EditorToolbar from '../components/EditorToolbar.vue'
 
@@ -34,6 +36,7 @@ async function ticket(): Promise<string> {
 const editor = shallowRef<Editor | undefined>(undefined)
 const status = ref<SyncStatus>('connecting')
 const detail = ref('')
+const peers = shallowRef<readonly Peer[]>([])
 // "저장 중" 은 2초 넘게 이어질 때만 보여 준다 (docs/10-FRONTEND.md 12.5).
 const savingSince = ref<number | null>(null)
 const now = ref(Date.now())
@@ -60,7 +63,7 @@ const label = computed(() => {
 
 onMounted(() => {
   const instance = new Editor({
-    extensions: [...schemaExtensions, keyboardExtension(() => binding)],
+    extensions: [...schemaExtensions, RemoteCursors, keyboardExtension(() => binding)],
     editable: false,
   })
   editor.value = instance
@@ -71,6 +74,10 @@ onMounted(() => {
       onRemote: () => {
         instance.setEditable(true)
         binding?.render()
+      },
+      onPeers: (next) => {
+        peers.value = next
+        binding?.setPeers(next)
       },
       onStatus: (next, why) => {
         if (next === 'saving' && status.value !== 'saving') {
@@ -101,7 +108,14 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <p class="status" data-testid="status" :data-status="status">{{ label }}</p>
+  <div class="editor-head">
+    <p class="status" data-testid="status" :data-status="status">{{ label }}</p>
+    <ul class="peers" data-testid="peers">
+      <li v-for="peer in peers" :key="peer.clientId" :style="{ backgroundColor: peer.color }" :title="peer.name">
+        {{ peer.name }}
+      </li>
+    </ul>
+  </div>
   <EditorToolbar v-if="editor && bindingRef" :editor="editor" :binding="bindingRef" />
   <EditorContent :editor="editor" />
 </template>

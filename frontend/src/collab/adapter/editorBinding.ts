@@ -6,6 +6,8 @@ import type { Document } from '../ot/document'
 import type { Op } from '../ot/op'
 import { PROP_DEFAULTS, SYNCED_PROPS, nodeName } from './blocks'
 import type { BlockType } from './blocks'
+import type { Cursor, Peer } from '../client/presence'
+import { remoteCursorsKey } from './remoteCursors'
 import {
   REMOTE,
   indent,
@@ -28,6 +30,8 @@ export interface CollabTarget {
   edit(ops: readonly Op[]): void
   hold(): void
   release(): void
+  /** 내 커서를 알린다. null 이면 편집기를 떠났다. */
+  sendPresence(cursor: Cursor | null): void
 }
 
 /**
@@ -45,6 +49,7 @@ export class EditorBinding {
   private composing = false
   private dirty = false
   private readonly collapsed = new Set<string>()
+  private pendingPeers: readonly Peer[] | null = null
 
   constructor(
     private readonly editor: Editor,
@@ -55,6 +60,9 @@ export class EditorBinding {
     dom.addEventListener('compositionstart', this.compositionStart)
     dom.addEventListener('compositionend', this.compositionEnd)
     dom.addEventListener(TOGGLE_EVENT, this.onToggle)
+    editor.on('selectionUpdate', this.onSelection)
+    editor.on('focus', this.onSelection)
+    editor.on('blur', this.onBlur)
   }
 
   destroy(): void {
@@ -62,6 +70,30 @@ export class EditorBinding {
     dom.removeEventListener('compositionstart', this.compositionStart)
     dom.removeEventListener('compositionend', this.compositionEnd)
     dom.removeEventListener(TOGGLE_EVENT, this.onToggle)
+    this.editor.off('selectionUpdate', this.onSelection)
+    this.editor.off('focus', this.onSelection)
+    this.editor.off('blur', this.onBlur)
+  }
+
+  /** 남의 커서를 그린다. 한글 조합 중에는 편집기를 건드리지 않고 조합이 끝난 뒤 그린다. */
+  setPeers(peers: readonly Peer[]): void {
+    if (this.composing || this.editor.view.composing) {
+      this.pendingPeers = peers
+      return
+    }
+    this.pendingPeers = null
+    this.editor.view.dispatch(this.editor.state.tr.setMeta(remoteCursorsKey, peers).setMeta(REMOTE, true))
+  }
+
+  private readonly onSelection = (): void => {
+    const { selection, doc } = this.editor.state
+    const anchor = toBlockPosition(doc, selection.anchor)
+    const head = toBlockPosition(doc, selection.head)
+    this.target.sendPresence(anchor === null || head === null ? null : { anchor, head })
+  }
+
+  private readonly onBlur = (): void => {
+    this.target.sendPresence(null)
   }
 
   private display(): Display {
@@ -282,6 +314,9 @@ export class EditorBinding {
       this.target.release()
       if (this.dirty) {
         this.render()
+      }
+      if (this.pendingPeers !== null) {
+        this.setPeers(this.pendingPeers)
       }
     }, 0)
   }
