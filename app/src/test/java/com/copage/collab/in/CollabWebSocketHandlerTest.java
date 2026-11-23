@@ -58,7 +58,8 @@ class CollabWebSocketHandlerTest {
             Runnable::run,
             Runnable::run,
             (task, delay) -> { },
-            clock);
+            clock,
+            (docId, title, rev) -> { });
 
     private final CollabWebSocketHandler handler = new CollabWebSocketHandler(
             sessions,

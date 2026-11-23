@@ -17,6 +17,7 @@ import com.copage.identity.app.AuthService;
 import com.copage.permission.app.PagePermissions.Access;
 import com.copage.permission.app.PagePermissions;
 import com.copage.permission.app.PermissionChangeListener;
+import com.copage.workspace.app.WorkspaceService;
 import java.time.Clock;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -111,7 +112,8 @@ public class CollabConfig {
             DocumentStore documentStore,
             ExecutorService collabExecutor,
             ScheduledExecutorService collabScheduler,
-            Clock collabClock) {
+            Clock collabClock,
+            WorkspaceService workspaceService) {
         DocumentSession.Settings settings = new DocumentSession.Settings(
                 properties.maxConnectionsPerDocument(),
                 properties.rebaseMaxGap(),
@@ -126,7 +128,9 @@ public class CollabConfig {
                 collabExecutor,
                 collabExecutor,
                 (task, delay) -> collabScheduler.schedule(task, delay.toMillis(), TimeUnit.MILLISECONDS),
-                collabClock);
+                collabClock,
+                // 문서 제목은 페이지 목록과 경로가 보인다. 저장은 workspace 모듈이 한다 (D-21).
+                workspaceService::updateTitle);
     }
 
     @Bean

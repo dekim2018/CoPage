@@ -170,6 +170,17 @@ class JdbcWorkspaceRepositoryTest {
     }
 
     @Test
+    void 제목은_더_큰_리비전으로만_바뀐다() {
+        Page page = create(null, null);
+
+        assertTrue(repository.updateTitle(page.id(), "둘째", 5));
+        assertFalse(repository.updateTitle(page.id(), "첫째", 3), "늦게 도착한 낡은 제목");
+        assertFalse(repository.updateTitle(page.id(), "둘째 다시", 5), "같은 리비전");
+        assertEquals("둘째", repository.findPage(workspace.id(), page.id()).orElseThrow().title());
+        assertTrue(repository.updateTitle(page.id(), "셋째", 6));
+    }
+
+    @Test
     void 부모로_찾는_인덱스가_있다() {
         // 페이지를 지울 때의 외래 키 검사가 parent_id 만으로 찾는다. 없으면 테이블 전체를 훑는다(5만 행에서 지울 때마다 2.9ms).
         String definition = jdbc.sql("SELECT indexdef FROM pg_indexes WHERE tablename = 'pages' AND indexname = 'pages_parent'")

@@ -156,6 +156,26 @@ public final class WorkspaceService {
         }
     }
 
+    /** 목록에 보일 제목의 최대 길이(UTF-16 코드 단위). 루트 블록 글이 더 길면 자른다. */
+    static final int MAX_TITLE_LENGTH = 200;
+
+    /**
+     * 문서 세션이 루트 블록의 글을 알린다 (D-21). 권한 검사 없이 서버 안에서만 부른다. 페이지가 없는 문서면 아무것도 하지 않는다.
+     * 늦게 도착한 알림이 새 제목을 덮지 않도록 rev 가 더 클 때만 바꾼다.
+     */
+    public void updateTitle(UUID pageId, String title, long rev) {
+        String trimmed = title.strip();
+        if (trimmed.length() > MAX_TITLE_LENGTH) {
+            int end = MAX_TITLE_LENGTH;
+            // 서로게이트 쌍의 가운데를 자르지 않는다.
+            if (Character.isHighSurrogate(trimmed.charAt(end - 1))) {
+                end--;
+            }
+            trimmed = trimmed.substring(0, end);
+        }
+        repository.updateTitle(pageId, trimmed, rev);
+    }
+
     /** parentId 의 한 단계 하위 페이지. parentId 가 null 이면 최상위. GUEST 는 지금 빈 목록이다. */
     public List<ChildView> children(UUID userId, UUID workspaceId, UUID parentId) {
         roleOf(workspaceId, userId);

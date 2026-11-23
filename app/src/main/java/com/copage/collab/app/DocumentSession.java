@@ -119,6 +119,9 @@ public final class DocumentSession {
     private final Scheduler scheduler;
     private final Clock clock;
     private final Unloader unloader;
+    private final TitleSink titles;
+    /** 마지막으로 알린 제목. 같은 제목을 다시 쓰지 않는다. */
+    private String lastTitle;
 
     private ServerDocument server;
     private long lastSnapshotRev;
@@ -141,8 +144,10 @@ public final class DocumentSession {
             Executor background,
             Scheduler scheduler,
             Clock clock,
+            TitleSink titles,
             Unloader unloader) {
         this.docId = docId;
+        this.titles = titles;
         this.store = store;
         this.policy = policy;
         this.settings = settings;
@@ -316,6 +321,8 @@ public final class DocumentSession {
             DocumentStore.Snapshot snapshot = store.load(docId);
             server = new ServerDocument(snapshot.document(), snapshot.rev(), settings.historyWindow());
             lastSnapshotRev = snapshot.snapshotRev();
+            // 제목을 동기화하기 전에 만든 페이지도 처음 열릴 때 채워진다. 받는 쪽은 리비전이 같으면 바꾸지 않는다.
+            publishTitle(true);
         }
     }
 
@@ -386,6 +393,7 @@ public final class DocumentSession {
             if (server.rev() - lastSnapshotRev >= settings.snapshotInterval()) {
                 saveSnapshot();
             }
+            publishTitle(false);
         }
         replies.forEach(Runnable::run);
     }
@@ -460,6 +468,32 @@ public final class DocumentSession {
             saveSnapshot();
         }
         unloader.unloaded(this);
+    }
+
+    /**
+     * 루트 블록의 글이 바뀌었으면 background 에서 알린다 (D-21). 커밋한 뒤에만 부른다. 실패해도 편집에는 영향이 없다. 다음에
+     * 제목이 바뀌거나 세션이 다시 올라올 때 다시 쓴다.
+     *
+     * @param always 바뀌지 않았어도 알린다. 세션을 올릴 때 쓴다
+     */
+    private void publishTitle(boolean always) {
+        String title = server.document().get(server.document().rootId()).text().plainText();
+        if (!always && title.equals(lastTitle)) {
+            return;
+        }
+        lastTitle = title;
+        long rev = server.rev();
+        try {
+            background.execute(() -> {
+                try {
+                    titles.update(docId, title, rev);
+                } catch (RuntimeException e) {
+                    LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 제목을 쓰지 못했다", e);
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            LOG.log(System.Logger.Level.WARNING, "실행기가 닫혀 문서 " + docId + " 의 제목을 쓰지 못했다", e);
+        }
     }
 
     /** 지금 문서를 별도 스레드에서 스냅샷으로 남긴다. */
