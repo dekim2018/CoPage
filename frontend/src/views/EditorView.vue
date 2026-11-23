@@ -13,9 +13,17 @@ import type { PageRole } from '../collab/client/role'
 import { RemoteCursors } from '../collab/adapter/remoteCursors'
 import { FatalConnectionError } from '../collab/transport/connection'
 import EditorToolbar from '../components/EditorToolbar.vue'
+import ShareDialog from '../components/ShareDialog.vue'
+import { workspaceApi } from '../api/workspace'
+import type { PageDetail } from '../api/workspace'
+import { useWorkspace } from '../stores/workspace'
 
-const props = defineProps<{ pageId: string }>()
+const props = defineProps<{ workspaceId: string; pageId: string }>()
 const router = useRouter()
+const workspace = useWorkspace()
+// 경로(볼 수 있는 조상)와 제한 여부. 연결과 따로 읽는다. 읽지 못해도 편집은 된다.
+const pageInfo = ref<PageDetail | null>(null)
+const sharing = ref(false)
 
 /**
  * 연결할 때마다 티켓을 받는다. 401(로그인이 끝남), 403(접근 권한 없음), 404 는 다시 시도해도 소용없으니 재접속을 멈춘다. 401 이면
@@ -27,7 +35,7 @@ async function ticket(): Promise<string> {
   } catch (e) {
     if (e instanceof ApiError && [401, 403, 404].includes(e.status)) {
       if (e.status === 401) {
-        void router.push({ path: '/login', query: { next: `/p/${props.pageId}` } })
+        void router.push({ path: '/login', query: { next: `/w/${props.workspaceId}/p/${props.pageId}` } })
       }
       throw new FatalConnectionError(`${e.status} ${e.detail}`)
     }
@@ -71,6 +79,14 @@ onMounted(() => {
     editable: false,
   })
   editor.value = instance
+  // 제목 줄을 고치면 사이드바에도 바로 보인다. 서버는 커밋 뒤 따로 저장한다(D-21).
+  instance.on('update', () => {
+    workspace.setTitle(props.pageId, instance.state.doc.firstChild?.textContent.trim() ?? '')
+  })
+  workspaceApi.page(props.pageId).then(
+    (page) => (pageInfo.value = page),
+    () => (pageInfo.value = null),
+  )
   client = new CollabClient(
     props.pageId,
     ticket,
@@ -116,15 +132,29 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <nav v-if="pageInfo && pageInfo.path.length > 0" class="crumbs" data-testid="crumbs">
+    <template v-for="ancestor in pageInfo.path" :key="ancestor.id">
+      <RouterLink :to="`/w/${workspaceId}/p/${ancestor.id}`">{{ ancestor.title || '제목 없음' }}</RouterLink>
+      <span> / </span>
+    </template>
+  </nav>
   <div class="editor-head">
     <p class="status" data-testid="status" :data-status="status">{{ label }}</p>
     <p v-if="role !== null && !canEdit(role)" class="readonly" data-testid="readonly">읽기 전용</p>
+    <button v-if="role === 'FULL'" type="button" class="share-button" @click="sharing = !sharing">공유</button>
     <ul class="peers" data-testid="peers">
       <li v-for="peer in peers" :key="peer.clientId" :style="{ backgroundColor: peer.color }" :title="peer.name">
         {{ peer.name }}
       </li>
     </ul>
   </div>
+  <ShareDialog
+    v-if="sharing && pageInfo"
+    :page-id="pageId"
+    :restricted="pageInfo.restricted"
+    @close="sharing = false"
+    @restricted-changed="(value) => pageInfo && (pageInfo.restricted = value)"
+  />
   <EditorToolbar v-if="editor && bindingRef && canEdit(role)" :editor="editor" :binding="bindingRef" />
   <EditorContent :editor="editor" />
 </template>

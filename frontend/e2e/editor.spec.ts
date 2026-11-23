@@ -119,35 +119,87 @@ test('새로고침해도 로그인과 내용이 남는다', async ({ browser }) 
   expect(await blocks(a)).toEqual(['남는 제목', '남는 본문'])
 })
 
-test('홈의 새 문서는 페이지를 만들어 열고, 권한이 없는 페이지는 열지 못한다', async ({ browser }) => {
+test('워크스페이스를 만들고 사이드바에서 페이지를 만들면 제목이 트리에 보이고, 남은 그 페이지를 열지 못한다', async ({ browser }) => {
   const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
-  await a.getByRole('button', { name: '새 문서' }).click()
-  await a.waitForURL(/\/p\/[0-9a-f-]{36}$/)
+  await a.fill('input[name=workspace-name]', '우리 팀')
+  await a.getByRole('button', { name: '워크스페이스 만들기' }).click()
+  await a.waitForURL(/\/w\/[0-9a-f-]{36}$/)
+  await a.getByRole('button', { name: '새 페이지' }).click()
+  await a.waitForURL(/\/w\/[0-9a-f-]{36}\/p\/[0-9a-f-]{36}$/)
   await expect(a.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+  await caretAtEnd(a, 0)
+  await a.keyboard.type('회의록')
+  await expect(a.getByTestId('tree-item').first()).toContainText('회의록')
+
+  // 하위 페이지를 만들면 부모가 펼쳐지고 경로에 부모가 보인다.
+  await a.getByTestId('tree-item').first().getByTitle('하위 페이지 만들기').click()
+  await expect(a.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+  await expect(a.getByTestId('crumbs')).toContainText('회의록')
   const pageId = a.url().split('/p/')[1]
 
-  // b 는 그 워크스페이스에 속하지 않는다. 재접속을 이어 가지 않고 멈춘다.
+  // b 는 그 워크스페이스에 속하지 않는다.
   await b.goto(`/p/${pageId}`)
-  await expect(b.getByTestId('status')).toHaveAttribute('data-status', 'error')
-  await expect(b.getByTestId('status')).toContainText('404')
+  await expect(b.getByTestId('page-error')).toContainText('404')
 })
 
-test('남의 워크스페이스에 게스트로만 있어도 새 문서는 내 워크스페이스에 만든다', async ({ browser }) => {
+test('남의 워크스페이스에 게스트로만 있으면 첫 화면에서 내 워크스페이스를 만든다', async ({ browser }) => {
   const [owner, guest] = await Promise.all([newUser(browser, 'owner'), newUser(browser, 'guest')])
   const theirs = await newWorkspaceWith(owner, guest, 'GUEST')
 
-  await guest.reload()
-  await guest.getByRole('button', { name: '새 문서' }).click()
-  await guest.waitForURL(/\/p\/[0-9a-f-]{36}$/)
-  await expect(guest.getByTestId('status')).toHaveAttribute('data-status', 'saved')
-  const workspaceId = await guest.evaluate(async (pageId) => {
+  await guest.goto('/')
+  await expect(guest.getByRole('link', { name: '남의 팀' })).toBeVisible()
+  await guest.fill('input[name=workspace-name]', '내 팀')
+  await guest.getByRole('button', { name: '워크스페이스 만들기' }).click()
+  await guest.waitForURL(/\/w\/[0-9a-f-]{36}$/)
+  expect(guest.url()).not.toContain(theirs)
+  await expect(guest.getByRole('button', { name: '새 페이지' })).toBeVisible()
+})
+
+test('공유 창으로 권한을 주고 내리면 상대 편집기에 1초 안에 적용된다', async ({ browser }) => {
+  const [owner, guest] = await Promise.all([newUser(browser, 'owner'), newUser(browser, 'guest')])
+  const pageId = await sharedPage(owner)
+  const guestEmail = await guest.evaluate(async () => {
     const { accessToken } = (await (await fetch('/api/auth/refresh', { method: 'POST' })).json()) as {
       accessToken: string
     }
-    const page = await fetch(`/api/pages/${pageId}`, { headers: { Authorization: `Bearer ${accessToken}` } })
-    return ((await page.json()) as { workspaceId: string }).workspaceId
-  }, guest.url().split('/p/')[1])
-  expect(workspaceId).not.toBe(theirs)
+    const me = await fetch('/api/me', { headers: { Authorization: `Bearer ${accessToken}` } })
+    return ((await me.json()) as { email: string }).email
+  })
+  await open(owner, pageId)
+  await owner.getByRole('button', { name: '공유' }).click()
+  const dialog = owner.getByTestId('share-dialog')
+  await dialog.locator('input[name=share-email]').fill(guestEmail)
+  await dialog.getByLabel('공유 등급').selectOption('EDIT')
+  await dialog.getByRole('button', { name: '공유', exact: true }).click()
+  await expect(dialog.locator(`li[data-email="${guestEmail}"]`)).toBeVisible()
+
+  await open(guest, pageId)
+  await dialog.locator(`li[data-email="${guestEmail}"]`).getByLabel('등급').selectOption('VIEW')
+  await expect(guest.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'false', { timeout: 1_000 })
+
+  await dialog.locator(`li[data-email="${guestEmail}"]`).getByRole('button', { name: '회수' }).click()
+  await expect(guest.getByTestId('status')).toHaveAttribute('data-status', 'error', { timeout: 1_000 })
+})
+
+test('OWNER 가 멤버 화면에서 사용자를 넣으면 그 사용자의 사이드바에 페이지가 보인다', async ({ browser }) => {
+  const [owner, member] = await Promise.all([newUser(browser, 'owner'), newUser(browser, 'member')])
+  const pageId = await sharedPage(owner)
+  const memberEmail = await member.evaluate(async () => {
+    const { accessToken } = (await (await fetch('/api/auth/refresh', { method: 'POST' })).json()) as {
+      accessToken: string
+    }
+    const me = await fetch('/api/me', { headers: { Authorization: `Bearer ${accessToken}` } })
+    return ((await me.json()) as { email: string }).email
+  })
+  await open(owner, pageId)
+  await owner.getByRole('link', { name: '멤버' }).click()
+  await owner.fill('input[name=member-email]', memberEmail)
+  await owner.getByRole('button', { name: '넣기' }).click()
+  await expect(owner.getByTestId('members').locator(`tr[data-email="${memberEmail}"]`)).toBeVisible()
+
+  await member.goto('/')
+  await member.waitForURL(/\/w\/[0-9a-f-]{36}$/)
+  await expect(member.locator(`[data-testid=tree-item][data-page-id="${pageId}"]`)).toBeVisible()
 })
 
 test('권한이 내려가면 열린 편집기가 1초 안에 읽기 전용이 되고, 회수하면 닫힌다', async ({ browser }) => {

@@ -25,7 +25,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public final class JdbcWorkspaceRepository implements WorkspaceRepository {
 
     private static final String PAGE_COLUMNS =
-            "p.id, p.workspace_id, p.parent_id, p.pos, p.title, p.created_by, p.created_at";
+            "p.id, p.workspace_id, p.parent_id, p.pos, p.title, p.restricted, p.created_by, p.created_at";
 
     private final JdbcClient jdbc;
     private final TransactionTemplate tx;
@@ -259,7 +259,7 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
                     .param("createdBy", createdBy)
                     .param("createdAt", Timestamp.from(createdAt))
                     .update();
-            return new Page(pageId, workspaceId, parentId, pos, "", createdBy, createdAt);
+            return new Page(pageId, workspaceId, parentId, pos, "", false, createdBy, createdAt);
         });
     }
 
@@ -290,6 +290,7 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
                 rs.getObject("parent_id", UUID.class),
                 rs.getString("pos"),
                 rs.getString("title"),
+                rs.getBoolean("restricted"),
                 rs.getObject("created_by", UUID.class),
                 rs.getTimestamp("created_at").toInstant());
     }

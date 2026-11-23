@@ -225,6 +225,7 @@ class GrantFlowTest extends TestInfra {
 
         Response restricted = send("PUT", "/api/pages/" + child + "/restricted", Map.of("restricted", true), team.member);
         assertEquals(200, restricted.status());
+        assertEquals(true, send("GET", "/api/pages/" + child, null, team.member).body().get("restricted").booleanValue());
 
         assertEquals("FULL", ticketRole(grandchild, team.member), "경계 위의 FULL 이 끊겨도 잠기지 않는다");
         assertEquals(403, ticket(grandchild, other), "다른 멤버는 기본 권한을 잃는다");
