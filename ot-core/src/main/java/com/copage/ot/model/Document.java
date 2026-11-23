@@ -48,6 +48,31 @@ public final class Document {
         return new Document(rootId, blocks);
     }
 
+    /**
+     * 스냅샷처럼 이미 있는 블록들로 문서를 만든다. 루트 블록(부모가 없는 블록)은 rootId 하나뿐이어야 하고, 다른 블록의 부모는
+     * 모두 문서 안에 있어야 한다.
+     *
+     * @throws IllegalArgumentException 위 조건을 어길 때
+     */
+    public static Document of(String rootId, Iterable<Block> blocks) {
+        Map<String, Block> map = new HashMap<>();
+        for (Block block : blocks) {
+            if (map.put(block.id(), block) != null) {
+                throw new IllegalArgumentException("블록 " + block.id() + " 이 두 번 있다");
+            }
+        }
+        Block root = map.get(rootId);
+        if (root == null || root.parentId() != null) {
+            throw new IllegalArgumentException("루트 블록 " + rootId + " 이 없다");
+        }
+        for (Block block : map.values()) {
+            if (!block.id().equals(rootId) && (block.parentId() == null || !map.containsKey(block.parentId()))) {
+                throw new IllegalArgumentException("블록 " + block.id() + " 의 부모가 문서에 없다");
+            }
+        }
+        return new Document(rootId, map);
+    }
+
     public String rootId() {
         return rootId;
     }

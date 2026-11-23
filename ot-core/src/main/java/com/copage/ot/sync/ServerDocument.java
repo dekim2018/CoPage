@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * 서버가 문서 하나에 대해 들고 있는 상태와, 편집 묶음을 받아 확정 순서에 넣는 규칙.
@@ -50,6 +51,17 @@ public final class ServerDocument {
 
     /** 편집 묶음을 받는다. 받아들이면 문서와 리비전이 바뀐다. */
     public SubmitResult submit(Submission submission) {
+        return submit(submission, document -> {
+        });
+    }
+
+    /**
+     * 편집 묶음을 받되, 받아들이기 직전에 결과 문서를 validator 로 검사한다. validator 가
+     * {@link InvalidOperationException} 을 던지면 묶음을 거부하고 상태는 그대로 둔다.
+     *
+     * <p>문서 크기 한도처럼 변환하고 적용한 결과를 봐야 알 수 있는 협업 서버 쪽 규칙을 걸 때 쓴다.
+     */
+    public SubmitResult submit(Submission submission, Consumer<Document> validator) {
         Long committedRev = seenSeqs
                 .getOrDefault(submission.clientId(), Map.of())
                 .get(submission.clientSeq());
@@ -70,6 +82,7 @@ public final class ServerDocument {
                 ops = Transformer.transform(ops, earlier.ops(), true).a();
             }
             next = document.apply(ops);
+            validator.accept(next);
         } catch (TransformConflictException | InvalidOperationException e) {
             return new SubmitResult.Rejected(e.getMessage());
         }

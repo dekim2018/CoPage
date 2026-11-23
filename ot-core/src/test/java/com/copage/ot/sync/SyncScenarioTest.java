@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.copage.ot.model.Block;
 import com.copage.ot.model.Document;
+import com.copage.ot.model.InvalidOperationException;
 import com.copage.ot.op.Op;
 import com.copage.ot.op.Op.DeleteBlock;
 import com.copage.ot.op.Op.InsertBlock;
@@ -14,6 +16,7 @@ import com.copage.ot.op.Op.TextOp;
 import com.copage.ot.text.Attrs;
 import com.copage.ot.text.Delta;
 import com.copage.ot.text.RichText;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -232,5 +235,33 @@ class SyncScenarioTest {
         assertEquals(1, b.confirmedRev());
         assertEquals(server.document(), b.view());
         assertFalse(b.hasPending());
+    }
+
+    @Test
+    void 결과_문서_검사에_걸린_묶음은_거부하고_상태를_바꾸지_않는다() {
+        Document start = sample();
+        ServerDocument server = new ServerDocument(start, 0);
+        Submission tooBig = new Submission("A", 1, 0, type("X", 0, "가나다"));
+
+        SubmitResult result = server.submit(tooBig, doc -> {
+            if (doc.get("X").text().length() > 4) {
+                throw new InvalidOperationException("글이 너무 길다");
+            }
+        });
+
+        assertEquals(new SubmitResult.Rejected("글이 너무 길다"), result);
+        assertEquals(0, server.rev());
+        assertEquals(start, server.document());
+        // 거부된 순번은 기록하지 않으므로 같은 순번으로 다시 보내면 다시 판정한다.
+        assertTrue(server.submit(tooBig) instanceof SubmitResult.Accepted);
+    }
+
+    @Test
+    void 블록_목록으로_만든_문서는_원래_문서와_같다() {
+        Document start = sample().apply(new DeleteBlock("Y", true));
+        List<Block> blocks = new ArrayList<>();
+        start.blocks().forEach(blocks::add);
+
+        assertEquals(start, Document.of("root", blocks));
     }
 }
