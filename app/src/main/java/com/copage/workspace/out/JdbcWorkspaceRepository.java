@@ -167,6 +167,15 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
     }
 
     @Override
+    public boolean updateTitle(UUID pageId, String title, long rev) {
+        return jdbc.sql("UPDATE pages SET title = :title, title_rev = :rev WHERE id = :pageId AND title_rev < :rev")
+                .param("pageId", pageId)
+                .param("title", title)
+                .param("rev", rev)
+                .update() == 1;
+    }
+
+    @Override
     public Optional<Page> findPage(UUID workspaceId, UUID pageId) {
         return jdbc.sql("SELECT " + PAGE_COLUMNS + """
 

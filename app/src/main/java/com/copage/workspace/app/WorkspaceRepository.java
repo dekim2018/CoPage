@@ -48,6 +48,9 @@ public interface WorkspaceRepository {
     /** 워크스페이스 단위로 잠그고 마지막 OWNER 인지 확인한 뒤 내보낸다. */
     MemberUpdate removeMember(UUID workspaceId, UUID userId);
 
+    /** 제목을 바꾼다. 저장된 title_rev 가 rev 보다 작을 때만 바꾼다. @return 바꿨는지 */
+    boolean updateTitle(UUID pageId, String title, long rev);
+
     /** 보관되지 않은 페이지. 다른 워크스페이스의 페이지면 비어 있다. */
     Optional<Page> findPage(UUID workspaceId, UUID pageId);
 

@@ -52,6 +52,9 @@ class DocumentSessionTest {
     private final List<Runnable> scheduled = new ArrayList<>();
     private Instant now = Instant.parse("2026-11-23T00:00:00Z");
     private final CountingStore store = new CountingStore();
+    /** 알린 제목. (문서, 제목, 리비전). */
+    private final List<String> titleUpdates = new ArrayList<>();
+    private final TitleSink titles = (docId, title, rev) -> titleUpdates.add(title + "@" + rev);
     private final DocumentSessions sessions = sessions(2);
 
     private DocumentSessions sessions(int maxConnections) {
@@ -78,7 +81,8 @@ class DocumentSessionTest {
                 tasks::add,
                 tasks::add,
                 (task, delay) -> scheduled.add(task),
-                clock);
+                clock,
+                titles);
     }
 
     /** 메모리 저장소에 append 횟수를 세고, 원하면 실패하게 하는 기능을 더했다. */
@@ -484,10 +488,14 @@ class DocumentSessionTest {
                 tasks::add,
                 background::add,
                 (task, delay) -> scheduled.add(task),
-                Clock.systemUTC());
+                Clock.systemUTC(),
+                titles);
         FakeConnection a = new FakeConnection("A");
         ordered.join(DOC, a, new Hello("client-A", 0, false), PageRole.EDIT, "이름");
         runAll();
+        // 세션을 올릴 때 제목을 알리는 일이 먼저 들어 있다.
+        background.forEach(Runnable::run);
+        background.clear();
 
         // 먼저 시작한 계산은 VIEW(낡은 상태), 나중 계산은 EDIT(새 상태)를 읽는다.
         ordered.reauthorize(doc -> true, user -> true, (userId, docId) -> Optional.of(PageRole.VIEW));
@@ -531,6 +539,31 @@ class DocumentSessionTest {
 
         assertEquals(before, a.received.size());
         assertNull(a.closedWith);
+    }
+
+    @Test
+    void 루트_블록의_글이_바뀐_커밋_뒤에만_제목을_알린다() {
+        FakeConnection a = join("A");
+        assertEquals(List.of("@0"), titleUpdates, "세션을 올릴 때 한 번 알린다");
+
+        submit(a, 1, 0, type(ROOT, 0, "회의록"));
+        runAll();
+        submit(a, 2, 1, paragraph("X", "본문"));
+        runAll();
+        submit(a, 3, 2, type(ROOT, 3, " 11월"));
+        runAll();
+
+        assertEquals(List.of("@0", "회의록@1", "회의록 11월@3"), titleUpdates);
+    }
+
+    @Test
+    void 커밋에_실패하면_제목을_알리지_않는다() {
+        FakeConnection a = join("A");
+        store.fail = true;
+        submit(a, 1, 0, type(ROOT, 0, "회의록"));
+        runAll();
+
+        assertEquals(List.of("@0"), titleUpdates);
     }
 
     @Test
