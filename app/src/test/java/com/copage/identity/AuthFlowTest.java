@@ -21,7 +21,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /** 가입부터 WebSocket 연결까지, 그리고 토큰 회전과 로그아웃과 잠금을 실제 서버와 PostgreSQL, Redis 로 확인한다. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@TestPropertySource(properties = "copage.web.allowed-origins=http://allowed.example")
+@TestPropertySource(properties = {"copage.web.allowed-origins=http://allowed.example", "copage.auth.refresh-reuse-grace=1s"})
 class AuthFlowTest extends TestInfra {
 
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
@@ -162,7 +162,8 @@ class AuthFlowTest extends TestInfra {
         assertNotEquals(first.refreshCookie(), second.refreshCookie());
         assertEquals(200, me(second.accessToken()).status());
 
-        // 이미 쓴 첫 토큰이 다시 왔다. 훔친 토큰으로 본다.
+        // 유예 시간(1초)이 지난 뒤 이미 쓴 첫 토큰이 다시 왔다. 훔친 토큰으로 본다.
+        Thread.sleep(1_100);
         Response reused = refresh(first.refreshCookie());
         assertEquals(401, reused.status());
         assertEquals("", reused.refreshCookie(), "쿠키를 지운다");
@@ -174,6 +175,24 @@ class AuthFlowTest extends TestInfra {
         // 다시 로그인하면 쓸 수 있다. 막는 기준이 초 단위라 다음 초로 넘긴다.
         Thread.sleep(1_100);
         assertEquals(200, me(login(email, PASSWORD).accessToken()).status());
+    }
+
+    @Test
+    void 같은_토큰으로_동시에_재발급하면_뒤의_요청만_409_를_받고_세션은_그대로다() throws Exception {
+        String email = newEmail();
+        signup(email, PASSWORD, "a");
+        Response session = login(email, PASSWORD);
+
+        // 탭 두 개가 같은 쿠키로 거의 동시에 재발급한다.
+        Response first = refresh(session.refreshCookie());
+        Response second = refresh(session.refreshCookie());
+
+        assertEquals(200, first.status());
+        assertEquals(409, second.status());
+        assertEquals(null, second.refreshCookie(), "첫 요청이 내려 준 새 쿠키를 지우지 않는다");
+        assertEquals(200, me(first.accessToken()).status());
+        assertEquals(200, me(session.accessToken()).status());
+        assertEquals(200, refresh(first.refreshCookie()).status());
     }
 
     @Test

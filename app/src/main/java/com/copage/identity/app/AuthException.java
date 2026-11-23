@@ -14,6 +14,8 @@ public class AuthException extends RuntimeException {
         LOCKED,
         /** Refresh 토큰이 없거나 만료되었거나 이미 쓰였다. */
         INVALID_REFRESH_TOKEN,
+        /** 같은 Refresh 토큰으로 다른 요청이 방금 재발급했다. 쿠키에 새 토큰이 있으니 다시 시도한다. */
+        REFRESH_RACE,
         /** 사용자가 없다. */
         NOT_FOUND
     }

@@ -13,7 +13,7 @@ class AuthExceptionHandler {
 
     static ProblemDetail problem(AuthException e) {
         HttpStatus status = switch (e.kind()) {
-            case DUPLICATE_EMAIL -> HttpStatus.CONFLICT;
+            case DUPLICATE_EMAIL, REFRESH_RACE -> HttpStatus.CONFLICT;
             case BAD_CREDENTIALS, INVALID_REFRESH_TOKEN -> HttpStatus.UNAUTHORIZED;
             case LOCKED -> HttpStatus.TOO_MANY_REQUESTS;
             case NOT_FOUND -> HttpStatus.NOT_FOUND;

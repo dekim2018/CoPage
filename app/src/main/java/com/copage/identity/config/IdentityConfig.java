@@ -56,7 +56,7 @@ public class IdentityConfig {
             JdbcClient jdbcClient, StringRedisTemplate redis, PasswordEncoder passwordEncoder, JwtEncoder jwtEncoder) {
         return new AuthService(
                 new JdbcUserRepository(jdbcClient),
-                new RedisRefreshTokenStore(redis),
+                new RedisRefreshTokenStore(redis, properties.refreshReuseGrace()),
                 new RedisAccessTokenRevocations(redis),
                 new RedisLoginAttempts(
                         redis, properties.loginMaxFailures(), properties.loginWindow(), properties.loginLock()),

@@ -84,7 +84,8 @@ class AuthController {
     }
 
     /**
-     * Refresh 토큰을 새로 바꾸고 Access 토큰을 다시 준다. 실패하면 쿠키를 지운다.
+     * Refresh 토큰을 새로 바꾸고 Access 토큰을 다시 준다. 실패하면 쿠키를 지운다. 다만 동시 재발급(409)일 때는 지우지 않는다.
+     * 먼저 온 요청이 내려 준 새 쿠키까지 지워 버리기 때문이다.
      *
      * <p>쿠키를 쓰는 유일한 경로라서 SameSite=Strict 에 더해 Origin 을 검사한다 (9.2). 검사는 보안 설정의 CORS 필터가
      * 컨트롤러 앞에서 한다. 다른 출처의 요청은 Origin 이 허용 목록(copage.web.allowed-origins)에 없으면 403 으로 막힌다.
@@ -95,6 +96,9 @@ class AuthController {
             return withSession(auth.refresh(refreshToken));
         } catch (AuthException e) {
             ProblemDetail problem = AuthExceptionHandler.problem(e);
+            if (e.kind() == AuthException.Kind.REFRESH_RACE) {
+                return ResponseEntity.status(problem.getStatus()).body(problem);
+            }
             return ResponseEntity.status(problem.getStatus())
                     .header(HttpHeaders.SET_COOKIE, clearCookie().toString())
                     .body(problem);

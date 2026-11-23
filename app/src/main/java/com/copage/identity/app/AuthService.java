@@ -28,7 +28,8 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
  * <ul>
  *   <li>Access 토큰: JWT HS256. 클레임은 사용자 ID(sub)와 토큰 ID(jti), 발급과 만료 시각
  *   <li>Refresh 토큰: 무작위 32 바이트. 저장소에는 SHA-256 해시만 둔다. 재발급할 때마다 새로 바꾸고, 이미 쓴 토큰이 다시
- *       오면 탈취로 보고 그 사용자의 Refresh 토큰과 그때까지 발급한 Access 토큰을 모두 막는다
+ *       오면 탈취로 보고 그 사용자의 Refresh 토큰과 그때까지 발급한 Access 토큰을 모두 막는다. 쓴 직후 짧은 유예 시간
+ *       안에 다시 온 것은 동시 재발급으로 보고 그 요청만 실패시킨다
  * </ul>
  */
 public final class AuthService {
@@ -117,6 +118,10 @@ public final class AuthService {
                         .orElseThrow(() -> new AuthException(Kind.INVALID_REFRESH_TOKEN, "사용자가 없다"));
                 yield issue(user);
             }
+            case RefreshTokenStore.Use.RecentlyUsed recent ->
+                    // 탭 두 개나 재시도가 같은 쿠키로 동시에 왔다. 먼저 온 요청이 새 토큰을 쿠키로 내려 주었으니 이 요청만
+                    // 실패시키고 세션은 건드리지 않는다.
+                    throw new AuthException(Kind.REFRESH_RACE, "다른 요청이 방금 토큰을 재발급했다. 다시 시도한다");
             case RefreshTokenStore.Use.Reused reused -> {
                 // 이미 쓴 토큰이 다시 왔다. 누군가 훔친 토큰을 썼거나, 훔친 쪽이 먼저 썼다. 어느 쪽인지 알 수 없으므로
                 // 이 사용자의 모든 세션을 끊는다.

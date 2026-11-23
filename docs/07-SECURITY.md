@@ -9,7 +9,7 @@
 | 비밀번호 저장 | Spring Security의 `DelegatingPasswordEncoder` (기본 BCrypt) |
 | Access 토큰 | JWT HS256, 유효 15분, `Authorization: Bearer` 헤더. 클레임은 사용자 ID와 토큰 ID(jti) |
 | Refresh 토큰 | 무작위 문자열, 유효 14일, HttpOnly + Secure + SameSite=Strict 쿠키. Redis에 해시로 저장 |
-| 회전 | 재발급할 때마다 Refresh 토큰을 새로 바꾼다. 이미 쓴 토큰이 다시 오면 탈취로 보고 그 사용자의 모든 세션을 끊는다 |
+| 회전 | 재발급할 때마다 Refresh 토큰을 새로 바꾼다. 이미 쓴 토큰이 다시 오면 탈취로 보고 그 사용자의 모든 세션을 끊는다. 다만 쓴 뒤 10초 안에 다시 온 것은 같은 사용자의 동시 재발급(탭 두 개, 재시도)으로 보고 그 요청만 409로 돌려보낸다. 쿠키는 지우지 않는다. 먼저 온 요청이 내려 준 새 쿠키로 다시 시도하면 된다 |
 | 로그아웃 | Refresh 토큰 삭제 + Access 토큰의 jti를 남은 유효 시간 동안 Redis 차단 목록에 둔다 |
 | 로그인 보호 | 계정당 5분에 5회 실패하면 5분 잠금 (Redis 카운터) |
 
