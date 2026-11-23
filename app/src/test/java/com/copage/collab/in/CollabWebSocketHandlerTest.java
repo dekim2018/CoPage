@@ -149,26 +149,47 @@ class CollabWebSocketHandlerTest {
         assertEquals(before + 1, b.count("presence"));
     }
 
+    private void sendEmptyChange(Socket socket, long seq) {
+        send(socket, "{\"t\":\"change\",\"clientSeq\":" + seq + ",\"baseRev\":0,\"ops\":[]}");
+    }
+
     @Test
-    void presence_한도는_change_한도와_따로_센다() throws Exception {
+    void change_를_한도까지_보내도_presence_는_퍼진다() throws Exception {
+        Socket a = open("A");
+        Socket b = open("B");
+        for (int seq = 1; seq <= 30; seq++) {
+            sendEmptyChange(a, seq);
+        }
+        long before = b.count("presence");
+
+        moveCursor(a, 0);
+
+        // 카운터를 함께 쓰면 change 30 개가 presence 한도(5)를 이미 채워 이 presence 가 버려진다.
+        assertEquals(before + 1, b.count("presence"));
+        assertNull(a.closedWith);
+    }
+
+    @Test
+    void presence_를_한도_넘게_보내도_change_는_받는다() throws Exception {
         Socket a = open("A");
         open("B");
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 12; i++) {
             moveCursor(a, 0);
         }
+        for (int seq = 1; seq <= 30; seq++) {
+            sendEmptyChange(a, seq);
+        }
 
-        send(a, "{\"t\":\"change\",\"clientSeq\":1,\"baseRev\":0,\"ops\":[]}");
-
-        // 빈 묶음은 nack 로 돌아온다. 빈도 제한(4008)에 걸리지 않았다는 뜻이다.
+        // 빈 묶음은 nack 로 돌아온다. 카운터를 함께 쓰면 presence 가 채운 자리 때문에 4008 로 끊긴다.
         assertNull(a.closedWith);
-        assertEquals(1, a.count("nack"));
+        assertEquals(30, a.count("nack"));
     }
 
     @Test
     void 초당_한도를_넘는_change_는_지금처럼_4008_로_끊는다() throws Exception {
         Socket a = open("A");
         for (int seq = 1; seq <= 31; seq++) {
-            send(a, "{\"t\":\"change\",\"clientSeq\":" + seq + ",\"baseRev\":0,\"ops\":[]}");
+            sendEmptyChange(a, seq);
         }
 
         assertEquals(CloseCodes.PROTOCOL, a.closedWith.getCode());
