@@ -34,6 +34,20 @@ public interface WorkspaceRepository {
     /** @return 이미 멤버였으면 false 이고 아무것도 바꾸지 않는다 */
     boolean addMember(UUID workspaceId, UUID userId, WorkspaceRole role);
 
+    /** 역할 변경과 내보내기의 결과. */
+    enum MemberUpdate {
+        UPDATED,
+        NOT_MEMBER,
+        /** 마지막 OWNER 를 내리거나 내보내려 했다. 아무것도 바꾸지 않았다 (D-15). */
+        LAST_OWNER
+    }
+
+    /** 워크스페이스 단위로 잠그고 마지막 OWNER 인지 확인한 뒤 바꾼다. */
+    MemberUpdate changeRole(UUID workspaceId, UUID userId, WorkspaceRole role);
+
+    /** 워크스페이스 단위로 잠그고 마지막 OWNER 인지 확인한 뒤 내보낸다. */
+    MemberUpdate removeMember(UUID workspaceId, UUID userId);
+
     /** 보관되지 않은 페이지. 다른 워크스페이스의 페이지면 비어 있다. */
     Optional<Page> findPage(UUID workspaceId, UUID pageId);
 

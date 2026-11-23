@@ -7,10 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.copage.support.TestInfra;
 import com.copage.workspace.app.WorkspaceException;
+import com.copage.workspace.app.WorkspaceRepository.MemberUpdate;
 import com.copage.workspace.app.WorkspaceRepository.PageSummary;
 import com.copage.workspace.domain.Page;
 import com.copage.workspace.domain.Workspace;
 import com.copage.workspace.domain.WorkspaceRole;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -21,6 +24,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -125,6 +129,44 @@ class JdbcWorkspaceRepositoryTest {
         // 같은 워크스페이스라도 다른 부모의 하위는 앞 형제가 아니다.
         Page child = create(parent.id(), null);
         assertThrows(WorkspaceException.class, () -> create(null, child.id()));
+    }
+
+    @Test
+    void 마지막_OWNER_는_내리거나_내보낼_수_없다() {
+        UUID member = user();
+        repository.addMember(workspace.id(), member, WorkspaceRole.MEMBER);
+
+        assertEquals(MemberUpdate.LAST_OWNER, repository.changeRole(workspace.id(), owner, WorkspaceRole.MEMBER));
+        assertEquals(MemberUpdate.LAST_OWNER, repository.removeMember(workspace.id(), owner));
+        assertEquals(MemberUpdate.NOT_MEMBER, repository.removeMember(workspace.id(), user()));
+        assertEquals(MemberUpdate.UPDATED, repository.changeRole(workspace.id(), member, WorkspaceRole.OWNER));
+        assertEquals(MemberUpdate.UPDATED, repository.changeRole(workspace.id(), owner, WorkspaceRole.MEMBER));
+        assertEquals(WorkspaceRole.MEMBER, repository.roleOf(workspace.id(), owner).orElseThrow());
+    }
+
+    @Test
+    void 역할_변경은_워크스페이스_잠금을_잡고_확인한다() throws Exception {
+        // 다른 연결이 같은 잠금을 쥐고 있는 동안 역할 변경은 기다려야 한다. 잠그지 않고 확인하면 두 OWNER 가 서로를 동시에
+        // 내릴 때 둘 다 "OWNER 가 둘" 을 보고 통과해 OWNER 가 없어진다. 시간에 기대는 경쟁 시험 대신 잠금을 직접 확인한다.
+        UUID second = user();
+        repository.addMember(workspace.id(), second, WorkspaceRole.OWNER);
+        try (Connection holder = dataSource.getConnection()) {
+            try (PreparedStatement lock = holder.prepareStatement("SELECT pg_advisory_lock(hashtextextended(?, 0))")) {
+                lock.setString(1, workspace.id().toString());
+                lock.executeQuery();
+            }
+            try (ExecutorService pool = Executors.newSingleThreadExecutor()) {
+                Future<MemberUpdate> change =
+                        pool.submit(() -> repository.changeRole(workspace.id(), second, WorkspaceRole.MEMBER));
+                Thread.sleep(500);
+                assertFalse(change.isDone(), "잠금을 기다리지 않았다");
+                try (PreparedStatement unlock = holder.prepareStatement("SELECT pg_advisory_unlock(hashtextextended(?, 0))")) {
+                    unlock.setString(1, workspace.id().toString());
+                    unlock.executeQuery();
+                }
+                assertEquals(MemberUpdate.UPDATED, change.get(5, TimeUnit.SECONDS));
+            }
+        }
     }
 
     @Test

@@ -16,7 +16,9 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -100,6 +102,25 @@ class WorkspaceController {
             @PathVariable UUID workspaceId,
             @Valid @RequestBody AddMemberRequest request) {
         return MemberResponse.of(workspaces.addMember(userId(jwt), workspaceId, request.email(), request.role()));
+    }
+
+    record RoleRequest(@NotNull WorkspaceRole role) {
+    }
+
+    @PatchMapping("/{workspaceId}/members/{memberId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void changeRole(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID memberId,
+            @Valid @RequestBody RoleRequest request) {
+        workspaces.changeRole(userId(jwt), workspaceId, memberId, request.role());
+    }
+
+    @DeleteMapping("/{workspaceId}/members/{memberId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void removeMember(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID workspaceId, @PathVariable UUID memberId) {
+        workspaces.removeMember(userId(jwt), workspaceId, memberId);
     }
 
     @GetMapping("/{workspaceId}/pages")

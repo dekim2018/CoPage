@@ -110,6 +110,63 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
     }
 
     @Override
+    public MemberUpdate changeRole(UUID workspaceId, UUID userId, WorkspaceRole role) {
+        return tx.execute(status -> {
+            MemberUpdate check = checkLastOwner(workspaceId, userId, role);
+            if (check != MemberUpdate.UPDATED) {
+                return check;
+            }
+            jdbc.sql("UPDATE workspace_members SET role = :role WHERE workspace_id = :workspaceId AND user_id = :userId")
+                    .param("role", role.name())
+                    .param("workspaceId", workspaceId)
+                    .param("userId", userId)
+                    .update();
+            return MemberUpdate.UPDATED;
+        });
+    }
+
+    @Override
+    public MemberUpdate removeMember(UUID workspaceId, UUID userId) {
+        return tx.execute(status -> {
+            MemberUpdate check = checkLastOwner(workspaceId, userId, null);
+            if (check != MemberUpdate.UPDATED) {
+                return check;
+            }
+            jdbc.sql("DELETE FROM workspace_members WHERE workspace_id = :workspaceId AND user_id = :userId")
+                    .param("workspaceId", workspaceId)
+                    .param("userId", userId)
+                    .update();
+            return MemberUpdate.UPDATED;
+        });
+    }
+
+    /** 트랜잭션 안에서 부른다. next 가 null 이면 내보내기다. 두 OWNER 가 서로를 동시에 내리는 경우도 잠금이 줄 세운다. */
+    private MemberUpdate checkLastOwner(UUID workspaceId, UUID userId, WorkspaceRole next) {
+        lockWorkspace(workspaceId);
+        Optional<WorkspaceRole> current = roleOf(workspaceId, userId);
+        if (current.isEmpty()) {
+            return MemberUpdate.NOT_MEMBER;
+        }
+        if (current.get() == WorkspaceRole.OWNER && next != WorkspaceRole.OWNER) {
+            int owners = jdbc.sql("SELECT count(*) FROM workspace_members WHERE workspace_id = :workspaceId AND role = 'OWNER'")
+                    .param("workspaceId", workspaceId)
+                    .query(Integer.class)
+                    .single();
+            if (owners <= 1) {
+                return MemberUpdate.LAST_OWNER;
+            }
+        }
+        return MemberUpdate.UPDATED;
+    }
+
+    private void lockWorkspace(UUID workspaceId) {
+        jdbc.sql("SELECT pg_advisory_xact_lock(hashtextextended(:workspaceId, 0))")
+                .param("workspaceId", workspaceId.toString())
+                .query((rs, row) -> 1)
+                .list();
+    }
+
+    @Override
     public Optional<Page> findPage(UUID workspaceId, UUID pageId) {
         return jdbc.sql("SELECT " + PAGE_COLUMNS + """
 
@@ -162,10 +219,7 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
             UUID workspaceId, UUID pageId, UUID parentId, UUID afterId, UUID createdBy, Instant createdAt) {
         return tx.execute(status -> {
             // 같은 워크스페이스의 트리 변경을 줄 세운다. 동시에 같은 자리에 만들어도 같은 순서 키가 나오지 않는다 (8.6).
-            jdbc.sql("SELECT pg_advisory_xact_lock(hashtextextended(:workspaceId, 0))")
-                    .param("workspaceId", workspaceId.toString())
-                    .query((rs, row) -> 1)
-                    .list();
+            lockWorkspace(workspaceId);
             if (parentId != null && findPage(workspaceId, parentId).isEmpty()) {
                 throw new WorkspaceException(Kind.NOT_FOUND, "부모 페이지가 없다");
             }

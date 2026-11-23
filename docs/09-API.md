@@ -25,8 +25,8 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | POST | `/api/workspaces/{wsId}/members` | 가입한 사용자를 이메일로 바로 넣는다. 역할은 MEMBER 또는 GUEST. 초대(아래 invites)가 생기기 전까지 쓰는 임시 경로 | OWNER |
 | POST | `/api/workspaces/{wsId}/invites` | 이메일로 초대 | OWNER |
 | POST | `/api/invites/{token}/accept` | 초대 수락 | 로그인 |
-| PATCH | `/api/workspaces/{wsId}/members/{userId}` | 역할 변경 | OWNER |
-| DELETE | `/api/workspaces/{wsId}/members/{userId}` | 내보내기 | OWNER |
+| PATCH | `/api/workspaces/{wsId}/members/{userId}` | 역할 변경. 마지막 OWNER 는 내릴 수 없다(409) | OWNER |
+| DELETE | `/api/workspaces/{wsId}/members/{userId}` | 내보내기. 그 워크스페이스에서 받은 페이지 권한도 지운다. 마지막 OWNER 는 내보낼 수 없다(409) | OWNER |
 | GET | `/api/workspaces/{wsId}/pages?parentId=` | 한 단계 하위 페이지 목록. 권한 없는 페이지는 빼고 준다 | MEMBER 또는 GUEST |
 | POST | `/api/workspaces/{wsId}/pages` | 페이지 생성 (부모, 위치 지정) | 부모의 EDIT |
 | GET | `/api/pages/{pageId}` | 제목, 경로(볼 수 있는 조상만), 내 권한 등급 | VIEW |
@@ -42,10 +42,11 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 
 | 메서드 | 경로 | 설명 | 필요 권한 |
 | --- | --- | --- | --- |
-| GET | `/api/pages/{pageId}/grants` | 권한 목록과 상속 여부 | FULL |
-| PUT | `/api/pages/{pageId}/grants/{userId}` | 사용자 권한 부여 또는 변경 | FULL |
-| DELETE | `/api/pages/{pageId}/grants/{userId}` | 권한 회수 | FULL |
-| PUT | `/api/pages/{pageId}/restricted` | 상속 끊기 또는 다시 잇기 | FULL |
+| GET | `/api/pages/{pageId}/grants` | 이 페이지에 준 권한과 경계까지 물려받는 권한(`inheritedFrom`) | FULL |
+| PUT | `/api/pages/{pageId}/grants/{userId}` | 사용자 권한 부여 또는 변경. 워크스페이스 멤버가 아니면 GUEST 로 넣는다 | FULL |
+| POST | `/api/pages/{pageId}/grants` | 이메일로 부여(`{email, level}`). 공유 창이 쓴다 | FULL |
+| DELETE | `/api/pages/{pageId}/grants/{userId}` | 이 페이지에 준 권한 회수 | FULL |
+| PUT | `/api/pages/{pageId}/restricted` | 상속 끊기 또는 다시 잇기. 끊는 사람이 OWNER 가 아니면 그 페이지에 자신의 FULL 을 남긴다 | FULL |
 | PUT | `/api/pages/{pageId}/share-link` | 링크 공유 켜기, 등급과 만료일 설정 | FULL |
 | DELETE | `/api/pages/{pageId}/share-link` | 링크 공유 끄기 | FULL |
 | GET | `/api/share/{token}` | 링크로 페이지 정보 조회 | 없음 |
