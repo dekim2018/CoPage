@@ -17,23 +17,17 @@
 
 ## 9.2 필터 체인
 
-```java
-@Bean
-SecurityFilterChain api(HttpSecurity http, JwtAuthenticationFilter jwtFilter) throws Exception {
-    return http
-        .securityMatcher("/api/**")
-        .csrf(csrf -> csrf.disable())
-        .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-        .authorizeHttpRequests(auth -> auth
-            .requestMatchers("/api/auth/**", "/api/share/**").permitAll()
-            .anyRequest().authenticated())
-        .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
-        .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
-        .build();
-}
-```
+경로에 따라 체인을 셋으로 나눈다.
 
-API는 쿠키가 아니라 헤더로 인증하므로 CSRF 토큰을 쓰지 않는다. 쿠키를 쓰는 유일한 경로인 `/api/auth/refresh` 는 SameSite=Strict와 Origin 헤더 검사로 막는다.
+| 순서 | 경로 | 인증 |
+| --- | --- | --- |
+| 1 | `/api/**` | Access 토큰(JWT). `/api/auth/**` 만 열어 둔다. 상태를 두지 않고(STATELESS) CSRF 토큰을 쓰지 않는다 |
+| 2 | `/ws/**` | 여기서는 통과시키고 핸드셰이크에서 1회용 티켓으로 인증한다 (9.3) |
+| 3 | 그 밖 | 오류 응답(`/error`)만 열고 모두 막는다 |
+
+JWT 검증은 직접 필터를 짜지 않고 Spring Security의 리소스 서버(`NimbusJwtDecoder`, HS256)를 쓴다. 서명과 만료 검사에 더해 두 가지를 거부하는 검증기를 붙였다. 로그아웃으로 막은 jti, 그리고 Refresh 토큰 재사용을 알아챈 사용자에게 그 시각(초 단위)까지 발급한 토큰이다. 둘 다 Redis에 Access 토큰 유효 시간만큼만 남는다. `/api/auth/**` 에서는 Authorization 헤더를 읽지 않는다. 만료된 토큰을 붙인 채 로그인이나 재발급을 해도 401이 나지 않게 하기 위해서다.
+
+API는 쿠키가 아니라 헤더로 인증하므로 CSRF 토큰을 쓰지 않는다. 쿠키를 쓰는 유일한 경로인 `/api/auth/refresh` 는 SameSite=Strict와 Origin 검사로 막는다. Origin 검사는 CORS 필터가 한다. 다른 출처의 요청은 Origin이 `copage.web.allowed-origins` 에 없으면 컨트롤러에 닿기 전에 403으로 끝난다. Refresh 쿠키의 경로는 `/api/auth` 라서 다른 API 요청에는 실리지 않는다.
 
 ## 9.3 WebSocket 인증
 
@@ -42,7 +36,7 @@ API는 쿠키가 아니라 헤더로 인증하므로 CSRF 토큰을 쓰지 않�
 3. 클라이언트가 티켓을 붙여 WebSocket을 연다. `HandshakeInterceptor` 가 `GETDEL` 로 티켓을 꺼내면서 지운다. 한 번 쓴 티켓은 다시 쓸 수 없다.
 4. 핸드셰이크에서 Origin 헤더가 허용한 도메인인지 검사한다.
 
-로그인과 권한 계산이 붙기 전까지는 티켓 저장소를 메모리로 두고, 발급은 dev 프로필에서만 열리는 임시 경로 `POST /api/dev/docs/{docId}/ws-ticket` 로 한다. 이 경로는 인증 없이 원하는 사용자와 등급의 티켓을 내주므로 로그인 작업에서 지운다.
+권한 계산(9.4)은 3단계에서 붙는다. 그때까지는 로그인한 사용자에게 어느 문서든 EDIT 티켓을 준다.
 
 토큰을 주소에 직접 붙이지 않는 이유는 주소가 프록시 로그에 남기 때문이다. 티켓은 30초 뒤에 쓸모가 없어지므로 로그에 남아도 위험하지 않다.
 

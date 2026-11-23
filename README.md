@@ -12,7 +12,7 @@ Java 25, Spring Boot 4.1, Spring Security 7.1, Vue 3을 쓴다.
 | --- | --- | --- |
 | 0 | 검증 실험 (편집기 어댑터 시제품) | 아직 |
 | 1 | OT 코어 (Java, TypeScript, 적합성 벡터) | 완료 |
-| 2 | 협업 서버 | 진행 중. 문서 세션, WebSocket 규약, 연산 로그와 스냅샷(PostgreSQL) 완료. 로그인과 토큰, 프레즌스, 편집기는 아직 |
+| 2 | 협업 서버 | 진행 중. 문서 세션, WebSocket 규약, 연산 로그와 스냅샷(PostgreSQL), 로그인과 토큰 완료. 프레즌스, 편집기는 아직 |
 | 3~7 | 워크스페이스와 권한, 오프라인과 다중 노드, 부가 기능, 측정, 배포 | 아직 |
 
 ## 모듈
@@ -20,13 +20,13 @@ Java 25, Spring Boot 4.1, Spring Security 7.1, Vue 3을 쓴다.
 | 모듈 | 내용 |
 | --- | --- |
 | `ot-core` | 문서 모델, 연산 7종, 적용, 변환, 합성, 역연산, 서버와 클라이언트의 동기화 규칙. 외부 의존성이 없다 (테스트의 벡터 생성기만 Jackson을 쓴다) |
-| `app` | 협업 서버. 지금은 협업 모듈(`com.copage.collab`)만 있다. 문서 세션, WebSocket 규약, 1회용 티켓 검사, 연산과 문서의 JSON 변환, PostgreSQL 연산 로그와 스냅샷. 티켓 저장소는 아직 메모리다 |
+| `app` | 협업 서버. 협업 모듈(`com.copage.collab`): 문서 세션, WebSocket 규약, 1회용 티켓, PostgreSQL 연산 로그와 스냅샷. 계정 모듈(`com.copage.identity`): 가입, 로그인, JWT와 Refresh 토큰 회전. 토큰과 티켓은 Redis에 둔다 |
 | `loadgen` | 부하 도구. 지금은 비어 있다 |
 | `frontend` | 프론트엔드. 지금은 `ot-core` 의 TypeScript 구현(`src/collab/ot/`)과 클라이언트 상태 기계(`src/collab/client/`)만 있다. Vue와 Vite는 2단계에서 붙인다 |
 
 ## 빌드와 테스트
 
-JDK 25와 Docker가 필요하다. `app` 의 테스트는 Testcontainers로 PostgreSQL 17을 띄운다.
+JDK 25와 Docker가 필요하다. `app` 의 테스트는 Testcontainers로 PostgreSQL 17과 Redis 7을 띄운다.
 
 ```bash
 ./gradlew build
@@ -54,16 +54,22 @@ JDK 25와 Docker가 필요하다. `app` 의 테스트는 Testcontainers로 Postg
 
 ## 협업 서버 띄워 보기
 
-로그인이 아직 없어서 dev 프로필의 임시 경로로 티켓을 받는다. 연산 로그와 스냅샷은 PostgreSQL에 두므로 먼저 DB를 띄운다. 5432 포트를 다른 것이 쓰고 있으면 두 명령 모두 앞에 `COPAGE_DB_PORT=55432` 처럼 다른 포트를 준다.
+PostgreSQL과 Redis를 먼저 띄운다. 5432나 6379 포트를 다른 것이 쓰고 있으면 모든 명령 앞에 `COPAGE_DB_PORT=55432 COPAGE_REDIS_PORT=56379` 처럼 다른 포트를 준다. dev 프로필은 개발용 JWT 키를 쓴다. 그 밖의 환경에서는 `COPAGE_JWT_SECRET` 에 32바이트 이상의 키를 주지 않으면 서버가 뜨지 않는다.
 
 ```bash
 docker compose up -d
 ./gradlew :app:bootRun --args='--spring.profiles.active=dev'
 
-# 다른 터미널에서. 문서 ID 는 아무 UUID 나 쓴다.
-curl -X POST http://localhost:8080/api/dev/docs/3f0c6a8e-0000-4000-8000-000000000001/ws-ticket \
-  -H 'Content-Type: application/json' -d '{"role":"EDIT"}'
-# {"ticket":"...","userId":"...","role":"EDIT"}
+# 다른 터미널에서
+curl -X POST localhost:8080/api/auth/signup -H 'Content-Type: application/json' \
+  -d '{"email":"me@example.com","password":"correct horse 1","name":"김코"}'
+curl -X POST localhost:8080/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"me@example.com","password":"correct horse 1"}'
+# {"accessToken":"...","tokenType":"Bearer","expiresIn":900,"user":{...}}  Refresh 토큰은 쿠키로 온다
+
+# 문서 ID 는 아무 UUID 나 쓴다. 권한 계산(3단계) 전까지는 로그인한 사용자가 어느 문서든 편집할 수 있다.
+curl -X POST localhost:8080/api/docs/3f0c6a8e-0000-4000-8000-000000000001/ws-ticket -H 'Authorization: Bearer ...'
+# {"ticket":"...","role":"EDIT"}
 
 # 30초 안에 연결하고 hello 를 보낸다 (docs/05-PROTOCOL.md)
 # ws://localhost:8080/ws/docs/3f0c6a8e-0000-4000-8000-000000000001?ticket=...&v=1
@@ -81,7 +87,7 @@ curl -X POST http://localhost:8080/api/dev/docs/3f0c6a8e-0000-4000-8000-00000000
 | `RestartTest` | 서버를 띄워 편집하고 완전히 내린 뒤 새로 띄운 서버에서 같은 문서를 받는지 (2단계 완료 기준) |
 | `WebSocketConnectionTest` | 받는 쪽이 느린 연결이 보내는 쪽을 막지 않고, 대기열이나 시간 한도를 넘으면 4011로 끊기는지 |
 | `CollabWebSocketIntegrationTest` | 서버를 띄우고 실제 WebSocket으로. 클라이언트 3개가 무작위로 편집하고 끊겼다 붙은 뒤 모두 서버와 같은 문서가 되는지, 종료 코드 4001, 4008, 4010 |
-| `DevTicketTest` | 개발용 티켓 발급이 dev 프로필에서만 열리는지 |
+| `AuthFlowTest` | 가입부터 티켓을 받아 WebSocket에 붙기까지. Refresh 토큰 회전과 재사용 시 모든 세션 끊기, 로그아웃, 5회 실패 잠금, 허용하지 않은 Origin, 위조 토큰 |
 
 `app` 의 테스트는 적합성 벡터를 쓰므로 `./gradlew :app:test` 가 `:ot-core:exportVectors` 를 먼저 돌린다.
 
