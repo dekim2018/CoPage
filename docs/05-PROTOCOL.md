@@ -61,7 +61,7 @@ sequenceDiagram
 | `nack` | `clientSeq`, `reason`, `rev` | 내 묶음이 거부됨. 클라이언트는 대기 중인 편집을 버린다 |
 | `remote` | `rev`, `userId`, `clientId`, `clientSeq`, `ops` | 다른 연결의 확정된 묶음 (변환이 끝난 형태). 같은 클라이언트가 새 연결로 다시 붙어 있으면 예전 연결로 보낸 묶음도 새 연결에는 `remote` 로 간다 |
 | `presence` | `clientId`, `userId`, `name`, `color`, `cursor` 또는 `left` | 다른 사람의 커서, 입장과 퇴장 |
-| `role` | `role` | 내 권한이 바뀜. 읽기로 내려가면 편집기를 읽기 전용으로 바꾼다 |
+| `role` | `role` | 내 권한이 바뀜(올라가거나 내려감). EDIT 아래(VIEW, COMMENT)면 편집기를 읽기 전용으로 바꾼다. 그 뒤 서버는 그 연결의 묶음을 새 등급으로 검사한다. 권한을 아예 잃으면 이 메시지 대신 4003 으로 닫는다. 문서당 연결 한도로 읽기로 받은 연결은 다시 계산해도 읽기 위로 올리지 않는다 |
 | `comment` | `event`, `thread` | 댓글이 달리거나 해결됨. 패널을 갱신한다 |
 
 ## 7.4 종료 코드

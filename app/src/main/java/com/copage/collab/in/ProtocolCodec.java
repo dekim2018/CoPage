@@ -125,6 +125,10 @@ public final class ProtocolCodec {
                 node.setAll(change(remote.change()));
                 node.put("t", "remote");
             }
+            case ServerMessage.Role role -> {
+                node.put("t", "role");
+                node.put("role", role.role().name());
+            }
             case ServerMessage.Presence presence -> {
                 if (presence.left()) {
                     node.put("clientId", presence.peer().clientId());

@@ -7,13 +7,18 @@ import com.copage.collab.app.DocumentStore;
 import com.copage.collab.app.TicketService;
 import com.copage.collab.app.TicketStore;
 import com.copage.collab.app.UserNames;
+import com.copage.collab.domain.PageRole;
 import com.copage.collab.in.CollabWebSocketHandler;
 import com.copage.collab.in.ProtocolCodec;
 import com.copage.collab.out.JdbcDocumentStore;
+import com.copage.collab.out.RedisTicketStore;
 import com.copage.identity.app.AuthException;
 import com.copage.identity.app.AuthService;
-import com.copage.collab.out.RedisTicketStore;
+import com.copage.permission.app.PagePermissions.Access;
+import com.copage.permission.app.PagePermissions;
+import com.copage.permission.app.PermissionChangeListener;
 import java.time.Clock;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -63,6 +68,22 @@ public class CollabConfig {
     @Bean
     TicketStore ticketStore(StringRedisTemplate redis) {
         return new RedisTicketStore(redis);
+    }
+
+    /**
+     * 권한이 바뀌면 열린 연결에 새 등급을 적용한다 (docs/07-SECURITY.md 9.4, S-5, D-17). 알림은 권한을 바꾼 요청 스레드에서
+     * 오지만, 여기서는 열린 세션을 훑어 일을 넘기기만 하고 저장소 읽기는 세션이 background 에서 한다.
+     */
+    @Bean
+    PermissionChangeListener liveRoleUpdater(DocumentSessions documentSessions, PagePermissions pagePermissions) {
+        DocumentSession.RoleResolver resolver = (userId, docId) ->
+                pagePermissions.access(userId, docId) instanceof Access.Granted granted
+                        ? Optional.of(PageRole.valueOf(granted.level().name()))
+                        : Optional.empty();
+        return change -> documentSessions.reauthorize(
+                docId -> change.pageIds() == null || change.pageIds().contains(docId),
+                userId -> change.userId() == null || change.userId().equals(userId),
+                resolver);
     }
 
     /**

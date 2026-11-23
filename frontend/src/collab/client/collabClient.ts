@@ -7,6 +7,8 @@ import { ClientSession } from './clientSession'
 import type { CommittedChange, Submission } from './clientSession'
 import { moveCursor } from './presence'
 import type { Cursor, Peer } from './presence'
+import { parseRole } from './role'
+import type { PageRole } from './role'
 
 /*
  * 문서 하나를 서버와 맞추는 협업 클라이언트 (docs/10-FRONTEND.md 12.1, 12.3). ClientSession 을 감싸 서버 메시지를 처리하고,
@@ -24,6 +26,8 @@ export interface CollabListener {
   onStatus(status: SyncStatus, detail?: string): void
   /** 접속자나 남의 커서가 바뀌었다. */
   onPeers(peers: readonly Peer[]): void
+  /** 내 권한 등급. welcome 때, 그리고 연결 중에 바뀔 때(role 메시지) 알린다. 잃으면 서버가 4003 으로 닫는다. */
+  onRole(role: PageRole): void
 }
 
 /** 커서가 움직여도 이 간격에 한 번만 보낸다 (docs/05-PROTOCOL.md 7.6). */
@@ -201,6 +205,9 @@ export class CollabClient {
       case 'presence':
         this.presence(message)
         break
+      case 'role':
+        this.listener.onRole(parseRole(message.role))
+        break
     }
   }
 
@@ -221,6 +228,7 @@ export class CollabClient {
       this.peers.set(peer.clientId, peer)
     }
     this.listener.onPeers([...this.peers.values()])
+    this.listener.onRole(parseRole(message.role))
     queueMicrotask(() => this.sendPresence(this.myCursor))
     const rev = message.rev as number
     if (message.snapshot !== undefined) {

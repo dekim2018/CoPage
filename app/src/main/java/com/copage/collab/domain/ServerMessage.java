@@ -3,9 +3,10 @@ package com.copage.collab.domain;
 import com.copage.ot.model.Document;
 import java.util.List;
 
-/** 서버가 보내는 메시지 (docs/05-PROTOCOL.md 7.3). 권한 변경과 댓글 알림은 아직 없다. */
+/** 서버가 보내는 메시지 (docs/05-PROTOCOL.md 7.3). 댓글 알림은 아직 없다. */
 public sealed interface ServerMessage
-        permits ServerMessage.Welcome, ServerMessage.Ack, ServerMessage.Nack, ServerMessage.Remote, ServerMessage.Presence {
+        permits ServerMessage.Welcome, ServerMessage.Ack, ServerMessage.Nack, ServerMessage.Remote, ServerMessage.Presence,
+                ServerMessage.Role {
 
     /**
      * hello 의 답. snapshot 과 ops 중 하나만 있다.
@@ -33,5 +34,9 @@ public sealed interface ServerMessage
 
     /** 다른 연결이 들어왔거나 커서를 옮겼다(left = false), 또는 나갔다(left = true). */
     record Presence(Peer peer, boolean left) implements ServerMessage {
+    }
+
+    /** 내 권한이 바뀌었다. 읽기 이하로 내려가면 클라이언트는 편집기를 읽기 전용으로 바꾼다. 권한을 잃으면 대신 4003 으로 닫는다. */
+    record Role(PageRole role) implements ServerMessage {
     }
 }

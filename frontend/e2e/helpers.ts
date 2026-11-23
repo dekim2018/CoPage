@@ -61,6 +61,28 @@ export async function sharedPage(owner: Page, ...others: Page[]): Promise<string
   }, members)
 }
 
+/**
+ * who 의 브라우저에서 API 를 부른다. Refresh 쿠키로 Access 토큰을 하나 더 받아 쓴다. 본문이 없는 응답(204)은 null 이다.
+ */
+export async function apiAs<T>(who: Page, method: string, path: string, body?: unknown): Promise<T> {
+  return who.evaluate(
+    async ({ method, path, body }) => {
+      const refreshed = await fetch('/api/auth/refresh', { method: 'POST' })
+      const { accessToken } = (await refreshed.json()) as { accessToken: string }
+      const response = await fetch(path, {
+        method,
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+      if (!response.ok) {
+        throw new Error(`${method} ${path} ${response.status} ${await response.text()}`)
+      }
+      return response.status === 204 ? null : await response.json()
+    },
+    { method, path, body },
+  ) as Promise<T>
+}
+
 /** owner 가 워크스페이스를 만들고 other 를 role 로 넣는다. 워크스페이스 ID 를 돌려준다. */
 export async function newWorkspaceWith(owner: Page, other: Page, role: 'MEMBER' | 'GUEST'): Promise<string> {
   const email = emails.get(other)

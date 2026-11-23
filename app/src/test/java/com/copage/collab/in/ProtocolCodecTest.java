@@ -119,6 +119,12 @@ class ProtocolCodecTest {
                 """)), MAPPER.readTree(codec.write(new ServerMessage.Presence(peer, true))));
     }
 
+    @Test
+    void role_은_바뀐_등급만_싣는다() {
+        assertEquals(MAPPER.readTree(json("{'t':'role','role':'VIEW'}")),
+                MAPPER.readTree(codec.write(new ServerMessage.Role(PageRole.VIEW))));
+    }
+
     /** 테스트를 읽기 쉽게 작은따옴표로 쓴 JSON 을 큰따옴표로 바꾼다. */
     private static String json(String singleQuoted) {
         return singleQuoted.replace('\'', '"');
