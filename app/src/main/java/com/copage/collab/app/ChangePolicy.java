@@ -23,7 +23,7 @@ import java.util.Set;
  * 협업 서버가 묶음을 받을 때 거는 규칙. 어기면 묶음을 거부(nack)한다.
  *
  * <ul>
- *   <li>연산 단위 인가 (docs/07-SECURITY.md 9.5): VIEW 는 편집 불가, COMMENT 는 comment 서식만 바꾸는 retain 만 가능
+ *   <li>연산 단위 인가 (docs/07-SECURITY.md 9.7): VIEW 는 편집 불가, COMMENT 는 comment 서식만 바꾸는 retain 만 가능
  *   <li>입력 검사 (9.6): 허용한 블록 종류와 서식 이름, 링크 주소의 형식
  *   <li>문서 크기 한도 (docs/05-PROTOCOL.md 7.7): 변환하고 적용한 결과를 본다
  *   <li>저장할 수 있는 값인지: 연산은 PostgreSQL jsonb 에 그대로 들어간다. jsonb 는 문자열 안의 U+0000 을 받지 않고, 숫자를
