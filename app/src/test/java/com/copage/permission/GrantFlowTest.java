@@ -244,9 +244,7 @@ class GrantFlowTest extends TestInfra {
 
         assertEquals(204, send("PATCH", path, Map.of("role", "GUEST"), team.owner).status());
         assertEquals(403, ticket(page, team.member));
-        PermissionChange change = lastChange();
-        assertEquals(team.member.id(), change.userId());
-        assertTrue(change.pageIds().contains(UUID.fromString(page)));
+        assertEquals(PermissionChange.allPagesOf(team.member.id()), lastChange());
 
         grant(page, team.member, "VIEW", team.owner);
         assertEquals(204, send("DELETE", path, null, team.owner).status());

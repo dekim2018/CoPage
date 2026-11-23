@@ -129,9 +129,12 @@ public final class PageGrants {
         grants.deleteAllInWorkspace(workspaceId, userId);
     }
 
-    /** 워크스페이스 역할이 바뀌거나 내보냈을 때 그 사용자의 모든 페이지를 다시 계산하게 알린다. */
-    public void memberChanged(UUID workspaceId, UUID userId) {
-        publisher.accept(new PermissionChange(grants.workspacePages(workspaceId), userId));
+    /**
+     * 워크스페이스 역할이 바뀌거나 내보냈을 때 그 사용자의 모든 페이지를 다시 계산하게 알린다. 다른 워크스페이스의 페이지도 범위에
+     * 들지만, 받는 쪽은 그 사용자의 열린 연결만 다시 계산하므로 결과가 바뀌지 않는다.
+     */
+    public void memberChanged(UUID userId) {
+        publisher.accept(PermissionChange.allPagesOf(userId));
     }
 
     private Access.Granted requireFull(UUID actor, UUID pageId) {

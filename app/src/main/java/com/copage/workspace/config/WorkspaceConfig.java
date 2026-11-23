@@ -32,8 +32,14 @@ public class WorkspaceConfig {
             JdbcWorkspaceRepository workspaceRepository,
             UserDirectory userDirectory,
             PagePermissions pagePermissions,
-            PageGrants pageGrants) {
+            PageGrants pageGrants,
+            TransactionTemplate transactionTemplate) {
         return new WorkspaceService(
-                workspaceRepository, userDirectory, pagePermissions, pageGrants, Clock.systemUTC());
+                workspaceRepository,
+                userDirectory,
+                pagePermissions,
+                pageGrants,
+                work -> transactionTemplate.executeWithoutResult(status -> work.run()),
+                Clock.systemUTC());
     }
 }

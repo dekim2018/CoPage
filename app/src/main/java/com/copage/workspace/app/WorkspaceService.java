@@ -52,6 +52,7 @@ public final class WorkspaceService {
     private final UserDirectory users;
     private final PagePermissions permissions;
     private final PageGrants grants;
+    private final Transactions transactions;
     private final Clock clock;
 
     public WorkspaceService(
@@ -59,11 +60,13 @@ public final class WorkspaceService {
             UserDirectory users,
             PagePermissions permissions,
             PageGrants grants,
+            Transactions transactions,
             Clock clock) {
         this.repository = repository;
         this.users = users;
         this.permissions = permissions;
         this.grants = grants;
+        this.transactions = transactions;
         this.clock = clock;
     }
 
@@ -122,15 +125,20 @@ public final class WorkspaceService {
     public void changeRole(UUID userId, UUID workspaceId, UUID memberId, WorkspaceRole role) {
         requireOwner(workspaceId, userId);
         apply(repository.changeRole(workspaceId, memberId, role));
-        grants.memberChanged(workspaceId, memberId);
+        grants.memberChanged(memberId);
     }
 
-    /** 멤버를 내보낸다. OWNER 만 할 수 있다. 그 워크스페이스에서 받은 페이지 권한도 지운다 (D-16). */
+    /**
+     * 멤버를 내보낸다. OWNER 만 할 수 있다. 그 워크스페이스에서 받은 페이지 권한도 같은 트랜잭션에서 지운다 (D-16). 따로 커밋하면
+     * 권한 삭제가 실패했을 때 멤버만 빠지고 권한이 남아, 다시 넣으면 옛 권한이 되살아난다.
+     */
     public void removeMember(UUID userId, UUID workspaceId, UUID memberId) {
         requireOwner(workspaceId, userId);
-        apply(repository.removeMember(workspaceId, memberId));
-        grants.removeAllInWorkspace(workspaceId, memberId);
-        grants.memberChanged(workspaceId, memberId);
+        transactions.run(() -> {
+            apply(repository.removeMember(workspaceId, memberId));
+            grants.removeAllInWorkspace(workspaceId, memberId);
+        });
+        grants.memberChanged(memberId);
     }
 
     private void requireOwner(UUID workspaceId, UUID userId) {

@@ -81,14 +81,6 @@ public final class JdbcGrantRepository implements GrantRepository {
     }
 
     @Override
-    public Set<UUID> workspacePages(UUID workspaceId) {
-        return new HashSet<>(jdbc.sql("SELECT id FROM pages WHERE workspace_id = :workspaceId")
-                .param("workspaceId", workspaceId)
-                .query(UUID.class)
-                .list());
-    }
-
-    @Override
     public int deleteAllInWorkspace(UUID workspaceId, UUID userId) {
         return jdbc.sql("""
                         DELETE FROM page_grants g USING pages p
