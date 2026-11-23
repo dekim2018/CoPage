@@ -128,6 +128,15 @@ class JdbcWorkspaceRepositoryTest {
     }
 
     @Test
+    void 부모로_찾는_인덱스가_있다() {
+        // 페이지를 지울 때의 외래 키 검사가 parent_id 만으로 찾는다. 없으면 테이블 전체를 훑는다(5만 행에서 지울 때마다 2.9ms).
+        String definition = jdbc.sql("SELECT indexdef FROM pg_indexes WHERE tablename = 'pages' AND indexname = 'pages_parent'")
+                .query(String.class)
+                .single();
+        assertTrue(definition.contains("(parent_id)"), definition);
+    }
+
+    @Test
     void 동시에_같은_자리에_만들어도_순서_키가_겹치지_않는다() throws Exception {
         Page anchor = create(null, null);
         List<Callable<Page>> tasks = new ArrayList<>();

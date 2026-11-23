@@ -4,9 +4,12 @@
 CREATE TABLE workspaces (
     id         uuid        PRIMARY KEY,
     name       text        NOT NULL,
+    -- 만든 사람. 권한 판단에는 쓰지 않는다. 역할은 workspace_members.role 하나만 본다.
     owner_id   uuid        NOT NULL REFERENCES users (id),
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+COMMENT ON COLUMN workspaces.owner_id IS '만든 사람. 권한 판단에는 쓰지 않고 workspace_members.role 만 본다';
 
 CREATE TABLE workspace_members (
     workspace_id uuid        NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
@@ -35,6 +38,10 @@ CREATE TABLE pages (
 
 -- 한 단계 하위 목록. 루트 페이지(parent_id 가 NULL)도 같은 인덱스를 쓴다.
 CREATE INDEX pages_children ON pages (workspace_id, parent_id, pos);
+
+-- parent_id 만으로 찾는 경우. 페이지를 지울 때의 외래 키 검사(이 페이지를 부모로 둔 행이 있는가)와 하위 트리를 내려가는
+-- 재귀 CTE 가 쓴다. pages_children 은 workspace_id 가 첫 열이라 쓰지 못해 테이블 전체를 훑는다.
+CREATE INDEX pages_parent ON pages (parent_id) WHERE parent_id IS NOT NULL;
 
 -- 이미 있는 문서를 페이지로 옮긴다. 데이터는 지우지 않는다.
 -- 문서마다 첫 연산을 쓴 사용자를 주인으로 본다. 주인마다 "가져온 문서" 워크스페이스를 하나 만들고, 그 사용자를 OWNER 로,
