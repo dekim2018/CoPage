@@ -199,4 +199,26 @@ class CollabWebSocketIntegrationTest extends TestDatabase {
         Document unchanged = store.load(docId).document();
         assertEquals(0, unchanged.get(docId.toString()).text().length());
     }
+
+    @Test
+    void DB_에_저장할_수_없는_값은_그_묶음만_nack_하고_세션은_계속_돈다() throws Exception {
+        UUID docId = UUID.randomUUID();
+        TestClient client = new TestClient("a");
+        client.connect(uri(docId));
+        client.take();
+        String text = "{'t':'change','clientSeq':%d,'baseRev':0,'ops':[{'op':'text','blockId':'%s','delta':[{'insert':'%s'}]}]}";
+        String setLevel = "{'t':'change','clientSeq':2,'baseRev':0,'ops':[{'op':'setProps','blockId':'%s','key':'level','value':1e19}]}";
+
+        client.send(MAPPER.readTree(String.format(text, 1, docId, "a\\u0000b").replace('\'', '"')));
+        assertEquals("nack", client.take().get("t").stringValue());
+        client.send(MAPPER.readTree(String.format(setLevel, docId).replace('\'', '"')));
+        assertEquals("nack", client.take().get("t").stringValue());
+        client.send(MAPPER.readTree(String.format(text, 3, docId, "제목").replace('\'', '"')));
+        JsonNode ack = client.take();
+
+        assertEquals("ack", ack.get("t").stringValue());
+        assertEquals(1, ack.get("rev").longValue());
+        assertFalse(client.lastClose().isPresent());
+        assertEquals("제목", store.load(docId).document().get(docId.toString()).text().plainText());
+    }
 }

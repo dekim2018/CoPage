@@ -51,6 +51,10 @@ public final class ProtocolCodec {
                 if (clientId.isEmpty() || clientId.length() > 64) {
                     throw new ProtocolException("clientId 는 1~64 글자여야 한다");
                 }
+                // client_id 는 text 컬럼에 들어간다. PostgreSQL 은 text 의 U+0000 도 받지 않는다.
+                if (clientId.chars().anyMatch(Character::isISOControl)) {
+                    throw new ProtocolException("clientId 에 제어 문자를 쓸 수 없다");
+                }
                 boolean resume = node.has("resume") && OpJson.bool(node, "resume");
                 yield new ClientMessage.Hello(clientId, OpJson.longValue(node, "lastRev"), resume);
             }

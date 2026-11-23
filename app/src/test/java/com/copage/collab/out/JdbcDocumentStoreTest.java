@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.copage.collab.app.DocumentStore;
 import com.copage.collab.app.DocumentStore.RevisionConflictException;
+import com.copage.collab.domain.JsonFormatException;
 import com.copage.collab.domain.StoredChange;
 import com.copage.ot.model.Document;
 import com.copage.ot.op.Op;
@@ -20,9 +21,11 @@ import com.copage.support.TestDatabase;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalLong;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -118,5 +121,37 @@ class JdbcDocumentStoreTest {
                 .param("docId", docId).query(Long.class).list();
         assertEquals(List.of(3L, 4L, 5L), revs);
         assertTrue(store.load(docId).snapshotRev() == 5);
+    }
+
+    @Test
+    void 입력_검사를_통과하는_값은_저장했다_읽어도_그대로다() {
+        Op values = new InsertBlock("V", root, "a", "code",
+                Attrs.copy(Map.of(
+                        "level", Long.MAX_VALUE,
+                        "small", 2,
+                        "list", List.of(1, "가😀", true),
+                        "nested", Map.of("k", "v"))),
+                RichText.of("이모지 😀 와 따옴표 \" 와 역슬래시 \\", Attrs.of("link", "https://example.com/?a=1&b=2")));
+        store.append(docId, List.of(change(1, "c1", 1, values)));
+
+        assertEquals(Document.create(root).apply(values), store.load(docId).document());
+        assertEquals(List.of(values), store.changesSince(docId, 0).get(0).ops());
+    }
+
+    /** 입력 검사가 막는 값이 DB 에 닿으면 실제로 실패한다. ChangePolicy 가 이 값을 막아야 하는 이유다. */
+    @Test
+    void 막지_않았다면_jsonb_가_U0000_을_받지_않는다() {
+        Op nul = paragraph("N", "a" + (char) 0 + "b");
+
+        assertThrows(DataAccessException.class,
+                () -> store.append(docId, List.of(change(1, "c1", 1, nul))));
+        assertEquals(0, store.changesSince(docId, 0).size());
+    }
+
+    @Test
+    void 막지_않았다면_jsonb_가_큰_실수를_읽을_수_없는_정수로_바꾼다() {
+        store.append(docId, List.of(change(1, "c1", 1, paragraph("X", "가"), new SetProps("X", "level", 1e19))));
+
+        assertThrows(JsonFormatException.class, () -> store.load(docId));
     }
 }
