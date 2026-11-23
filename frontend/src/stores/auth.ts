@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { api, authApi, refresh, setAccessToken } from '../api/http'
+import { useWorkspace } from './workspace'
 import type { TokenResponse, UserInfo } from '../api/http'
 
 /** 로그인 상태. 새로고침하면 Refresh 쿠키로 다시 로그인한다 (docs/01-PLAN.md A-2). */
@@ -37,6 +38,8 @@ export const useAuth = defineStore('auth', () => {
     } finally {
       setAccessToken(null)
       user.value = null
+      // 다른 사람이 같은 브라우저로 로그인해도 앞 사람의 트리가 남지 않는다.
+      useWorkspace().reset()
     }
   }
 
