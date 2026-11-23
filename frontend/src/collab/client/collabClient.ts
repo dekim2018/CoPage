@@ -5,6 +5,8 @@ import { DocConnection } from '../transport/connection'
 import type { ConnectionState } from '../transport/connection'
 import { ClientSession } from './clientSession'
 import type { CommittedChange, Submission } from './clientSession'
+import { moveCursor } from './presence'
+import type { Cursor, Peer } from './presence'
 
 /*
  * 문서 하나를 서버와 맞추는 협업 클라이언트 (docs/10-FRONTEND.md 12.1, 12.3). ClientSession 을 감싸 서버 메시지를 처리하고,
@@ -20,7 +22,12 @@ export interface CollabListener {
   /** 화면 문서가 서버 쪽 사정으로 바뀌었다. 편집기에 반영한다. */
   onRemote(view: Document): void
   onStatus(status: SyncStatus, detail?: string): void
+  /** 접속자나 남의 커서가 바뀌었다. */
+  onPeers(peers: readonly Peer[]): void
 }
+
+/** 커서가 움직여도 이 간격에 한 번만 보낸다 (docs/05-PROTOCOL.md 7.6). */
+const PRESENCE_INTERVAL_MS = 50
 
 interface CommittedJson {
   rev: number
@@ -38,6 +45,10 @@ export class CollabClient {
   private readonly queue: unknown[] = []
   private readonly connection: DocConnection
   private connectionState: ConnectionState = 'connecting'
+  private readonly peers = new Map<string, Peer>()
+  private myCursor: Cursor | null = null
+  private lastPresenceAt = 0
+  private presenceTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     docId: string,
@@ -67,7 +78,38 @@ export class CollabClient {
   }
 
   stop(): void {
+    if (this.presenceTimer !== null) {
+      clearTimeout(this.presenceTimer)
+    }
     this.connection.stop()
+  }
+
+  /**
+   * 내 커서를 알린다. 커서가 움직여도 50ms 에 한 번만 보내고, 사이에 온 것은 마지막 것만 모아 보낸다. null 이면 편집기를 떠난
+   * 것이다.
+   */
+  sendPresence(cursor: Cursor | null): void {
+    this.myCursor = cursor
+    if (this.presenceTimer !== null) {
+      return
+    }
+    const wait = this.lastPresenceAt + PRESENCE_INTERVAL_MS - Date.now()
+    if (wait <= 0) {
+      this.flushPresence()
+    } else {
+      this.presenceTimer = setTimeout(() => {
+        this.presenceTimer = null
+        this.flushPresence()
+      }, wait)
+    }
+  }
+
+  private flushPresence(): void {
+    if (!this.welcomed) {
+      return
+    }
+    this.lastPresenceAt = Date.now()
+    this.connection.send({ t: 'presence', cursor: this.myCursor })
   }
 
   /** 지금 화면 문서. 첫 welcome 전에는 null. */
@@ -81,8 +123,23 @@ export class CollabClient {
       return
     }
     this.session.edit(ops)
+    // 내 편집도 남의 커서를 옮긴다.
+    this.movePeers(ops)
     this.flush()
     this.reportStatus()
+  }
+
+  private movePeers(ops: readonly Op[]): void {
+    let moved = false
+    for (const [clientId, peer] of this.peers) {
+      if (peer.cursor !== null) {
+        this.peers.set(clientId, { ...peer, cursor: moveCursor(peer.cursor, ops) })
+        moved = true
+      }
+    }
+    if (moved) {
+      this.listener.onPeers([...this.peers.values()])
+    }
   }
 
   hold(): void {
@@ -134,14 +191,37 @@ export class CollabClient {
         this.session?.onNack(message.clientSeq as number)
         this.notify()
         break
-      case 'remote':
-        this.session?.onChange(committed(message as unknown as CommittedJson))
+      case 'remote': {
+        const change = committed(message as unknown as CommittedJson)
+        this.session?.onChange(change)
+        this.movePeers(change.ops)
         this.notify()
+        break
+      }
+      case 'presence':
+        this.presence(message)
         break
     }
   }
 
+  private presence(message: Record<string, unknown>): void {
+    const clientId = message.clientId as string
+    if (message.left === true) {
+      this.peers.delete(clientId)
+    } else {
+      this.peers.set(clientId, message as unknown as Peer)
+    }
+    this.listener.onPeers([...this.peers.values()])
+  }
+
   private welcome(message: Record<string, unknown>): void {
+    // 접속자 목록은 다시 붙을 때마다 서버가 준 것으로 새로 시작한다. 내 마지막 커서도 다시 알린다.
+    this.peers.clear()
+    for (const peer of (message.peers as Peer[] | undefined) ?? []) {
+      this.peers.set(peer.clientId, peer)
+    }
+    this.listener.onPeers([...this.peers.values()])
+    queueMicrotask(() => this.sendPresence(this.myCursor))
     const rev = message.rev as number
     if (message.snapshot !== undefined) {
       // 처음 열었거나, 너무 오래 떨어져 대기 편집을 합칠 수 없다(rebase: false). 확정 문서부터 다시 시작한다.
