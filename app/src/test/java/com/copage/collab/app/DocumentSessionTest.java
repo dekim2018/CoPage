@@ -79,9 +79,13 @@ class DocumentSessionTest {
         final InMemoryDocumentStore delegate = new InMemoryDocumentStore();
         final List<Integer> appendSizes = new ArrayList<>();
         boolean fail;
+        boolean failLoad;
 
         @Override
         public Snapshot load(UUID docId) {
+            if (failLoad) {
+                throw new IllegalStateException("저장소에 닿을 수 없다");
+            }
             return delegate.load(docId);
         }
 
@@ -260,6 +264,36 @@ class DocumentSessionTest {
         runAll();
 
         assertEquals(1, sessions.size());
+    }
+
+    @Test
+    void 세션을_연_연결이_거부되어도_세션은_정해진_시간_뒤에_내려간다() {
+        FakeConnection rejected = join("A", 3, PageRole.EDIT);
+        assertEquals(CloseCodes.PROTOCOL, rejected.closedWith);
+        sessions.leave(DOC, rejected);
+        runAll();
+        assertEquals(1, sessions.size());
+
+        now = now.plusSeconds(61);
+        scheduled.forEach(Runnable::run);
+        runAll();
+
+        assertEquals(0, sessions.size());
+    }
+
+    @Test
+    void 문서를_불러오지_못해도_세션은_내려가고_다음_연결이_다시_불러온다() {
+        store.failLoad = true;
+        FakeConnection failed = join("A");
+        assertEquals(1011, failed.closedWith);
+
+        now = now.plusSeconds(61);
+        scheduled.forEach(Runnable::run);
+        runAll();
+        assertEquals(0, sessions.size());
+
+        store.failLoad = false;
+        assertEquals(0, join("B").last(Welcome.class).rev());
     }
 
     @Test

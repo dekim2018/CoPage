@@ -112,6 +112,9 @@ public final class DocumentSession {
                 LOG.log(System.Logger.Level.ERROR, "문서 " + docId + " 에 연결을 넣지 못했다", e);
                 connection.close(1011, "서버 오류");
             }
+            // 세션을 연 연결이 멤버가 되지 못하면 이 연결의 leave 는 아무도 빼지 않는다. 여기서 내리기를 예약해야 세션이
+            // 남지 않는다.
+            scheduleUnloadIfEmpty();
         });
     }
 
@@ -134,11 +137,17 @@ public final class DocumentSession {
     /** 연결이 끊겼다. 마지막 연결이었으면 일정 시간 뒤 세션을 내린다. */
     public void leave(Connection connection) {
         executor.execute(() -> {
-            if (members.remove(connection.id()) != null && members.isEmpty() && !closed) {
-                idleSince = clock.instant();
-                scheduler.schedule(() -> executor.execute(this::unloadIfIdle), settings.unloadDelay());
+            if (members.remove(connection.id()) != null) {
+                scheduleUnloadIfEmpty();
             }
         });
+    }
+
+    private void scheduleUnloadIfEmpty() {
+        if (members.isEmpty() && !closed) {
+            idleSince = clock.instant();
+            scheduler.schedule(() -> executor.execute(this::unloadIfIdle), settings.unloadDelay());
+        }
     }
 
     private void ensureLoaded() {
