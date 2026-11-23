@@ -189,7 +189,7 @@ public final class DocumentSession {
         });
     }
 
-    /** 커서가 움직였다. 기억해 두고 다른 연결에 넘긴다. 읽기 권한도 보낼 수 있다 (docs/07-SECURITY.md 9.7). */
+    /** 커서가 움직였다. 기억해 두고 다른 연결에 넘긴다. 읽기 권한도 보낼 수 있다 (docs/07-SECURITY.md 9.5). */
     public void presence(Connection connection, Cursor cursor) {
         executor.execute(() -> {
             Member member = members.get(connection.id());
