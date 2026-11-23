@@ -218,3 +218,22 @@ test('권한이 내려가면 열린 편집기가 1초 안에 읽기 전용이 �
   await apiAs(owner, 'DELETE', `/api/pages/${pageId}/grants/${guestId}`)
   await expect(guest.getByTestId('status')).toHaveAttribute('data-status', 'error', { timeout: 1_000 })
 })
+
+test('워크스페이스가 있어도 사이드바에서 둘째를 만들 수 있고, 속하지 않은 워크스페이스는 열 수 없다고 보인다', async ({
+  browser,
+}) => {
+  const [a, stranger] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'stranger')])
+  const pageId = await sharedPage(a)
+  await open(a, pageId)
+  const first = a.url().split('/w/')[1]?.split('/')[0] ?? ''
+
+  await a.getByRole('link', { name: '워크스페이스 만들기' }).click()
+  await a.fill('input[name=workspace-name]', '둘째 팀')
+  await a.getByRole('button', { name: '워크스페이스 만들기' }).click()
+  await a.waitForURL(/\/w\/[0-9a-f-]{36}$/)
+  expect(a.url()).not.toContain(first)
+  await expect(a.getByLabel('워크스페이스')).toContainText('둘째 팀')
+
+  await stranger.goto(`/w/${first}`)
+  await expect(stranger.getByTestId('page-error')).toHaveText('워크스페이스를 열 수 없다')
+})

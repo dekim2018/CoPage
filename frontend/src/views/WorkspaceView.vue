@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageTree from '../components/PageTree.vue'
 import { useWorkspace } from '../stores/workspace'
@@ -9,13 +9,16 @@ const props = defineProps<{ workspaceId: string }>()
 const store = useWorkspace()
 const route = useRoute()
 const router = useRouter()
-const loading = computed(() => store.current?.id !== props.workspaceId)
+// 마지막으로 열기를 마친 워크스페이스. 열기가 끝났는데 current 가 비었으면 속하지 않았거나 없는 워크스페이스다.
+const openedId = ref<string | null>(null)
+const notFound = computed(() => openedId.value === props.workspaceId && store.current === null)
 const canCreate = computed(() => store.current !== null && store.current.role !== 'GUEST')
 
 watch(
   () => props.workspaceId,
   async (workspaceId) => {
     await store.open(workspaceId)
+    openedId.value = workspaceId
   },
   { immediate: true },
 )
@@ -40,13 +43,14 @@ function switchTo(event: Event) {
         <button v-if="canCreate" type="button" class="new-page" @click="createRoot">새 페이지</button>
         <PageTree :workspace-id="workspaceId" :parent-id="null" />
         <RouterLink v-if="canCreate" :to="`/w/${workspaceId}/members`" class="members-link">멤버</RouterLink>
-        <RouterLink to="/" class="members-link">워크스페이스 만들기</RouterLink>
+        <!-- create 가 없으면 첫 화면이 곧바로 내 워크스페이스로 되돌려 보낸다 -->
+        <RouterLink :to="{ path: '/', query: { create: '1' } }" class="members-link">워크스페이스 만들기</RouterLink>
       </template>
     </aside>
     <section class="content">
-      <p v-if="!loading && store.current === null" class="error" data-testid="page-error">워크스페이스를 열 수 없다</p>
+      <p v-if="notFound" class="error" data-testid="page-error">워크스페이스를 열 수 없다</p>
       <!-- 페이지를 옮겨 다니면 편집기 연결을 새로 연다 -->
-      <RouterView v-else :key="route.fullPath" />
+      <RouterView v-else-if="store.current" :key="route.fullPath" />
     </section>
   </div>
 </template>
