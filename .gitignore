@@ -16,7 +16,7 @@ bin/
 # OS
 .DS_Store
 
-# 프론트엔드 (이후 단계)
+# 프론트엔드
 node_modules/
 dist/
 
