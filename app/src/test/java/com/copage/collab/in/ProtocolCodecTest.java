@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.copage.collab.domain.ClientMessage;
+import com.copage.collab.domain.Cursor;
 import com.copage.collab.domain.PageRole;
+import com.copage.collab.domain.Peer;
 import com.copage.collab.domain.ServerMessage;
 import com.copage.collab.domain.StoredChange;
 import com.copage.ot.op.Op.SetProps;
@@ -87,10 +89,34 @@ class ProtocolCodecTest {
 
     @Test
     void welcome_은_스냅샷이나_놓친_묶음_중_하나를_싣는다() {
-        JsonNode withOps = MAPPER.readTree(codec.write(new ServerMessage.Welcome(5, PageRole.EDIT, true, null, List.of())));
+        JsonNode withOps = MAPPER.readTree(codec.write(new ServerMessage.Welcome(5, PageRole.EDIT, true, null, List.of(), List.of())));
         assertEquals(MAPPER.readTree("""
                 {"t":"welcome","rev":5,"role":"EDIT","rebase":true,"ops":[],"peers":[]}
                 """), withOps);
+    }
+
+    @Test
+    void presence_의_커서를_읽고_편집기를_떠났으면_null_이다() {
+        assertEquals(
+                new ClientMessage.Presence(new Cursor(new Cursor.Position("b1", 2), new Cursor.Position("b2", 0))),
+                codec.read(json("{'t':'presence','cursor':{'anchor':{'blockId':'b1','offset':2},'head':{'blockId':'b2','offset':0}}}")));
+        assertEquals(new ClientMessage.Presence(null), codec.read(json("{'t':'presence','cursor':null}")));
+        assertThrows(ProtocolException.class, () -> codec.read(
+                json("{'t':'presence','cursor':{'anchor':{'blockId':'b1','offset':-1},'head':{'blockId':'b1','offset':0}}}")));
+    }
+
+    @Test
+    void presence_는_이름과_색과_커서를_싣고_나간_연결은_left_만_싣는다() {
+        UUID user = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        Peer peer = new Peer("tab-1", user, "김코", "#e5484d", new Cursor(new Cursor.Position("b", 1), new Cursor.Position("b", 1)));
+
+        assertEquals(MAPPER.readTree(json("""
+                {'t':'presence','clientId':'tab-1','userId':'00000000-0000-0000-0000-000000000001','name':'김코','color':'#e5484d',
+                 'cursor':{'anchor':{'blockId':'b','offset':1},'head':{'blockId':'b','offset':1}}}
+                """)), MAPPER.readTree(codec.write(new ServerMessage.Presence(peer, false))));
+        assertEquals(MAPPER.readTree(json("""
+                {'t':'presence','clientId':'tab-1','userId':'00000000-0000-0000-0000-000000000001','left':true}
+                """)), MAPPER.readTree(codec.write(new ServerMessage.Presence(peer, true))));
     }
 
     /** 테스트를 읽기 쉽게 작은따옴표로 쓴 JSON 을 큰따옴표로 바꾼다. */

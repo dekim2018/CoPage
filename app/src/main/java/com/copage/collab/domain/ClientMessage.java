@@ -24,8 +24,8 @@ public sealed interface ClientMessage
         }
     }
 
-    /** 커서와 선택 영역. 프레즌스는 아직 구현하지 않아서 받기만 하고 버린다. */
-    record Presence() implements ClientMessage {
+    /** 커서와 선택 영역 (7.6). 편집기를 떠났으면 cursor 는 null 이다. 저장하지 않는다. */
+    record Presence(Cursor cursor) implements ClientMessage {
     }
 
     /** 연결이 살아 있다는 신호. 20초마다 온다. */

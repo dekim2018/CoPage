@@ -20,12 +20,16 @@ public final class TicketService {
         this.ttl = ttl;
     }
 
-    /** 권한 검사를 마친 쪽이 부른다. 티켓은 ttl 동안 한 번만 쓸 수 있다. */
-    public String issue(UUID userId, UUID docId, PageRole role) {
+    /**
+     * 권한 검사를 마친 쪽이 부른다. 티켓은 ttl 동안 한 번만 쓸 수 있다.
+     *
+     * @param name 접속자 목록과 남의 커서에 보일 이름
+     */
+    public String issue(UUID userId, UUID docId, PageRole role, String name) {
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
         String ticket = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        store.save(ticket, new WsTicket(userId, docId, role), ttl);
+        store.save(ticket, new WsTicket(userId, docId, role, name), ttl);
         return ticket;
     }
 

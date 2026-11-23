@@ -9,7 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.copage.collab.domain.ClientMessage.Change;
 import com.copage.collab.domain.ClientMessage.Hello;
+import com.copage.collab.domain.Cursor;
 import com.copage.collab.domain.PageRole;
+import com.copage.collab.domain.Peer;
 import com.copage.collab.domain.ServerMessage;
 import com.copage.collab.domain.ServerMessage.Ack;
 import com.copage.collab.domain.ServerMessage.Nack;
@@ -125,7 +127,7 @@ class DocumentSessionTest {
 
     private FakeConnection join(String id, long lastRev, PageRole role) {
         FakeConnection connection = new FakeConnection(id);
-        sessions.join(DOC, connection, new Hello("client-" + id, lastRev, lastRev > 0), role);
+        sessions.join(DOC, connection, new Hello("client-" + id, lastRev, lastRev > 0), role, "이름-" + connection.id());
         runAll();
         return connection;
     }
@@ -174,7 +176,7 @@ class DocumentSessionTest {
         runAll();
 
         assertEquals("안녕 본문 끝", text("X"));
-        assertEquals(List.of(new Ack(1, 1), new Ack(2, 2)), a.received.subList(1, 3));
+        assertEquals(List.of(new Ack(1, 1), new Ack(2, 2)), a.sync.subList(1, 3));
         assertEquals(3, a.last(Remote.class).change().rev());
         assertEquals(new Ack(1, 3), b.last());
         // b 의 묶음은 a 의 삽입만큼 뒤로 밀려 확정되었다.
@@ -190,8 +192,8 @@ class DocumentSessionTest {
         runAll();
 
         assertEquals(List.of(2), store.appendSizes);
-        assertEquals(new Ack(1, 1), a.received.get(1));
-        assertEquals(new Ack(1, 2), b.received.get(2));
+        assertEquals(new Ack(1, 1), a.sync.get(1));
+        assertEquals(new Ack(1, 2), b.sync.get(2));
     }
 
     @Test
@@ -202,8 +204,8 @@ class DocumentSessionTest {
         submit(a, 1, 0, paragraph("X", "가"));
         runAll();
 
-        assertEquals(1, a.received.size(), "welcome 말고는 아무것도 받지 않았다");
-        assertEquals(1, b.received.size());
+        assertEquals(1, a.sync.size(), "welcome 말고는 아무것도 받지 않았다");
+        assertEquals(1, b.sync.size());
         assertEquals(CloseCodes.MOVED, a.closedWith);
         assertEquals(CloseCodes.MOVED, b.closedWith);
         assertEquals(0, sessions.size());
@@ -224,7 +226,7 @@ class DocumentSessionTest {
         runAll();
 
         FakeConnection again = new FakeConnection("A-again");
-        sessions.join(DOC, again, new Hello("client-A", 1, true), PageRole.EDIT);
+        sessions.join(DOC, again, new Hello("client-A", 1, true), PageRole.EDIT, "이름-" + again.id());
         runAll();
         Welcome welcome = again.last(Welcome.class);
         assertEquals(2, welcome.rev());
@@ -249,7 +251,7 @@ class DocumentSessionTest {
         assertEquals(0, sessions.size());
 
         FakeConnection again = new FakeConnection("A-again");
-        sessions.join(DOC, again, new Hello("client-A", 1, true), PageRole.EDIT);
+        sessions.join(DOC, again, new Hello("client-A", 1, true), PageRole.EDIT, "이름-" + again.id());
         runAll();
         // 새 세션의 ServerDocument 는 순번 1 을 모른다.
         sessions.submit(DOC, again, new Change(1, 1, List.of(paragraph("X", "가"))));
@@ -365,7 +367,7 @@ class DocumentSessionTest {
         runAll();
 
         FakeConnection again = new FakeConnection("A-again");
-        sessions.join(DOC, again, new Hello("client-A", 0, true), PageRole.EDIT);
+        sessions.join(DOC, again, new Hello("client-A", 0, true), PageRole.EDIT, "이름-" + again.id());
         runAll();
 
         Welcome welcome = again.last(Welcome.class);
@@ -405,7 +407,7 @@ class DocumentSessionTest {
         runAll();
 
         assertEquals(new Nack(1, "권한 VIEW 으로는 이 연산을 할 수 없다", 0), viewer.last());
-        List<ServerMessage> replies = a.received.subList(1, a.received.size());
+        List<ServerMessage> replies = a.sync.subList(1, a.sync.size());
         assertEquals(3, replies.size());
         replies.forEach(reply -> assertInstanceOf(Nack.class, reply));
         assertTrue(((Nack) replies.get(1)).reason().contains("글자 수"));
@@ -418,12 +420,58 @@ class DocumentSessionTest {
         FakeConnection old = join("old");
         FakeConnection fresh = new FakeConnection("fresh");
         submit(old, 1, 0, paragraph("X", "가"));
-        sessions.join(DOC, fresh, new Hello("client-old", 0, false), PageRole.EDIT);
+        sessions.join(DOC, fresh, new Hello("client-old", 0, false), PageRole.EDIT, "이름-" + fresh.id());
         runAll();
 
         assertEquals(new Ack(1, 1), old.last());
         Remote remote = fresh.last(Remote.class);
         assertEquals("client-old", remote.change().clientId());
         assertEquals(1, remote.change().clientSeq());
+    }
+
+    @Test
+    void 들어오면_다른_연결에_알리고_새_연결은_기존_연결과_커서를_peers_로_받는다() {
+        FakeConnection a = join("A");
+        FakeConnection b = join("B");
+
+        Welcome welcome = b.received.get(0) instanceof Welcome w ? w : null;
+        assertNotNull(welcome);
+        assertEquals(List.of("client-A"), welcome.peers().stream().map(Peer::clientId).toList());
+        assertEquals("이름-A", welcome.peers().get(0).name());
+        ServerMessage.Presence entered = a.last(ServerMessage.Presence.class);
+        assertEquals("client-B", entered.peer().clientId());
+        assertFalse(entered.left());
+        assertNull(entered.peer().cursor());
+
+        Cursor cursor = new Cursor(new Cursor.Position("X", 1), new Cursor.Position("X", 3));
+        sessions.presence(DOC, a, cursor);
+        runAll();
+        assertEquals(cursor, b.last(ServerMessage.Presence.class).peer().cursor());
+        assertInstanceOf(ServerMessage.Presence.class, a.last(), "자기 커서는 자기에게 돌아오지 않는다");
+        assertEquals("client-B", a.last(ServerMessage.Presence.class).peer().clientId());
+
+        FakeConnection c = join("C");
+        Welcome third = (Welcome) c.received.get(0);
+        assertEquals(cursor, third.peers().stream().filter(p -> p.clientId().equals("client-A")).findFirst().orElseThrow().cursor());
+    }
+
+    @Test
+    void 나가면_남은_연결에_퇴장을_알린다() {
+        FakeConnection a = join("A");
+        FakeConnection b = join("B");
+        sessions.leave(DOC, a);
+        runAll();
+
+        ServerMessage.Presence left = b.last(ServerMessage.Presence.class);
+        assertTrue(left.left());
+        assertEquals("client-A", left.peer().clientId());
+    }
+
+    @Test
+    void 같은_사람은_어느_문서에서나_같은_색이다() {
+        UUID user = UUID.randomUUID();
+        assertEquals(Peer.colorOf(user), Peer.colorOf(UUID.fromString(user.toString())));
+        assertTrue(Peer.COLORS.contains(Peer.colorOf(user)));
+        assertEquals(12, Peer.COLORS.size());
     }
 }

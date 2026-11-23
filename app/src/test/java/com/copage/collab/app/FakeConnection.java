@@ -11,6 +11,8 @@ final class FakeConnection implements Connection {
     private final String id;
     private final UUID userId;
     final List<ServerMessage> received = new ArrayList<>();
+    /** 프레즌스(입장, 커서, 퇴장)를 뺀 메시지. 편집 규칙을 보는 테스트가 쓴다. */
+    final List<ServerMessage> sync = new ArrayList<>();
     Integer closedWith;
 
     FakeConnection(String id) {
@@ -31,6 +33,9 @@ final class FakeConnection implements Connection {
     @Override
     public void send(ServerMessage message) {
         received.add(message);
+        if (!(message instanceof ServerMessage.Presence)) {
+            sync.add(message);
+        }
     }
 
     @Override

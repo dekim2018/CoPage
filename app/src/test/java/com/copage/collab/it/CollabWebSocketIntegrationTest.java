@@ -46,7 +46,7 @@ class CollabWebSocketIntegrationTest extends TestInfra {
     }
 
     private URI uri(UUID docId) {
-        return uri(docId, tickets.issue(UUID.randomUUID(), docId, PageRole.EDIT), "1");
+        return uri(docId, tickets.issue(UUID.randomUUID(), docId, PageRole.EDIT, "테스터"), "1");
     }
 
     private static int awaitClose(TestClient client) throws InterruptedException {
@@ -139,7 +139,7 @@ class CollabWebSocketIntegrationTest extends TestInfra {
         noTicket.connect(uri(docId, "nope", "1"));
         assertEquals(CloseCodes.TICKET, awaitClose(noTicket));
 
-        String ticket = tickets.issue(UUID.randomUUID(), docId, PageRole.EDIT);
+        String ticket = tickets.issue(UUID.randomUUID(), docId, PageRole.EDIT, "테스터");
         TestClient first = new TestClient("b");
         first.connect(uri(docId, ticket, "1"));
         assertNotNull(first.take());
@@ -149,7 +149,7 @@ class CollabWebSocketIntegrationTest extends TestInfra {
 
         // 다른 문서의 티켓으로는 열 수 없다.
         TestClient otherDoc = new TestClient("d");
-        otherDoc.connect(uri(UUID.randomUUID(), tickets.issue(UUID.randomUUID(), docId, PageRole.EDIT), "1"));
+        otherDoc.connect(uri(UUID.randomUUID(), tickets.issue(UUID.randomUUID(), docId, PageRole.EDIT, "테스터"), "1"));
         assertEquals(CloseCodes.TICKET, awaitClose(otherDoc));
     }
 
@@ -157,7 +157,7 @@ class CollabWebSocketIntegrationTest extends TestInfra {
     void 규약_버전이_다르면_4010_으로_끊는다() throws Exception {
         UUID docId = UUID.randomUUID();
         TestClient client = new TestClient("a");
-        client.connect(uri(docId, tickets.issue(UUID.randomUUID(), docId, PageRole.EDIT), "2"));
+        client.connect(uri(docId, tickets.issue(UUID.randomUUID(), docId, PageRole.EDIT, "테스터"), "2"));
 
         assertEquals(CloseCodes.VERSION, awaitClose(client));
     }
@@ -185,7 +185,7 @@ class CollabWebSocketIntegrationTest extends TestInfra {
     void 읽기_권한으로_보낸_편집은_nack_를_받는다() throws Exception {
         UUID docId = UUID.randomUUID();
         TestClient viewer = new TestClient("v");
-        viewer.connect(uri(docId, tickets.issue(UUID.randomUUID(), docId, PageRole.VIEW), "1"));
+        viewer.connect(uri(docId, tickets.issue(UUID.randomUUID(), docId, PageRole.VIEW, "테스터"), "1"));
         JsonNode welcome = viewer.take();
         assertEquals("VIEW", welcome.get("role").stringValue());
 

@@ -155,6 +155,9 @@ public final class TestClient {
                 session.onChange(committed(message));
                 flush();
             }
+            case "presence" -> {
+                // 편집만 보는 클라이언트라 남의 커서와 입장, 퇴장은 쓰지 않는다.
+            }
             default -> throw new AssertionError("알 수 없는 메시지: " + message);
         }
     }

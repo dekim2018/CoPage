@@ -41,7 +41,7 @@ class RestartTest {
 
     private static URI uri(ConfigurableApplicationContext context, UUID docId) {
         String port = context.getEnvironment().getProperty("local.server.port");
-        String ticket = context.getBean(TicketService.class).issue(UUID.randomUUID(), docId, PageRole.EDIT);
+        String ticket = context.getBean(TicketService.class).issue(UUID.randomUUID(), docId, PageRole.EDIT, "테스터");
         return URI.create("ws://localhost:" + port + "/ws/docs/" + docId + "?ticket=" + ticket + "&v=1");
     }
 
