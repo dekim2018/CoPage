@@ -12,6 +12,7 @@ import {
   localOps,
   mergeBackward,
   mergeForward,
+  moveTargets,
   newParagraphAfter,
   outdent,
   renderView,
@@ -218,6 +219,10 @@ export class EditorBinding {
   }
 
   private apply(intent: Intent): boolean {
+    // 내가 접힌 토글 아래로 블록을 옮기면 그 토글을 펼친다. 옮긴 블록이 숨어 사라진 것처럼 보이지 않게 한다.
+    for (const parentId of moveTargets(intent.ops)) {
+      this.collapsed.delete(parentId)
+    }
     try {
       this.target.edit(intent.ops)
     } catch (e) {

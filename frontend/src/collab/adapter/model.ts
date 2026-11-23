@@ -141,17 +141,28 @@ export function readBlocks(pm: PmNode): PmBlock[] {
   return out
 }
 
-/** 편집기 위치를 블록 안 위치로. 블록 사이(경계)면 가까운 블록의 끝이나 처음으로 본다. ID 없는 노드는 건너뛴다. */
+/**
+ * 편집기 위치를 블록 안 위치로. 블록 사이(경계)면 가까운 블록의 끝이나 처음으로 본다. ID 없는 노드는 건너뛴다.
+ *
+ * 구분선 같은 원자 노드는 안쪽이 없이 한 칸만 차지한다. 그 노드 바로 앞 위치만 그 노드로 보고, 뒤 위치는 다음 블록에 넘긴다.
+ * 글이 있는 블록처럼 계산하면 아래 문단의 처음이 구분선으로 잡힌다.
+ */
 export function toBlockPosition(pm: PmNode, pos: number): BlockPosition | null {
   let result: BlockPosition | null = null
   let start = 0
   pm.forEach((node) => {
-    const contentStart = start + 1
-    const contentEnd = contentStart + node.content.size
-    if (result === null && pos <= contentEnd + 1) {
-      const id = node.attrs.blockId as string | null
-      if (id !== null) {
-        result = { blockId: id, offset: node.isAtom ? 0 : Math.max(0, Math.min(pos, contentEnd) - contentStart) }
+    const id = node.attrs.blockId as string | null
+    if (result === null && id !== null) {
+      if (node.isAtom) {
+        if (pos <= start) {
+          result = { blockId: id, offset: 0 }
+        }
+      } else {
+        const contentStart = start + 1
+        const contentEnd = contentStart + node.content.size
+        if (pos <= contentEnd + 1) {
+          result = { blockId: id, offset: Math.max(0, Math.min(pos, contentEnd) - contentStart) }
+        }
       }
     }
     start += node.nodeSize
@@ -323,6 +334,14 @@ function propOps(id: string, old: PmBlock, next: PmBlock): Op[] {
     }
   }
   return ops
+}
+
+/**
+ * 연산이 블록을 옮겨 넣는 부모들. 내가 블록을 접힌 토글 아래로 옮기면(Tab, Shift+Tab 으로 따라온 형제) 그 블록이 숨어 사라진
+ * 것처럼 보이므로, 바인딩은 이 부모들을 펼친다.
+ */
+export function moveTargets(ops: readonly Op[]): string[] {
+  return ops.flatMap((op) => (op.op === 'moveBlock' ? [op.parentId] : []))
 }
 
 /** 어댑터가 가로챈 키 하나의 결과. ops 를 적용한 뒤 cursor 로 커서를 옮긴다. */

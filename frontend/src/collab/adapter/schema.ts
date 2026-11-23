@@ -122,7 +122,11 @@ const Heading = block('heading', {
   attrs: {
     level: {
       default: 1,
-      parseHTML: () => 1,
+      // 편집기 안에서 복사해 붙여넣을 때 그린 값을 다시 읽는다. blockId 와 depth 는 읽지 않는다(붙인 자리가 정한다).
+      parseHTML: (element: HTMLElement) => {
+        const level = Number(element.getAttribute('data-level'))
+        return level >= 1 && level <= 3 ? level : 1
+      },
       renderHTML: (attributes: Record<string, unknown>) => ({ 'data-level': attributes.level }),
     },
   },
@@ -158,7 +162,7 @@ const Todo = block('todo', {
   attrs: {
     checked: {
       default: false,
-      parseHTML: () => false,
+      parseHTML: (element: HTMLElement) => element.getAttribute('data-checked') === 'true',
       renderHTML: (attributes: Record<string, unknown>) => ({ 'data-checked': attributes.checked ? 'true' : 'false' }),
     },
   },
@@ -291,7 +295,7 @@ const CodeBlock = block('codeBlock', {
   attrs: {
     language: {
       default: null,
-      parseHTML: () => null,
+      parseHTML: (element: HTMLElement) => element.getAttribute('data-language'),
       renderHTML: (attributes: Record<string, unknown>) =>
         attributes.language ? { 'data-language': attributes.language } : {},
     },

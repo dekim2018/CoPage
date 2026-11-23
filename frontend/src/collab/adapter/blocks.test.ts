@@ -12,6 +12,7 @@ import {
   indent,
   localOps,
   mergeBackward,
+  moveTargets,
   outdent,
   readBlocks,
   renderView,
@@ -99,6 +100,25 @@ describe('편집기 문서', () => {
   it('코드 블록은 서식을 그리지 않는다', () => {
     const view = doc(insertBlock('K', ROOT, 'a', 'code', A.NO_ATTRS, RichText.of('x', A.of('bold', true))))
     expect(readBlocks(toPm(schema, view))[1]?.text.segments).toEqual([{ text: 'x', attrs: {} }])
+  })
+})
+
+describe('구분선과 위치', () => {
+  it('구분선 아래 문단의 처음은 구분선이 아니라 그 문단이다', () => {
+    const view = doc(block('P', 'a', 'paragraph', '위'), block('D', 'b', 'divider'), block('Q', 'c', 'paragraph', '아래'))
+    const pm = toPm(schema, view)
+    const start = toPmPosition(pm, { blockId: 'Q', offset: 0 }) as number
+
+    expect(toBlockPosition(pm, start)).toEqual({ blockId: 'Q', offset: 0 })
+    expect(toBlockPosition(pm, start + 1)).toEqual({ blockId: 'Q', offset: 1 })
+    // 구분선 바로 앞(위 문단과의 경계)은 위 문단의 끝이다.
+    const divider = toPmPosition(pm, { blockId: 'D', offset: 0 }) as number
+    expect(toBlockPosition(pm, divider)).toEqual({ blockId: 'P', offset: 1 })
+  })
+
+  it('블록을 옮겨 넣는 부모를 알려 준다. 바인딩은 그 부모가 접혀 있으면 펼친다', () => {
+    const view = doc(block('T', 'a', 'toggle', '토글'), block('P', 'b', 'paragraph', '다음'))
+    expect(moveTargets(indent(view, { blockId: 'P', offset: 0 })?.ops as Op[])).toEqual(['T'])
   })
 })
 
