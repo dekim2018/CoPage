@@ -1,4 +1,4 @@
-package com.copage.collab.in;
+package com.copage.collab.domain;
 
 import com.copage.ot.model.Block;
 import com.copage.ot.model.Document;
@@ -33,7 +33,9 @@ import tools.jackson.databind.node.ObjectNode;
  * VectorJson)가 쓰는 모양과 같다.
  *
  * <p>연산은 docs/05-PROTOCOL.md 7.2 의 형식이다. 문서는 블록을 ID 순으로 늘어놓은 배열로 적는다. 서식과 속성의 키는 이름
- * 순이고, 조각과 글의 서식은 비어 있으면 적지 않는다. 읽다가 형식이 맞지 않으면 {@link ProtocolException} 을 던진다.
+ * 순이고, 조각과 글의 서식은 비어 있으면 적지 않는다. 읽다가 형식이 맞지 않으면 {@link JsonFormatException} 을 던진다.
+ *
+ * <p>WebSocket 메시지(in)와 연산 로그, 스냅샷(out)이 같은 형식을 쓴다.
  */
 public final class OpJson {
 
@@ -216,7 +218,7 @@ public final class OpJson {
         if (node.isObject()) {
             return readAttrs(node);
         }
-        throw new ProtocolException("읽을 수 없는 값: " + node);
+        throw new JsonFormatException("읽을 수 없는 값: " + node);
     }
 
     public static Map<String, Object> readAttrs(JsonNode node) {
@@ -224,7 +226,7 @@ public final class OpJson {
             return Map.of();
         }
         if (!node.isObject()) {
-            throw new ProtocolException("attrs 는 객체여야 한다");
+            throw new JsonFormatException("attrs 는 객체여야 한다");
         }
         Map<String, Object> out = new TreeMap<>();
         for (Map.Entry<String, JsonNode> entry : node.properties()) {
@@ -246,7 +248,7 @@ public final class OpJson {
         try {
             for (JsonNode item : array(node, "delta")) {
                 if (!item.isObject()) {
-                    throw new ProtocolException("조각은 객체여야 한다");
+                    throw new JsonFormatException("조각은 객체여야 한다");
                 }
                 if (item.has("retain")) {
                     builder.push(new Retain(integer(item, "retain"), readAttrs(item.get("attrs"))));
@@ -255,18 +257,18 @@ public final class OpJson {
                 } else if (item.has("delete")) {
                     builder.push(new Delete(integer(item, "delete")));
                 } else {
-                    throw new ProtocolException("조각은 retain, insert, delete 중 하나여야 한다");
+                    throw new JsonFormatException("조각은 retain, insert, delete 중 하나여야 한다");
                 }
             }
         } catch (IllegalArgumentException e) {
-            throw new ProtocolException("조각이 올바르지 않다: " + e.getMessage(), e);
+            throw new JsonFormatException("조각이 올바르지 않다: " + e.getMessage(), e);
         }
         return builder.build();
     }
 
     public static Op readOp(JsonNode node) {
         if (node == null || !node.isObject()) {
-            throw new ProtocolException("연산은 객체여야 한다");
+            throw new JsonFormatException("연산은 객체여야 한다");
         }
         String kind = string(node, "op");
         String blockId = string(node, "blockId");
@@ -292,11 +294,11 @@ public final class OpJson {
             case "moveBlock" -> new MoveBlock(blockId, string(node, "parentId"), string(node, "pos"));
             case "setProps" -> {
                 if (!node.has("value")) {
-                    throw new ProtocolException("setProps 에 value 가 없다");
+                    throw new JsonFormatException("setProps 에 value 가 없다");
                 }
                 yield new SetProps(blockId, string(node, "key"), readValue(node.get("value")));
             }
-            default -> throw new ProtocolException("알 수 없는 연산: " + kind);
+            default -> throw new JsonFormatException("알 수 없는 연산: " + kind);
         };
     }
 
@@ -308,10 +310,10 @@ public final class OpJson {
         return out;
     }
 
-    /** 문서를 읽는다. 블록의 부모가 없거나 루트가 맞지 않으면 {@link ProtocolException} 을 던진다. */
+    /** 문서를 읽는다. 블록의 부모가 없거나 루트가 맞지 않으면 {@link JsonFormatException} 을 던진다. */
     public static Document readDocument(JsonNode node) {
         if (node == null || !node.isObject()) {
-            throw new ProtocolException("문서는 객체여야 한다");
+            throw new JsonFormatException("문서는 객체여야 한다");
         }
         List<Block> blocks = new ArrayList<>();
         for (JsonNode item : array(node.get("blocks"), "blocks")) {
@@ -328,45 +330,45 @@ public final class OpJson {
         try {
             return Document.of(string(node, "root"), blocks);
         } catch (IllegalArgumentException e) {
-            throw new ProtocolException("문서가 올바르지 않다: " + e.getMessage(), e);
+            throw new JsonFormatException("문서가 올바르지 않다: " + e.getMessage(), e);
         }
     }
 
     private static Iterable<JsonNode> array(JsonNode node, String field) {
         if (node == null || !node.isArray()) {
-            throw new ProtocolException(field + " 는 배열이어야 한다");
+            throw new JsonFormatException(field + " 는 배열이어야 한다");
         }
         return node;
     }
 
-    static String string(JsonNode node, String field) {
+    public static String string(JsonNode node, String field) {
         JsonNode value = node.get(field);
         if (value == null || !value.isString()) {
-            throw new ProtocolException(field + " 는 문자열이어야 한다");
+            throw new JsonFormatException(field + " 는 문자열이어야 한다");
         }
         return value.stringValue();
     }
 
-    static int integer(JsonNode node, String field) {
+    public static int integer(JsonNode node, String field) {
         JsonNode value = node.get(field);
         if (value == null || !value.isInt()) {
-            throw new ProtocolException(field + " 는 정수여야 한다");
+            throw new JsonFormatException(field + " 는 정수여야 한다");
         }
         return value.intValue();
     }
 
-    static long longValue(JsonNode node, String field) {
+    public static long longValue(JsonNode node, String field) {
         JsonNode value = node.get(field);
         if (value == null || !value.isIntegralNumber() || !value.canConvertToLong()) {
-            throw new ProtocolException(field + " 는 정수여야 한다");
+            throw new JsonFormatException(field + " 는 정수여야 한다");
         }
         return value.longValue();
     }
 
-    static boolean bool(JsonNode node, String field) {
+    public static boolean bool(JsonNode node, String field) {
         JsonNode value = node.get(field);
         if (value == null || !value.isBoolean()) {
-            throw new ProtocolException(field + " 는 참거짓이어야 한다");
+            throw new JsonFormatException(field + " 는 참거짓이어야 한다");
         }
         return value.booleanValue();
     }

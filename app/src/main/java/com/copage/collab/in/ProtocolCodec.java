@@ -1,6 +1,8 @@
 package com.copage.collab.in;
 
 import com.copage.collab.domain.ClientMessage;
+import com.copage.collab.domain.JsonFormatException;
+import com.copage.collab.domain.OpJson;
 import com.copage.collab.domain.ServerMessage;
 import com.copage.collab.domain.StoredChange;
 import tools.jackson.core.JacksonException;
@@ -25,6 +27,14 @@ public final class ProtocolCodec {
     }
 
     public ClientMessage read(String text) {
+        try {
+            return parse(text);
+        } catch (JsonFormatException e) {
+            throw new ProtocolException(e.getMessage(), e);
+        }
+    }
+
+    private ClientMessage parse(String text) {
         JsonNode node;
         try {
             node = mapper.readTree(text);

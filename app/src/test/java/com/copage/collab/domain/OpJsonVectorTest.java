@@ -1,4 +1,4 @@
-package com.copage.collab.in;
+package com.copage.collab.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
