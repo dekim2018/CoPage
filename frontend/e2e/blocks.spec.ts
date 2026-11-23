@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { caretAtEnd, controlInbox, newUser, open, sameShapes, selectText, shapes } from './helpers'
+import { caretAtEnd, controlInbox, newUser, sharedPage, open, sameShapes, selectText, shapes } from './helpers'
 
 /* 블록 10종과 서식, 들여쓰기 (docs/01-PLAN.md E-1, E-2, E-4, E-7). 두 사람이 같은 문서를 연다. */
 
 async function pair(browser: Parameters<typeof newUser>[0]) {
-  const docId = crypto.randomUUID()
   const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
   return { a, b, docId }
 }
 

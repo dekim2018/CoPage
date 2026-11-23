@@ -29,14 +29,14 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | DELETE | `/api/workspaces/{wsId}/members/{userId}` | 내보내기 | OWNER |
 | GET | `/api/workspaces/{wsId}/pages?parentId=` | 한 단계 하위 페이지 목록. 권한 없는 페이지는 빼고 준다 | MEMBER 또는 GUEST |
 | POST | `/api/workspaces/{wsId}/pages` | 페이지 생성 (부모, 위치 지정) | 부모의 EDIT |
-| GET | `/api/pages/{pageId}` | 제목, 경로, 내 권한 등급 | VIEW |
+| GET | `/api/pages/{pageId}` | 제목, 경로(볼 수 있는 조상만), 내 권한 등급 | VIEW |
 | POST | `/api/pages/{pageId}/move` | 부모와 순서 변경 | FULL + 새 부모의 EDIT |
 | DELETE | `/api/pages/{pageId}` | 휴지통으로 | FULL |
 | POST | `/api/pages/{pageId}/restore` | 휴지통에서 복구 | FULL |
 | GET | `/api/workspaces/{wsId}/trash` | 휴지통 목록 | MEMBER |
 | GET | `/api/workspaces/{wsId}/events?ticket=` | 사이드바용 SSE (트리 변경) | MEMBER 또는 GUEST |
 
-워크스페이스에 속하지 않은 사용자에게는 워크스페이스가 있는지도 알리지 않는다. 없는 워크스페이스와 같은 404 를 준다. 지금은 접근을 워크스페이스 역할로만 판단한다. OWNER, MEMBER 는 모든 페이지를 보고 만들고, GUEST 는 권한을 받은 페이지만 본다(권한 부여가 생기기 전까지는 아무것도 보지 못한다). 페이지 목록의 `title` 은 아직 루트 블록과 동기화하지 않아 빈 문자열이다.
+워크스페이스에 속하지 않은 사용자에게는 워크스페이스가 있는지도 알리지 않는다. 없는 워크스페이스와 같은 404 를 준다. 페이지 접근은 9.4 의 등급으로 판단한다. 목록은 내가 VIEW 이상인 페이지만 주고 각 페이지에 내 등급(`level`)을 붙인다. 볼 수 없는 페이지는 없는 페이지와 같은 404 다. 페이지를 만들려면 부모의 EDIT(최상위면 역할의 기본 권한)가 필요하다. 페이지 권한 부여와 restricted 변경 API(11.3)는 아직 없다. 페이지 목록의 `title` 은 아직 루트 블록과 동기화하지 않아 빈 문자열이다(#26).
 
 ## 11.3 공유와 권한
 
@@ -55,7 +55,7 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 
 | 메서드 | 경로 | 설명 | 필요 권한 |
 | --- | --- | --- | --- |
-| POST | `/api/docs/{docId}/ws-ticket` | WebSocket 티켓 발급 | VIEW |
+| POST | `/api/docs/{docId}/ws-ticket` | WebSocket 티켓 발급. 티켓에 내 등급을 담는다. 페이지가 없거나 속하지 않으면 404, 등급이 없으면 403 | VIEW |
 | POST | `/api/docs/{docId}/conflict-copy` | 오프라인 편집본을 복사본 페이지로 저장 | 부모의 EDIT |
 | GET | `/api/docs/{docId}/versions?before=` | 버전 목록 (커서 방식 페이지) | VIEW |
 | GET | `/api/docs/{docId}/versions/{rev}` | 그 시점의 문서 내용 | VIEW |

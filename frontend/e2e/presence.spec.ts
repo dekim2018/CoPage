@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { caret, caretAtEnd, controlInbox, converged, newUser, open } from './helpers'
+import { caret, caretAtEnd, controlInbox, converged, newUser, sharedPage, open } from './helpers'
 
 /* 프레즌스: 접속자 목록과 남의 커서 (docs/05-PROTOCOL.md 7.6). */
 
@@ -23,8 +23,8 @@ async function textBeforeCaret(page: Page, index: number, name: string): Promise
 }
 
 test('같은 문서를 연 사람의 이름이 접속자 목록에 보이고, 나가면 사라진다', async ({ browser }) => {
-  const docId = crypto.randomUUID()
   const [a, b] = await Promise.all([newUser(browser, '민지'), newUser(browser, '준호')])
+  const docId = await sharedPage(a, b)
   await Promise.all([open(a, docId), open(b, docId)])
 
   await expect.poll(() => peerNames(a)).toEqual(['준호'])
@@ -35,8 +35,8 @@ test('같은 문서를 연 사람의 이름이 접속자 목록에 보이고, �
 })
 
 test('남의 커서가 그 사람 이름과 함께 같은 자리에 보이고, 내가 앞에 글자를 치면 따라 밀린다', async ({ browser }) => {
-  const docId = crypto.randomUUID()
   const [a, b] = await Promise.all([newUser(browser, '민지'), newUser(browser, '준호')])
+  const docId = await sharedPage(a, b)
   const inboxA = await controlInbox(a)
   await Promise.all([open(a, docId), open(b, docId)])
   await caretAtEnd(a, 0)

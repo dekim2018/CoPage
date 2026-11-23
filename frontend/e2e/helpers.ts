@@ -5,16 +5,60 @@ import type { Browser, Page } from '@playwright/test'
 
 const PASSWORD = 'correct horse 1'
 
+const emails = new WeakMap<Page, string>()
+
 export async function newUser(browser: Browser, name: string): Promise<Page> {
   const page = await (await browser.newContext()).newPage()
   await page.goto('/signup')
   // 이름은 한글일 수 있어서 이메일에는 쓰지 않는다.
-  await page.fill('input[name=email]', `user-${crypto.randomUUID()}@example.com`)
+  const email = `user-${crypto.randomUUID()}@example.com`
+  emails.set(page, email)
+  await page.fill('input[name=email]', email)
   await page.fill('input[name=password]', PASSWORD)
   await page.fill('input[name=name]', name)
   await page.click('button[type=submit]')
   await page.waitForURL('/')
   return page
+}
+
+/**
+ * owner 가 워크스페이스와 페이지를 만들고 others 를 MEMBER 로 넣는다. 그 페이지(=문서) ID 를 돌려준다. 페이지가 없는 문서 ID 로는
+ * 티켓을 받지 못한다(docs/07-SECURITY.md 9.4).
+ *
+ * 화면이 쓰는 Access 토큰은 메모리에만 있어서, owner 의 브라우저에서 Refresh 쿠키로 토큰을 하나 더 받아 API 를 부른다. 재발급은
+ * 쿠키를 바꾸지만 같은 브라우저 안이라 화면도 새 쿠키를 쓴다.
+ */
+export async function sharedPage(owner: Page, ...others: Page[]): Promise<string> {
+  const members = others.map((other) => {
+    const email = emails.get(other)
+    if (email === undefined) {
+      throw new Error('newUser 로 만든 화면이 아니다')
+    }
+    return email
+  })
+  return owner.evaluate(async (memberEmails) => {
+    const refreshed = await fetch('/api/auth/refresh', { method: 'POST' })
+    if (!refreshed.ok) {
+      throw new Error(`재발급 실패 ${refreshed.status}`)
+    }
+    const { accessToken } = (await refreshed.json()) as { accessToken: string }
+    const call = async (path: string, body: unknown) => {
+      const response = await fetch(path, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!response.ok) {
+        throw new Error(`${path} ${response.status} ${await response.text()}`)
+      }
+      return (await response.json()) as { id: string }
+    }
+    const workspace = await call('/api/workspaces', { name: '테스트' })
+    for (const email of memberEmails) {
+      await call(`/api/workspaces/${workspace.id}/members`, { email, role: 'MEMBER' })
+    }
+    return (await call(`/api/workspaces/${workspace.id}/pages`, {})).id
+  }, members)
 }
 
 /**

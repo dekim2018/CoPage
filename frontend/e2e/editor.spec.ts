@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { blocks, caret, caretAtEnd, controlInbox, converged, newUser, open, prepare } from './helpers'
+import { blocks, caret, caretAtEnd, controlInbox, converged, newUser, sharedPage, open, prepare } from './helpers'
 
 /*
  * 브라우저 두 개로 같은 문서를 편집한다 (docs/12-ROADMAP.md 0단계 완료 기준, docs/11-TEST-PLAN.md 13.1 화면 테스트).
@@ -7,8 +7,8 @@ import { blocks, caret, caretAtEnd, controlInbox, converged, newUser, open, prep
  */
 
 test('두 사람이 같은 문단의 앞과 끝을 동시에 고치면 둘 다 반영된다', async ({ browser }) => {
-  const docId = crypto.randomUUID()
   const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
   const inboxA = await controlInbox(a)
   await Promise.all([open(a, docId), open(b, docId)])
   await prepare(a, b, '회의록', ['본문'])
@@ -25,8 +25,8 @@ test('두 사람이 같은 문단의 앞과 끝을 동시에 고치면 둘 다 �
 })
 
 test('Enter 와 그 뒤쪽 타이핑이 겹치면 친 글자가 새 블록을 따라간다', async ({ browser }) => {
-  const docId = crypto.randomUUID()
   const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
   const inboxA = await controlInbox(a)
   await Promise.all([open(a, docId), open(b, docId)])
   await prepare(a, b, '제목', ['가나다라'])
@@ -43,8 +43,8 @@ test('Enter 와 그 뒤쪽 타이핑이 겹치면 친 글자가 새 블록을 �
 })
 
 test('Backspace 로 합치는 블록에 다른 사람이 치던 글자는 합쳐진 자리로 간다', async ({ browser }) => {
-  const docId = crypto.randomUUID()
   const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
   const inboxA = await controlInbox(a)
   await Promise.all([open(a, docId), open(b, docId)])
   await prepare(a, b, '제목', ['가나', '다라'])
@@ -61,8 +61,8 @@ test('Backspace 로 합치는 블록에 다른 사람이 치던 글자는 합쳐
 })
 
 test('한글을 조합하는 동안 다른 사람이 편집해도 조합이 깨지지 않는다', async ({ browser }) => {
-  const docId = crypto.randomUUID()
   const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
   await Promise.all([open(a, docId), open(b, docId)])
   await prepare(a, b, '제목', ['앞', '뒤'])
 
@@ -87,8 +87,8 @@ test('한글을 조합하는 동안 다른 사람이 편집해도 조합이 깨�
 })
 
 test('여러 줄을 붙여넣은 뒤 이어 친 글자는 붙여넣은 글 끝에 들어간다', async ({ browser }) => {
-  const docId = crypto.randomUUID()
   const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
   await Promise.all([open(a, docId), open(b, docId)])
   await prepare(a, b, '제목', ['첫째'])
 
@@ -104,8 +104,8 @@ test('여러 줄을 붙여넣은 뒤 이어 친 글자는 붙여넣은 글 끝�
 })
 
 test('새로고침해도 로그인과 내용이 남는다', async ({ browser }) => {
-  const docId = crypto.randomUUID()
   const a = await newUser(browser, 'a')
+  const docId = await sharedPage(a)
   await open(a, docId)
   await caretAtEnd(a, 0)
   await a.keyboard.type('남는 제목')
@@ -117,4 +117,17 @@ test('새로고침해도 로그인과 내용이 남는다', async ({ browser }) 
 
   await expect(a.getByTestId('status')).toHaveAttribute('data-status', 'saved')
   expect(await blocks(a)).toEqual(['남는 제목', '남는 본문'])
+})
+
+test('홈의 새 문서는 페이지를 만들어 열고, 권한이 없는 페이지는 열지 못한다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  await a.getByRole('button', { name: '새 문서' }).click()
+  await a.waitForURL(/\/p\/[0-9a-f-]{36}$/)
+  await expect(a.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+  const pageId = a.url().split('/p/')[1]
+
+  // b 는 그 워크스페이스에 속하지 않는다. 재접속을 이어 가지 않고 멈춘다.
+  await b.goto(`/p/${pageId}`)
+  await expect(b.getByTestId('status')).toHaveAttribute('data-status', 'error')
+  await expect(b.getByTestId('status')).toContainText('404')
 })

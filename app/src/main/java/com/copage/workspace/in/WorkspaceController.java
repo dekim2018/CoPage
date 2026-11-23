@@ -1,5 +1,6 @@
 package com.copage.workspace.in;
 
+import com.copage.permission.domain.PageLevel;
 import com.copage.workspace.app.WorkspaceRepository.Membership;
 import com.copage.workspace.app.WorkspaceRepository.PageSummary;
 import com.copage.workspace.app.WorkspaceService;
@@ -55,11 +56,15 @@ class WorkspaceController {
     record CreatePageRequest(UUID parentId, UUID afterId) {
     }
 
-    /** @param hasChildren 보관되지 않은 하위 페이지가 있는지 */
-    record PageResponse(UUID id, UUID workspaceId, UUID parentId, String title, boolean hasChildren) {
-        static PageResponse of(PageSummary summary) {
+    /**
+     * @param hasChildren 보관되지 않은 하위 페이지가 있는지. 그 하위 페이지를 내가 볼 수 있는지는 펼쳐 봐야 안다
+     * @param level 이 페이지에 대한 내 등급
+     */
+    record PageResponse(UUID id, UUID workspaceId, UUID parentId, String title, boolean hasChildren, PageLevel level) {
+        static PageResponse of(PageSummary summary, PageLevel level) {
             Page page = summary.page();
-            return new PageResponse(page.id(), page.workspaceId(), page.parentId(), page.title(), summary.hasChildren());
+            return new PageResponse(
+                    page.id(), page.workspaceId(), page.parentId(), page.title(), summary.hasChildren(), level);
         }
     }
 
@@ -100,7 +105,9 @@ class WorkspaceController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID workspaceId,
             @RequestParam(required = false) UUID parentId) {
-        return workspaces.children(userId(jwt), workspaceId, parentId).stream().map(PageResponse::of).toList();
+        return workspaces.children(userId(jwt), workspaceId, parentId).stream()
+                .map(child -> PageResponse.of(child.summary(), child.level()))
+                .toList();
     }
 
     @PostMapping("/{workspaceId}/pages")
@@ -111,7 +118,8 @@ class WorkspaceController {
             @RequestBody(required = false) CreatePageRequest request) {
         CreatePageRequest body = request == null ? new CreatePageRequest(null, null) : request;
         Page page = workspaces.createPage(userId(jwt), workspaceId, body.parentId(), body.afterId());
-        return PageResponse.of(new PageSummary(page, false));
+        // 만든 사람은 부모의 등급을 물려받는다. 이 페이지에 따로 준 권한은 아직 없다.
+        return PageResponse.of(new PageSummary(page, false), workspaces.page(userId(jwt), page.id()).level());
     }
 
     private static UUID userId(Jwt jwt) {

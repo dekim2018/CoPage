@@ -2,6 +2,9 @@ package com.copage.workspace.app;
 
 import com.copage.identity.app.UserDirectory;
 import com.copage.identity.domain.User;
+import com.copage.permission.app.PagePermissions;
+import com.copage.permission.app.PagePermissions.Access;
+import com.copage.permission.domain.PageLevel;
 import com.copage.workspace.app.WorkspaceException.Kind;
 import com.copage.workspace.app.WorkspaceRepository.Member;
 import com.copage.workspace.app.WorkspaceRepository.Membership;
@@ -22,9 +25,9 @@ import java.util.stream.Collectors;
 /**
  * 워크스페이스, 멤버, 페이지 트리 (docs/09-API.md 11.2).
  *
- * <p>워크스페이스에 속하지 않은 사용자에게는 워크스페이스가 있는지도 알리지 않는다(NOT_FOUND). 접근은 지금 워크스페이스 역할로만
- * 판단한다. OWNER, MEMBER 는 모든 페이지를 보고 만들 수 있고, GUEST 는 아무 페이지도 보지 못한다. 페이지 권한을 받은 GUEST 와
- * restricted 페이지는 permission 모듈이 생기면서 바뀐다 (docs/07-SECURITY.md 9.4).
+ * <p>워크스페이스에 속하지 않은 사용자에게는 워크스페이스가 있는지도 알리지 않는다(NOT_FOUND). 페이지 접근은 permission
+ * 모듈이 계산한 등급(docs/07-SECURITY.md 9.4)으로 판단한다. 목록에서는 VIEW 가 없는 페이지를 빼고, 페이지를 만들려면 부모의
+ * EDIT(최상위면 역할의 기본 권한)가 있어야 한다.
  */
 public final class WorkspaceService {
 
@@ -32,13 +35,28 @@ public final class WorkspaceService {
     public record MemberView(UUID userId, String email, String name, WorkspaceRole role) {
     }
 
+    /** 목록의 한 페이지와 내 등급. */
+    public record ChildView(PageSummary summary, PageLevel level) {
+    }
+
+    /**
+     * 한 페이지와 내 등급, 경로.
+     *
+     * @param path 내가 볼 수 있는 조상. 루트 쪽부터
+     */
+    public record PageView(Page page, PageLevel level, List<Page> path) {
+    }
+
     private final WorkspaceRepository repository;
     private final UserDirectory users;
+    private final PagePermissions permissions;
     private final Clock clock;
 
-    public WorkspaceService(WorkspaceRepository repository, UserDirectory users, Clock clock) {
+    public WorkspaceService(
+            WorkspaceRepository repository, UserDirectory users, PagePermissions permissions, Clock clock) {
         this.repository = repository;
         this.users = users;
+        this.permissions = permissions;
         this.clock = clock;
     }
 
@@ -91,15 +109,38 @@ public final class WorkspaceService {
     }
 
     /** parentId 의 한 단계 하위 페이지. parentId 가 null 이면 최상위. GUEST 는 지금 빈 목록이다. */
-    public List<PageSummary> children(UUID userId, UUID workspaceId, UUID parentId) {
-        WorkspaceRole role = roleOf(workspaceId, userId);
-        if (!role.seesAllPages()) {
-            return List.of();
-        }
-        if (parentId != null && repository.findPage(workspaceId, parentId).isEmpty()) {
+    public List<ChildView> children(UUID userId, UUID workspaceId, UUID parentId) {
+        roleOf(workspaceId, userId);
+        if (parentId != null && !(permissions.access(userId, parentId) instanceof Access.Granted granted
+                && granted.workspaceId().equals(workspaceId))) {
             throw new WorkspaceException(Kind.NOT_FOUND, "페이지가 없다");
         }
-        return repository.children(workspaceId, parentId);
+        List<PageSummary> children = repository.children(workspaceId, parentId);
+        Map<UUID, PageLevel> levels = permissions.childLevels(
+                userId, workspaceId, parentId, children.stream().map(child -> child.page().id()).toList());
+        return children.stream()
+                .filter(child -> levels.containsKey(child.page().id()))
+                .map(child -> new ChildView(child, levels.get(child.page().id())))
+                .toList();
+    }
+
+    /** 페이지 하나. 없거나 볼 수 없으면 NOT_FOUND, 워크스페이스에 속하지만 등급이 없으면 FORBIDDEN. */
+    public PageView page(UUID userId, UUID pageId) {
+        return switch (permissions.access(userId, pageId)) {
+            case Access.NotFound notFound -> throw new WorkspaceException(Kind.NOT_FOUND, "페이지가 없다");
+            case Access.Denied denied -> throw new WorkspaceException(Kind.FORBIDDEN, "이 페이지에 권한이 없다");
+            case Access.Granted granted -> {
+                Page page = repository.findPage(granted.workspaceId(), pageId)
+                        .orElseThrow(() -> new WorkspaceException(Kind.NOT_FOUND, "페이지가 없다"));
+                Map<UUID, Page> ancestors = repository.findPages(granted.workspaceId(), granted.visibleAncestors()).stream()
+                        .collect(Collectors.toMap(Page::id, Function.identity()));
+                List<Page> path = granted.visibleAncestors().stream()
+                        .filter(ancestors::containsKey)
+                        .map(ancestors::get)
+                        .toList();
+                yield new PageView(page, granted.level(), path);
+            }
+        };
     }
 
     /**
@@ -109,9 +150,15 @@ public final class WorkspaceService {
      * @param afterId 이 형제 바로 뒤에 둔다. null 이면 맨 뒤
      */
     public Page createPage(UUID userId, UUID workspaceId, UUID parentId, UUID afterId) {
-        WorkspaceRole role = roleOf(workspaceId, userId);
-        if (!role.seesAllPages()) {
-            throw new WorkspaceException(Kind.FORBIDDEN, "게스트는 페이지를 만들 수 없다");
+        roleOf(workspaceId, userId);
+        PageLevel level = permissions.levelForNewChild(userId, workspaceId, parentId);
+        if (level == null && parentId != null) {
+            throw new WorkspaceException(Kind.NOT_FOUND, "부모 페이지가 없다");
+        }
+        if (level == null || !level.atLeast(PageLevel.EDIT)) {
+            throw new WorkspaceException(Kind.FORBIDDEN, parentId == null
+                    ? "이 워크스페이스의 최상위에 페이지를 만들 수 없다"
+                    : "부모 페이지에 편집 권한이 없다");
         }
         return repository.createPage(workspaceId, UUID.randomUUID(), parentId, afterId, userId, now());
     }

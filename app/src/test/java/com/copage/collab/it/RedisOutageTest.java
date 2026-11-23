@@ -127,7 +127,10 @@ class RedisOutageTest {
         Response session = send("POST", "/api/auth/refresh", null, "Cookie", "copage_refresh=" + first.refreshCookie());
         assertEquals(200, session.status());
         String bearer = "Bearer " + session.body().get("accessToken").stringValue();
-        UUID docId = UUID.randomUUID();
+        String workspaceId = send("POST", "/api/workspaces", Map.of("name", "팀"), "Authorization", bearer)
+                .body().get("id").stringValue();
+        UUID docId = UUID.fromString(send("POST", "/api/workspaces/" + workspaceId + "/pages", Map.of(),
+                "Authorization", bearer).body().get("id").stringValue());
         String ticket = send("POST", "/api/docs/" + docId + "/ws-ticket", null, "Authorization", bearer)
                 .body().get("ticket").stringValue();
         String spareTicket = send("POST", "/api/docs/" + docId + "/ws-ticket", null, "Authorization", bearer)

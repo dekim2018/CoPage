@@ -100,9 +100,13 @@ class AuthFlowTest extends TestInfra {
         assertTrue(session.refreshCookie() != null && !session.refreshCookie().isEmpty());
         assertEquals(email, me(session.accessToken()).body().get("email").stringValue());
 
-        UUID docId = UUID.randomUUID();
-        Response ticket = send("POST", "/api/docs/" + docId + "/ws-ticket", null,
-                "Authorization", "Bearer " + session.accessToken());
+        // 문서는 페이지다. 워크스페이스와 페이지를 먼저 만든다.
+        String bearer = "Bearer " + session.accessToken();
+        String workspaceId = send("POST", "/api/workspaces", "{\"name\":\"팀\"}", "Authorization", bearer)
+                .body().get("id").stringValue();
+        UUID docId = UUID.fromString(send("POST", "/api/workspaces/" + workspaceId + "/pages", "{}",
+                "Authorization", bearer).body().get("id").stringValue());
+        Response ticket = send("POST", "/api/docs/" + docId + "/ws-ticket", null, "Authorization", bearer);
         assertEquals(200, ticket.status());
 
         TestClient client = new TestClient("tab");
@@ -110,7 +114,7 @@ class AuthFlowTest extends TestInfra {
                 + ticket.body().get("ticket").stringValue() + "&v=1"));
         JsonNode welcome = client.take();
         assertEquals("welcome", welcome.get("t").stringValue());
-        assertEquals("EDIT", welcome.get("role").stringValue());
+        assertEquals("FULL", welcome.get("role").stringValue(), "만든 사람은 OWNER 라 전체 권한이다");
     }
 
     @Test
