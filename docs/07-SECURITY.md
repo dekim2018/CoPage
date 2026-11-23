@@ -1,0 +1,99 @@
+# 9. 인증과 권한
+
+인증은 JWT와 Refresh 토큰 회전, 권한은 페이지 트리를 따라 상속되는 네 단계 등급이다. 이 프로젝트에서 Spring Security가 맡는 고유한 일은 "연결이 열려 있는 동안에도 연산 하나하나를 권한에 맞게 거르는 것"이다.
+
+## 9.1 로그인과 토큰
+
+| 항목 | 설계 |
+| --- | --- |
+| 비밀번호 저장 | Spring Security의 `DelegatingPasswordEncoder` (기본 BCrypt) |
+| Access 토큰 | JWT HS256, 유효 15분, `Authorization: Bearer` 헤더. 클레임은 사용자 ID와 토큰 ID(jti) |
+| Refresh 토큰 | 무작위 문자열, 유효 14일, HttpOnly + Secure + SameSite=Strict 쿠키. Redis에 해시로 저장 |
+| 회전 | 재발급할 때마다 Refresh 토큰을 새로 바꾼다. 이미 쓴 토큰이 다시 오면 탈취로 보고 그 사용자의 모든 세션을 끊는다 |
+| 로그아웃 | Refresh 토큰 삭제 + Access 토큰의 jti를 남은 유효 시간 동안 Redis 차단 목록에 둔다 |
+| 로그인 보호 | 계정당 5분에 5회 실패하면 5분 잠금 (Redis 카운터) |
+
+서버가 하나의 배포 단위라 대칭키(HS256)로 충분하다. 키를 나눠 가질 다른 서비스가 없다.
+
+## 9.2 필터 체인
+
+```java
+@Bean
+SecurityFilterChain api(HttpSecurity http, JwtAuthenticationFilter jwtFilter) throws Exception {
+    return http
+        .securityMatcher("/api/**")
+        .csrf(csrf -> csrf.disable())
+        .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .authorizeHttpRequests(auth -> auth
+            .requestMatchers("/api/auth/**", "/api/share/**").permitAll()
+            .anyRequest().authenticated())
+        .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+        .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+        .build();
+}
+```
+
+API는 쿠키가 아니라 헤더로 인증하므로 CSRF 토큰을 쓰지 않는다. 쿠키를 쓰는 유일한 경로인 `/api/auth/refresh` 는 SameSite=Strict와 Origin 헤더 검사로 막는다.
+
+## 9.3 WebSocket 인증
+
+1. 클라이언트가 `POST /api/docs/{docId}/ws-ticket` 을 호출한다. 이 요청은 일반 API처럼 JWT로 인증되고 권한 검사를 거친다.
+2. 서버는 무작위 티켓을 만들어 Redis에 30초 동안 저장한다. 값은 사용자 ID, 문서 ID, 권한 등급이다.
+3. 클라이언트가 티켓을 붙여 WebSocket을 연다. `HandshakeInterceptor` 가 `GETDEL` 로 티켓을 꺼내면서 지운다. 한 번 쓴 티켓은 다시 쓸 수 없다.
+4. 핸드셰이크에서 Origin 헤더가 허용한 도메인인지 검사한다.
+
+토큰을 주소에 직접 붙이지 않는 이유는 주소가 프록시 로그에 남기 때문이다. 티켓은 30초 뒤에 쓸모가 없어지므로 로그에 남아도 위험하지 않다.
+
+## 9.4 권한 모델
+
+워크스페이스 역할은 세 가지, 페이지 권한은 네 단계다.
+
+| 워크스페이스 역할 | 할 수 있는 일 | 페이지 기본 권한 |
+| --- | --- | --- |
+| OWNER | 워크스페이스 삭제, 멤버 역할 변경, 아래 전부 | 전체 권한 |
+| MEMBER | 페이지 생성, 제한되지 않은 페이지 편집 | 편집 |
+| GUEST | 초대받은 페이지만 접근 | 없음 |
+
+| 페이지 권한 | 읽기 | 댓글 | 본문 편집 | 공유 설정, 삭제, 복원 |
+| --- | --- | --- | --- | --- |
+| VIEW (읽기) | 가능 |  |  |  |
+| COMMENT (댓글) | 가능 | 가능 |  |  |
+| EDIT (편집) | 가능 | 가능 | 가능 |  |
+| FULL (전체 권한) | 가능 | 가능 | 가능 | 가능 |
+
+한 사용자의 페이지 권한은 아래 순서로 계산한다.
+
+1. 페이지에서 루트 방향으로 올라가며 `restricted` 가 켜진 첫 페이지를 찾는다. 이 페이지가 경계다.
+2. 경계가 없으면 워크스페이스 역할의 기본 권한에서 시작한다. 경계가 있으면 역할 기본 권한을 버리고 "없음"에서 시작한다. OWNER는 예외로 항상 전체 권한이다.
+3. 페이지부터 경계(없으면 루트)까지의 `page_grants` 중 내 것이 있으면 가장 높은 등급을 더한다.
+4. 공유 링크로 들어왔으면 링크의 등급을 더한다. 링크는 그 페이지 하나에만 적용되고 하위 페이지로 내려가지 않는다.
+
+계산 결과는 `perm:{pageId}:{userId}` 키로 Redis에 5분 캐시한다. 권한이나 트리가 바뀌면 영향받는 페이지의 캐시를 지운다.
+
+REST 쪽은 메서드 보안으로 걸러 낸다.
+
+```java
+@PreAuthorize("@pageAuthz.atLeast(#pageId, 'EDIT')")
+public VersionRestoreResult restore(UUID pageId, long rev) { ... }
+```
+
+## 9.5 연산 단위 인가
+
+WebSocket은 한 번 열리면 오래 유지된다. 연결할 때 한 번만 검사하면 권한이 바뀐 뒤에도 편집이 통과한다. 그래서 세션이 연결마다 현재 등급을 들고 있다가 `change` 가 올 때마다 확인한다.
+
+| 등급 | 허용하는 연산 |
+| --- | --- |
+| VIEW | 없음. `presence` 만 허용 |
+| COMMENT | `text` 연산 중 `comment` 서식만 바꾸는 `retain` 으로만 이루어진 것. 글자를 넣거나 지우는 조각이 하나라도 있으면 거부 |
+| EDIT, FULL | 전부 |
+
+권한이 바뀌면 `permission` 모듈이 `perm:changed` 채널에 페이지 ID를 알린다. 해당 문서의 세션은 접속자들의 등급을 다시 계산해서, 내려간 사람에게는 `role` 메시지를 보내고 접근이 없어진 사람은 4003으로 끊는다.
+
+## 9.6 입력 검증
+
+클라이언트가 보낸 연산은 전부 의심한다. 편집기를 거치지 않고 직접 만든 메시지가 올 수 있기 때문이다.
+
+- 위치가 블록 길이를 넘는지, 없는 블록을 가리키는지, 허용하지 않는 블록 종류나 서식 이름인지 검사한다.
+- 링크 서식의 주소는 `http`, `https`, `mailto` 로 시작하는 것만 받는다. `javascript:` 주소를 저장해 다른 사람의 브라우저에서 실행시키는 공격을 막는다.
+- `mention` 서식의 사용자 ID가 그 페이지에 접근할 수 있는 사람인지 확인한다.
+- 프론트엔드는 본문을 HTML 문자열로 그리지 않고 편집기의 문서 모델로만 그린다.
