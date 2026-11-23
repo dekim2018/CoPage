@@ -15,6 +15,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,7 @@ import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.function.Predicate;
 
 /**
  * 문서 하나의 세션 (docs/03-ARCHITECTURE.md 5.2). 누군가 문서를 열면 메모리에 올라오고, 마지막 연결이 끊기고
@@ -74,14 +76,17 @@ public final class DocumentSession {
     private static final class Member {
         final Connection connection;
         final String clientId;
-        final PageRole role;
+        /** 문서당 연결 한도를 넘어 읽기로 낮춰 받았는지. 권한을 다시 계산해도 읽기 위로는 올리지 않는다. */
+        final boolean capped;
         final String name;
+        PageRole role;
         Cursor cursor;
 
-        Member(Connection connection, String clientId, PageRole role, String name) {
+        Member(Connection connection, String clientId, PageRole role, boolean capped, String name) {
             this.connection = connection;
             this.clientId = clientId;
             this.role = role;
+            this.capped = capped;
             this.name = name;
         }
 
@@ -201,6 +206,67 @@ public final class DocumentSession {
         });
     }
 
+    /** 사용자의 이 문서 권한을 다시 계산한다. 권한이 없으면 빈 값. 저장소를 읽으므로 세션 실행 흐름 밖에서 부른다. */
+    public interface RoleResolver {
+        Optional<PageRole> roleOf(UUID userId, UUID docId);
+    }
+
+    /**
+     * 권한이 바뀐 사용자의 연결에 새 등급을 적용한다 (docs/07-SECURITY.md 9.4, S-5). 내려가거나 올라가면 role 을 보내고, 잃었으면
+     * 4003 으로 닫는다. 그 뒤에 처리하는 묶음은 새 등급으로 검사한다.
+     *
+     * <p>세션 실행 흐름에서 대상 연결을 모으고, 등급 계산(저장소 읽기)은 background 에서 하고, 적용은 다시 실행 흐름에서 한다.
+     * 실행 흐름을 저장소 읽기로 막지 않기 위해서다. 계산하는 사이 나간 연결은 건너뛴다.
+     *
+     * @param users 다시 계산할 사용자
+     */
+    public void reauthorize(Predicate<UUID> users, RoleResolver resolver) {
+        executor.execute(() -> {
+            if (closed) {
+                return;
+            }
+            List<UUID> targets = members.values().stream()
+                    .map(member -> member.connection().userId())
+                    .filter(users)
+                    .distinct()
+                    .toList();
+            if (targets.isEmpty()) {
+                return;
+            }
+            background.execute(() -> {
+                Map<UUID, Optional<PageRole>> roles = new HashMap<>();
+                try {
+                    for (UUID userId : targets) {
+                        roles.put(userId, resolver.roleOf(userId, docId));
+                    }
+                } catch (RuntimeException e) {
+                    // 계산하지 못하면 바꾸지 않는다. 다음 재접속 때 새 티켓이 바른 등급을 준다.
+                    LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 권한을 다시 계산하지 못했다", e);
+                    return;
+                }
+                executor.execute(() -> applyRoles(roles));
+            });
+        });
+    }
+
+    private void applyRoles(Map<UUID, Optional<PageRole>> roles) {
+        for (Member member : List.copyOf(members.values())) {
+            Optional<PageRole> next = roles.get(member.connection().userId());
+            if (next == null) {
+                continue;
+            }
+            if (next.isEmpty()) {
+                member.connection().close(CloseCodes.FORBIDDEN, "이 페이지에 대한 권한이 회수되었다");
+                continue;
+            }
+            PageRole role = member.capped ? next.get().cap(PageRole.VIEW) : next.get();
+            if (role != member.role) {
+                member.role = role;
+                member.connection().send(new ServerMessage.Role(role));
+            }
+        }
+    }
+
     /** 연결이 끊겼다. 다른 연결에 퇴장을 알린다. 마지막 연결이었으면 일정 시간 뒤 세션을 내린다. */
     public void leave(Connection connection) {
         executor.execute(() -> {
@@ -241,11 +307,12 @@ public final class DocumentSession {
             connection.close(CloseCodes.PROTOCOL, "lastRev " + hello.lastRev() + " 은 이 문서에 없는 리비전이다");
             return;
         }
-        if (members.size() >= settings.maxConnections()) {
+        boolean capped = members.size() >= settings.maxConnections();
+        if (capped) {
             role = role.cap(PageRole.VIEW);
         }
         List<Peer> peers = members.values().stream().map(Member::peer).toList();
-        Member member = new Member(connection, hello.clientId(), role, name);
+        Member member = new Member(connection, hello.clientId(), role, capped, name);
         members.put(connection.id(), member);
         idleSince = null;
         connection.send(welcome(hello, role, peers));

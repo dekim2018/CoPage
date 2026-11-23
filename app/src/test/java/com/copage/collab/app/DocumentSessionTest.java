@@ -34,6 +34,8 @@ import java.time.ZoneOffset;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Queue;
 import java.util.UUID;
@@ -395,6 +397,76 @@ class DocumentSessionTest {
         submit(third, 1, 0, paragraph("X", "가"));
         runAll();
         assertInstanceOf(Nack.class, third.last());
+    }
+
+    /** userId 가 users 에 있으면 그 등급, 없으면 권한 없음. 물어본 사용자를 asked 에 남긴다. */
+    private DocumentSession.RoleResolver resolver(Map<UUID, PageRole> roles, List<UUID> asked) {
+        return (userId, docId) -> {
+            assertEquals(DOC, docId);
+            asked.add(userId);
+            return Optional.ofNullable(roles.get(userId));
+        };
+    }
+
+    @Test
+    void 권한이_내려가면_그_연결에만_role_을_보내고_이후_묶음은_새_등급으로_검사한다() {
+        FakeConnection a = join("A");
+        FakeConnection b = join("B");
+        List<UUID> asked = new ArrayList<>();
+
+        sessions.reauthorize(doc -> true, a.userId()::equals, resolver(Map.of(a.userId(), PageRole.VIEW), asked));
+        runAll();
+
+        assertEquals(List.of(a.userId()), asked, "다른 사용자는 다시 계산하지 않는다");
+        assertEquals(new ServerMessage.Role(PageRole.VIEW), a.last());
+        assertFalse(b.sync.stream().anyMatch(ServerMessage.Role.class::isInstance));
+        submit(a, 1, 0, paragraph("X", "가"));
+        runAll();
+        assertInstanceOf(Nack.class, a.last());
+        assertNull(a.closedWith);
+    }
+
+    @Test
+    void 권한을_잃으면_4003_으로_닫고_등급이_같으면_아무것도_보내지_않는다() {
+        FakeConnection a = join("A");
+        FakeConnection b = join("B");
+        int before = b.received.size();
+
+        sessions.reauthorize(doc -> true, user -> true, resolver(Map.of(b.userId(), PageRole.EDIT), new ArrayList<>()));
+        runAll();
+
+        assertEquals(CloseCodes.FORBIDDEN, a.closedWith);
+        assertNull(b.closedWith);
+        assertEquals(before, b.received.size());
+    }
+
+    @Test
+    void 연결_한도로_읽기로_받은_연결은_다시_계산해도_읽기_위로_올리지_않는다() {
+        join("A");
+        join("B");
+        FakeConnection third = join("C");
+        int before = third.received.size();
+
+        sessions.reauthorize(doc -> true, third.userId()::equals,
+                resolver(Map.of(third.userId(), PageRole.FULL), new ArrayList<>()));
+        runAll();
+
+        assertEquals(before, third.received.size(), "읽기 그대로라 role 을 보내지 않는다");
+    }
+
+    @Test
+    void 다른_문서나_계산에_실패하면_바꾸지_않는다() {
+        FakeConnection a = join("A");
+        int before = a.received.size();
+
+        sessions.reauthorize(doc -> false, user -> true, resolver(Map.of(), new ArrayList<>()));
+        sessions.reauthorize(doc -> true, user -> true, (userId, docId) -> {
+            throw new IllegalStateException("DB 가 끊겼다");
+        });
+        runAll();
+
+        assertEquals(before, a.received.size());
+        assertNull(a.closedWith);
     }
 
     @Test

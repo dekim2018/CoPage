@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { blocks, caret, caretAtEnd, controlInbox, converged, newUser, newWorkspaceWith, sharedPage, open, prepare } from './helpers'
+import { apiAs, blocks, caret, caretAtEnd, controlInbox, converged, newUser, newWorkspaceWith, sharedPage, open, prepare } from './helpers'
 
 /*
  * 브라우저 두 개로 같은 문서를 편집한다 (docs/12-ROADMAP.md 0단계 완료 기준, docs/11-TEST-PLAN.md 13.1 화면 테스트).
@@ -148,4 +148,21 @@ test('남의 워크스페이스에 게스트로만 있어도 새 문서는 내 �
     return ((await page.json()) as { workspaceId: string }).workspaceId
   }, guest.url().split('/p/')[1])
   expect(workspaceId).not.toBe(theirs)
+})
+
+test('권한이 내려가면 열린 편집기가 1초 안에 읽기 전용이 되고, 회수하면 닫힌다', async ({ browser }) => {
+  const [owner, guest] = await Promise.all([newUser(browser, 'owner'), newUser(browser, 'guest')])
+  const workspaceId = await newWorkspaceWith(owner, guest, 'GUEST')
+  const { id: pageId } = await apiAs<{ id: string }>(owner, 'POST', `/api/workspaces/${workspaceId}/pages`, {})
+  const { id: guestId } = await apiAs<{ id: string }>(guest, 'GET', '/api/me')
+  await apiAs(owner, 'PUT', `/api/pages/${pageId}/grants/${guestId}`, { level: 'EDIT' })
+  await open(guest, pageId)
+  await expect(guest.getByTestId('readonly')).toHaveCount(0)
+
+  await apiAs(owner, 'PUT', `/api/pages/${pageId}/grants/${guestId}`, { level: 'VIEW' })
+  await expect(guest.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'false', { timeout: 1_000 })
+  await expect(guest.getByTestId('readonly')).toBeVisible()
+
+  await apiAs(owner, 'DELETE', `/api/pages/${pageId}/grants/${guestId}`)
+  await expect(guest.getByTestId('status')).toHaveAttribute('data-status', 'error', { timeout: 1_000 })
 })
