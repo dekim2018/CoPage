@@ -116,9 +116,14 @@ export const useWorkspace = defineStore('workspace', () => {
    * 페이지를 newParentId 아래 afterId 뒤(null 이면 맨 뒤)로 옮기고 옛 부모와 새 부모의 목록을 다시 읽는다 (W-3). 새 부모는 펼친다.
    * 자기 하위로 옮기는 것은 서버가 400 으로 막는다.
    */
-  async function movePage(pageId: string, newParentId: string | null, afterId: string | null): Promise<void> {
+  async function movePage(
+    pageId: string,
+    newParentId: string | null,
+    afterId: string | null,
+    first = false,
+  ): Promise<void> {
     const oldParent = findNode(pageId)?.parentId ?? null
-    await workspaceApi.movePage(pageId, newParentId, afterId)
+    await workspaceApi.movePage(pageId, newParentId, afterId, first)
     if (newParentId !== null) {
       expanded.add(newParentId)
       const parent = findNode(newParentId)

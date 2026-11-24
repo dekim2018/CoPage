@@ -23,6 +23,8 @@ const inviteEmail = ref('')
 const inviteRole = ref<WorkspaceRole>('MEMBER')
 /** 방금 만든 초대 링크. 토큰은 이때만 알 수 있어 화면을 떠나면 다시 볼 수 없다. */
 const inviteLink = ref('')
+/** 방금 만든 초대를 메일로도 보냈는지. */
+const inviteMailed = ref(false)
 
 async function load() {
   members.value = await workspaceApi.members(props.workspaceId)
@@ -31,11 +33,12 @@ async function load() {
   }
 }
 
-/** 초대 링크를 만든다. 메일은 보내지 않는다. OWNER 가 링크를 건넨다(D-40). */
+/** 초대 링크를 만든다. 메일 서버가 설정되어 있으면 서버가 그 이메일로 링크를 보낸다(D-50). 아니면 OWNER 가 건넨다(D-40). */
 function invite() {
   void run(async () => {
     const created = await workspaceApi.invite(props.workspaceId, inviteEmail.value, inviteRole.value)
     inviteLink.value = `${location.origin}/invite/${created.token}`
+    inviteMailed.value = created.mailed
     inviteEmail.value = ''
   })
 }
@@ -109,7 +112,8 @@ onMounted(() => run(async () => undefined))
       <button type="submit">초대 링크 만들기</button>
     </form>
     <p v-if="inviteLink" class="invite-link">
-      이 링크를 초대한 사람에게 건넨다. 그 이메일로 가입한 사람만 받을 수 있고 7일 뒤 만료된다. 지금만 볼 수 있다.
+      <strong v-if="inviteMailed" data-testid="invite-mailed">초대 메일을 보냈다. 메일이 오지 않으면 링크를 직접 건넨다.</strong>
+      <template v-else>이 링크를 초대한 사람에게 건넨다.</template> 그 이메일로 가입한 사람만 받을 수 있고 7일 뒤 만료된다. 지금만 볼 수 있다.
       <input :value="inviteLink" readonly data-testid="invite-link" aria-label="초대 링크" />
       <button type="button" @click="copyLink">복사</button>
     </p>

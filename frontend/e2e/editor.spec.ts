@@ -691,6 +691,32 @@ test('내 댓글을 고치고 지우면 상대 창에도 바뀌고, 마지막 �
   expect(await converged(a, b)).toEqual(['제목', '검토할 본문'])
 })
 
+test('댓글이 달린 글자를 모두 지우면 댓글 창에 원문이 삭제됨이 보이고 되돌리면 사라진다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
+  await Promise.all([open(a, docId), open(b, docId)])
+  await prepare(a, b, '제목', ['검토할 본문'])
+  await b.getByTestId('comments-button').click()
+  await a.getByTestId('comments-button').click()
+  await a.locator('.ProseMirror').focus()
+  await selectText(a, 1, 0, 2)
+  await a.getByTestId('comment-start').click()
+  await a.getByTestId('comment-body').fill('여기')
+  await a.getByRole('button', { name: '달기' }).click()
+  await expect(b.locator('.ProseMirror .comment-mark')).toHaveText('검토')
+
+  // 댓글이 달린 두 글자를 지운다. 서버가 몇 초 안에 알아채고 열린 댓글 창이 다시 읽는다.
+  await a.locator('.ProseMirror').focus()
+  await selectText(a, 1, 0, 2)
+  await a.keyboard.press('Backspace')
+  await expect(b.getByTestId('comment-orphaned')).toBeVisible({ timeout: 15_000 })
+  await expect(b.getByTestId('comment-thread')).toContainText('검토')
+
+  await a.keyboard.press('ControlOrMeta+z')
+  await expect(b.locator('.ProseMirror .comment-mark')).toHaveText('검토')
+  await expect(b.getByTestId('comment-orphaned')).toHaveCount(0, { timeout: 15_000 })
+})
+
 test('본문에서 @ 로 멘션하면 상대에게 알림이 가고 누르면 그 페이지로 간다', async ({ browser }) => {
   const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
   const docId = await sharedPage(a, b)

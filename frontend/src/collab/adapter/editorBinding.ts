@@ -313,7 +313,10 @@ export class EditorBinding {
     if (type === undefined) {
       return
     }
+    // 댓글 서식은 그 자체로 한 번의 되돌리기 단위다. 앞뒤의 타이핑과 묶이면 되돌릴 때 함께 사라진다.
+    this.target.closeUndoGroup()
     this.editor.view.dispatch(this.editor.state.tr.addMark(from, to, type.create({ value: threadId })))
+    this.target.closeUndoGroup()
   }
 
   /**
@@ -332,7 +335,9 @@ export class EditorBinding {
       }
     })
     if (tr.docChanged) {
+      this.target.closeUndoGroup()
       this.editor.view.dispatch(tr)
+      this.target.closeUndoGroup()
     }
   }
 

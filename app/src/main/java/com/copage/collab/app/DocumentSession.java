@@ -14,6 +14,7 @@ import com.copage.ot.sync.ServerDocument;
 import com.copage.ot.sync.Submission;
 import com.copage.ot.sync.SubmitResult;
 import com.copage.ot.text.Component;
+import com.copage.ot.text.Segment;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -135,6 +136,8 @@ public final class DocumentSession {
     private final Unloader unloader;
     /** 멘션 서식의 이름 (6.1). */
     private static final String MENTION_MARK = "mention";
+    /** 댓글 서식의 이름 (10.2). 값은 스레드 ID 다. */
+    private static final String COMMENT_MARK = "comment";
 
     private final MentionSink mentions;
     /** 검색 본문을 알리는 간격. 편집이 이어지는 동안에는 이 간격마다 한 번 알린다 (D-47). */
@@ -600,18 +603,45 @@ public final class DocumentSession {
      * 편집에는 영향이 없다.
      */
     private void publishMentions(List<StoredChange> commits) {
+        Set<String> marked = new HashSet<>();
         for (StoredChange change : commits) {
             for (Op op : change.ops()) {
+                if (op instanceof Op.InsertBlock block) {
+                    block.text().segments().forEach(segment -> commentOf(segment.attrs(), marked));
+                }
                 if (!(op instanceof Op.TextOp text)) {
                     continue;
                 }
                 for (Component component : text.delta().components()) {
-                    if (component instanceof Component.Insert insert
-                            && insert.attrs().get(MENTION_MARK) instanceof String value) {
-                        mention(change.userId(), text.blockId(), value);
+                    if (component instanceof Component.Insert insert) {
+                        if (insert.attrs().get(MENTION_MARK) instanceof String value) {
+                            mention(change.userId(), text.blockId(), value);
+                        }
+                        commentOf(insert.attrs(), marked);
+                    } else if (component instanceof Component.Retain retain && retain.attrs() != null) {
+                        commentOf(retain.attrs(), marked);
                     }
                 }
             }
+        }
+        if (!marked.isEmpty()) {
+            try {
+                background.execute(() -> {
+                    try {
+                        bodies.commentMarked(docId, marked);
+                    } catch (RuntimeException e) {
+                        LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 댓글 서식을 알리지 못했다", e);
+                    }
+                });
+            } catch (RejectedExecutionException e) {
+                LOG.log(System.Logger.Level.WARNING, "실행기가 닫혀 댓글 서식을 알리지 못했다", e);
+            }
+        }
+    }
+
+    private static void commentOf(Map<String, Object> attrs, Set<String> into) {
+        if (attrs != null && attrs.get(COMMENT_MARK) instanceof String thread) {
+            into.add(thread);
         }
     }
 
@@ -706,11 +736,12 @@ public final class DocumentSession {
         }
         bodyDirty = false;
         String body = plainBody(server.document());
+        Set<String> threads = commentThreads(server.document());
         long rev = server.rev();
         try {
             background.execute(() -> {
                 try {
-                    bodies.update(docId, body, rev);
+                    bodies.update(docId, body, threads, rev);
                 } catch (RuntimeException e) {
                     LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 검색 본문을 쓰지 못했다", e);
                 }
@@ -751,6 +782,22 @@ public final class DocumentSession {
             }
         }
         return text.toString();
+    }
+
+    /** 보이는 블록(제목 포함)의 글자에 붙은 comment 서식의 값들 (D-50). */
+    static Set<String> commentThreads(Document document) {
+        Set<String> threads = new HashSet<>();
+        for (Block block : document.blocks()) {
+            if (!document.isVisible(block.id())) {
+                continue;
+            }
+            for (Segment segment : block.text().segments()) {
+                if (segment.attrs().get(COMMENT_MARK) instanceof String thread) {
+                    threads.add(thread);
+                }
+            }
+        }
+        return threads;
     }
 
     /** 이 문서의 모든 연결에 알린다. 편집과 상관없는 알림(댓글이 바뀜 등)이다. */

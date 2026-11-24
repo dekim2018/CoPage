@@ -14,6 +14,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
     implementation("org.springframework.boot:spring-boot-starter-validation")
+    // 초대 메일 (W-1, D-50). 메일 서버를 설정했을 때만 쓴다.
+    implementation("org.springframework.boot:spring-boot-starter-mail")
     // 지표 (docs/11-TEST-PLAN.md 13.4). Prometheus 형식으로 관리 포트에 내보낸다.
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     runtimeOnly("io.micrometer:micrometer-registry-prometheus")

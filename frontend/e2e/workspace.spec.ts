@@ -65,6 +65,18 @@ test('사이드바에서 페이지를 다른 페이지 위로 끌면 그 하위�
   await expect(under).toContainText('옮길 것')
   await expect(a.locator('.sidebar > .tree > [data-testid=tree-item]')).toHaveCount(2)
 
+  // 첫 줄의 위쪽 가장자리에 놓으면 맨 앞으로 간다 (D-50).
+  await newPage(a, '맨 앞으로', '')
+  const top = a.locator('.sidebar > .tree > [data-testid=tree-item]')
+  await expect(top).toHaveCount(3)
+  const firstRow = top.first().getByTestId('tree-row').first()
+  const box = await firstRow.boundingBox()
+  await a.getByTestId('tree-row').filter({ hasText: '맨 앞으로' }).dragTo(firstRow, {
+    targetPosition: { x: 10, y: 2 },
+  })
+  await expect(top.first()).toContainText('맨 앞으로')
+  expect(box).not.toBeNull()
+
   // 자기 하위로는 옮길 수 없다.
   await a.getByTestId('tree-row').filter({ hasText: '부모' }).first().dragTo(under.getByTestId('tree-row'))
   await expect(a.getByTestId('move-error')).toContainText('자기 하위로는 옮길 수 없다')

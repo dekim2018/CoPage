@@ -20,7 +20,7 @@ Java 25, Spring Boot 4.2, Spring Security 7.2, PostgreSQL 17, Redis 7, Vue 3, Ti
 - 페이지 권한(VIEW, COMMENT, EDIT, FULL), 상속과 restricted, 공유 창. 권한을 바꾸면 열린 편집기에 1초 안에 적용된다
 - Redis 장애 때 503 으로 막고 열린 편집은 계속(fail-closed), 관리 포트의 Prometheus 지표, 부하 도구 `loadgen`
 
-아직 없는 것: 초대 메일 발송(초대 링크는 있다), 실제 서버에 올린 배포(구성과 문서는 있다).
+아직 없는 것: 실제 서버에 올린 배포(구성과 문서는 있다). 초대 메일은 메일 서버를 설정하면 보낸다(D-50).
 
 | 단계 | 내용 | 상태 |
 | --- | --- | --- |

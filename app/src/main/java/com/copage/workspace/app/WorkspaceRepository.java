@@ -89,6 +89,9 @@ public interface WorkspaceRepository {
      */
     Page movePage(UUID workspaceId, UUID pageId, UUID newParentId, UUID afterId);
 
+    /** first 면 새 부모의 맨 앞으로 옮긴다(afterId 는 null 이어야 한다, D-50). */
+    Page movePage(UUID workspaceId, UUID pageId, UUID newParentId, UUID afterId, boolean first);
+
     /** 휴지통으로 보낸다. 이미 보관되었거나 없으면 false. */
     boolean archive(UUID workspaceId, UUID pageId, Instant archivedAt);
 

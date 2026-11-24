@@ -41,6 +41,20 @@ public interface CommentRepository {
      */
     boolean deleteComment(UUID commentId, Instant deletedAt);
 
+    /**
+     * 본문에 서식이 있는 스레드를 적는다 (D-50). present 에 있으면 처음 본 때를 남기고 orphaned 를 끈다. 한때 있었는데 없으면
+     * orphaned 를 켠다.
+     *
+     * @return orphaned 가 바뀐 스레드
+     */
+    List<UUID> updateAnchors(UUID docId, Set<UUID> present, Instant now);
+
+    /** 서식이 붙은 스레드에 처음 본 때를 남기고 orphaned 를 끈다. @return orphaned 였던 스레드 */
+    List<UUID> markAnchored(UUID docId, Set<UUID> threads, Instant now);
+
+    /** 만든 지 before 이전인데 본문에서 서식을 한 번도 보지 못한 스레드를 지운다. @return 지운 수 */
+    int purgeUnanchored(Instant before);
+
     /** resolvedAt 이 null 이면 다시 연다. */
     boolean setResolved(UUID threadId, Instant resolvedAt, UUID resolvedBy);
 }

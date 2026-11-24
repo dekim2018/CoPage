@@ -5,6 +5,7 @@ import com.copage.notification.app.NotificationService;
 import com.copage.permission.app.PageGrants;
 import com.copage.permission.app.PagePermissions;
 import com.copage.permission.app.WorkspaceMembership;
+import com.copage.workspace.app.InviteMailer;
 import com.copage.workspace.app.InviteService;
 import com.copage.workspace.app.TreeEvents;
 import com.copage.workspace.app.WorkspaceRepository;
@@ -12,6 +13,7 @@ import com.copage.workspace.app.WorkspaceService;
 import com.copage.workspace.domain.WorkspaceRole;
 import com.copage.workspace.out.JdbcInviteRepository;
 import com.copage.workspace.out.JdbcWorkspaceRepository;
+import com.copage.workspace.out.SmtpInviteMailer;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Map;
@@ -20,9 +22,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Configuration
@@ -49,20 +54,45 @@ public class WorkspaceConfig {
         return new JdbcInviteRepository(jdbcClient);
     }
 
+    /**
+     * 초대 메일 (W-1, D-50). 메일 서버(SPRING_MAIL_HOST)와 화면 주소(COPAGE_PUBLIC_URL)가 둘 다 있어야 보낸다. 하나라도 없으면
+     * 보내지 않고 OWNER 가 링크를 직접 건넨다(D-40).
+     */
+    @Bean
+    InviteMailer inviteMailer(
+            ObjectProvider<JavaMailSender> mailSender,
+            @Value("${spring.mail.host:}") String mailHost,
+            @Value("${copage.mail.from:}") String from,
+            @Value("${copage.mail.public-url:}") String publicUrl) {
+        if (mailHost.isBlank()) {
+            return InviteMailer.NONE;
+        }
+        if (publicUrl.isBlank() || from.isBlank()) {
+            LOG.log(System.Logger.Level.WARNING,
+                    "메일 서버는 있지만 COPAGE_PUBLIC_URL 이나 COPAGE_MAIL_FROM 이 없어 초대 메일을 보내지 않는다");
+            return InviteMailer.NONE;
+        }
+        return new SmtpInviteMailer(mailSender.getObject(), from, publicUrl,
+                Executors.newVirtualThreadPerTaskExecutor());
+    }
+
     @Bean
     InviteService inviteService(
             JdbcInviteRepository inviteRepository,
             JdbcWorkspaceRepository workspaceRepository,
             UserDirectory userDirectory,
             PageGrants pageGrants,
-            TransactionTemplate transactionTemplate) {
-        return new InviteService(
+            TransactionTemplate transactionTemplate,
+            InviteMailer inviteMailer) {
+        InviteService service = new InviteService(
                 inviteRepository,
                 workspaceRepository,
                 userDirectory,
                 pageGrants,
                 work -> transactionTemplate.executeWithoutResult(status -> work.run()),
                 Clock.systemUTC());
+        service.mailerIs(inviteMailer);
+        return service;
     }
 
     /**

@@ -39,11 +39,12 @@ class CommentController {
     record DeleteResponse(boolean threadDeleted) {
     }
 
+    /** @param orphaned 본문에서 원문이 다 지워졌다 (D-50) */
     record ThreadView(UUID id, String quote, Instant createdAt, boolean resolved, String resolvedByName,
-            List<CommentView> comments) {
+            List<CommentView> comments, boolean orphaned) {
         static ThreadView of(CommentThread t) {
             return new ThreadView(t.id(), t.quote(), t.createdAt(), t.resolvedAt() != null, t.resolvedByName(),
-                    t.comments().stream().map(CommentView::of).toList());
+                    t.comments().stream().map(CommentView::of).toList(), t.orphaned());
         }
     }
 

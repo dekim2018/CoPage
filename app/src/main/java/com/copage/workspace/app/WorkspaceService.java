@@ -341,6 +341,14 @@ public final class WorkspaceService {
      * @param afterId 이 형제 바로 뒤. null 이면 맨 뒤
      */
     public Page movePage(UUID userId, UUID pageId, UUID newParentId, UUID afterId) {
+        return movePage(userId, pageId, newParentId, afterId, false);
+    }
+
+    /** @param first 새 부모의 맨 앞으로 (D-50). afterId 와 함께 줄 수 없다 */
+    public Page movePage(UUID userId, UUID pageId, UUID newParentId, UUID afterId, boolean first) {
+        if (first && afterId != null) {
+            throw new WorkspaceException(Kind.BAD_REQUEST, "first 와 afterId 는 함께 줄 수 없다");
+        }
         Access.Granted granted = requireLevel(userId, pageId, PageLevel.FULL, "이 페이지를 옮길 권한이 없다");
         PageLevel target = permissions.levelForNewChild(userId, granted.workspaceId(), newParentId);
         if (target == null && newParentId != null) {
@@ -354,7 +362,7 @@ public final class WorkspaceService {
             throw new WorkspaceException(Kind.BAD_REQUEST, "페이지는 " + MAX_DEPTH + " 단계까지 중첩한다");
         }
         UUID oldParent = repository.findPage(granted.workspaceId(), pageId).map(Page::parentId).orElse(null);
-        Page moved = repository.movePage(granted.workspaceId(), pageId, newParentId, afterId);
+        Page moved = repository.movePage(granted.workspaceId(), pageId, newParentId, afterId, first);
         grants.treeChanged(repository.subtree(pageId));
         treeChanged(granted.workspaceId(), oldParent, newParentId);
         return moved;

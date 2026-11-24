@@ -52,6 +52,10 @@ management:
     health:
       probes:
         enabled: true
+  # 메일 서버가 잠깐 멈췄다고 서버 전체를 DOWN 으로 보지 않는다. 초대 메일은 실패해도 링크로 건넬 수 있다 (D-50).
+  health:
+    mail:
+      enabled: false
 
 # 에러 모니터링 (D-49, docs/DEPLOY.md). DSN 이 비어 있으면 아무것도 보내지 않는다. 처리하지 못한 예외(5xx)와 ERROR 로그만
 # 보낸다. 사용자 정보와 쿠키, 인증 헤더는 싣지 않고, 주소의 티켓과 토큰은 보내기 전에 가린다(ErrorReportScrubber).
@@ -66,6 +70,11 @@ sentry:
     minimum-breadcrumb-level: info
 
 copage:
+  # 초대 메일 (W-1, D-50). 메일 서버는 SPRING_MAIL_HOST, SPRING_MAIL_PORT, SPRING_MAIL_USERNAME, SPRING_MAIL_PASSWORD 로 준다.
+  # 셋(메일 서버, 보내는 주소, 화면 주소)이 다 있어야 보낸다. 없으면 링크를 직접 건넨다.
+  mail:
+    from: ${COPAGE_MAIL_FROM:}
+    public-url: ${COPAGE_PUBLIC_URL:}
   web:
     # 브라우저에서 API 와 WebSocket 을 부를 수 있는 Origin. 비어 있으면 같은 출처만 받는다.
     allowed-origins: []

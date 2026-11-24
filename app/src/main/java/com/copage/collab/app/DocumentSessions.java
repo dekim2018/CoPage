@@ -8,9 +8,12 @@ import com.copage.collab.domain.ServerMessage;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.function.Predicate;
 
@@ -33,7 +36,33 @@ public final class DocumentSessions {
     private final CollabMetrics metrics;
     private final OwnershipLease lease;
     private volatile MentionSink mentions = MentionSink.NONE;
-    private volatile BodySink bodies = BodySink.NONE;
+    private static final System.Logger LOG = System.getLogger(DocumentSessions.class.getName());
+
+    /** 본문을 받는 곳들(검색, 댓글 위치). 하나가 실패해도 다른 곳에는 간다. */
+    private final List<BodySink> bodySinks = new CopyOnWriteArrayList<>();
+    private final BodySink bodies = new BodySink() {
+        @Override
+        public void update(UUID docId, String body, Set<String> commentThreads, long rev) {
+            for (BodySink sink : bodySinks) {
+                try {
+                    sink.update(docId, body, commentThreads, rev);
+                } catch (RuntimeException e) {
+                    LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 본문을 알리지 못했다", e);
+                }
+            }
+        }
+
+        @Override
+        public void commentMarked(UUID docId, Set<String> commentThreads) {
+            for (BodySink sink : bodySinks) {
+                try {
+                    sink.commentMarked(docId, commentThreads);
+                } catch (RuntimeException e) {
+                    LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 댓글 서식을 알리지 못했다", e);
+                }
+            }
+        }
+    };
     /** 리스를 잡은 시각. 막 잡은 문서는 넘겨 달라는 요청을 받아도 넘기지 않는다(노드 사이를 오가는 것을 막는다). */
     private final Map<UUID, Instant> acquiredAt = new ConcurrentHashMap<>();
     private final Duration handoffGrace;
@@ -210,9 +239,9 @@ public final class DocumentSessions {
         this.mentions = sink;
     }
 
-    /** 검색에 쓸 본문을 받을 곳 (D-47). 새로 여는 세션부터 쓴다. */
-    public void bodiesTo(BodySink sink) {
-        this.bodies = sink;
+    /** 본문을 받을 곳을 더한다. 검색(D-47), 댓글 위치(D-50). 모듈이 서로를 몰라도 되게 각자 더한다. */
+    public void addBodySink(BodySink sink) {
+        bodySinks.add(sink);
     }
 
     /** 시험이 세션 안을 들여다볼 때 쓴다. */

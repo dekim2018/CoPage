@@ -1,11 +1,11 @@
 package com.copage.collab.config;
 
+import com.copage.collab.app.BodySink;
 import com.copage.collab.app.ChangePolicy;
 import com.copage.collab.app.CollabMetrics;
 import com.copage.collab.app.DocumentSession;
 import com.copage.collab.app.DocumentSessions;
 import com.copage.collab.app.DocumentStore;
-import com.copage.collab.app.BodySink;
 import com.copage.collab.app.MentionSink;
 import com.copage.collab.app.OwnershipLease;
 import com.copage.collab.app.TicketService;
@@ -218,8 +218,8 @@ public class CollabConfig {
     /** 검색 본문은 workspace 모듈이 쓴다 (F-1, D-47). 제목과 같은 길이다. */
     @Bean
     BodySink searchBodies(DocumentSessions documentSessions, WorkspaceService workspaceService) {
-        BodySink sink = workspaceService::updateBody;
-        documentSessions.bodiesTo(sink);
+        BodySink sink = (docId, body, commentThreads, rev) -> workspaceService.updateBody(docId, body, rev);
+        documentSessions.addBodySink(sink);
         return sink;
     }
 

@@ -20,11 +20,13 @@ export interface CommentThread {
   resolved: boolean
   resolvedByName: string | null
   comments: CommentItem[]
+  /** 본문에서 원문이 다 지워졌다 (D-50) */
+  orphaned: boolean
 }
 
 export interface NotificationItem {
   id: string
-  kind: 'MENTION' | 'COMMENT_MENTION' | 'REPLY'
+  kind: 'MENTION' | 'COMMENT_MENTION' | 'REPLY' | 'PAGE_SHARED'
   docId: string | null
   actorName: string | null
   preview: string

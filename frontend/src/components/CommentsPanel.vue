@@ -144,6 +144,7 @@ onMounted(() => run(async () => undefined))
       :data-thread-id="thread.id"
     >
       <blockquote>{{ thread.quote }}</blockquote>
+      <p v-if="thread.orphaned" class="orphaned" data-testid="comment-orphaned">원문이 삭제됨</p>
       <div v-for="comment in thread.comments" :key="comment.id" class="comment" data-testid="comment">
         <p v-if="comment.deleted" class="deleted">삭제된 댓글</p>
         <form v-else-if="editing?.id === comment.id" @submit.prevent="saveEdit">
@@ -222,6 +223,12 @@ blockquote {
 textarea {
   width: 100%;
   min-height: 60px;
+}
+
+.orphaned {
+  margin: 0;
+  font-size: 12px;
+  color: #b54708;
 }
 
 .comment p {
