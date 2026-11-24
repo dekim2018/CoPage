@@ -9,8 +9,9 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    // 적합성 벡터를 JSON 으로 내보낼 때만 쓴다. 버전은 app 의 Spring Boot 4.1.1 이 쓰는 것과 맞췄다.
-    testImplementation("tools.jackson.core:jackson-databind:3.1.5")
+    // 적합성 벡터를 JSON 으로 내보낼 때만 쓴다. 버전은 app 의 Spring Boot(4.2.0)가 관리하는 것과 맞춘다. Boot 를 올릴 때
+    // 함께 올린다(D-35). 확인: ./gradlew :app:dependencies --configuration runtimeClasspath | grep jackson-databind
+    testImplementation("tools.jackson.core:jackson-databind:3.1.8")
 }
 
 // TypeScript 구현과 맞춰 볼 적합성 벡터를 build/vectors 에 만든다. frontend 의 Vitest 가 이 파일을 읽는다.
