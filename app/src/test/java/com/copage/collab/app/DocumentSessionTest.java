@@ -113,6 +113,11 @@ class DocumentSessionTest {
         }
 
         @Override
+        public Document loadAt(UUID docId, long rev) {
+            return delegate.loadAt(docId, rev);
+        }
+
+        @Override
         public ClientSeqs clientSeqs(UUID docId, String clientId, long clientSeq) {
             seqReads++;
             if (failRead) {

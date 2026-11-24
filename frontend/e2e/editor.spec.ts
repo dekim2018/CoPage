@@ -590,3 +590,38 @@ test('블록을 끌어 다른 블록 뒤로 옮기면 상대 화면에도 옮겨
 
   expect(await converged(a, b)).toEqual(['제목', '둘째', '셋째', '첫째'])
 })
+
+test('이름 붙인 시점으로 복원하면 상대 화면도 바뀌고, 되돌리기로 복원을 되돌린다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
+  await Promise.all([open(a, docId), open(b, docId)])
+  await prepare(a, b, '제목', ['첫 판'])
+
+  await a.getByTestId('versions-button').click()
+  const panel = a.getByTestId('versions')
+  await panel.getByPlaceholder('지금 시점에 이름 붙이기').fill('초안')
+  await panel.getByRole('button', { name: '저장' }).click()
+  await expect(panel.getByTestId('version-item').first()).toContainText('초안')
+  // 기록 창은 편집기 위에 열려 자리를 밀어낸다. 닫고 편집한 뒤 다시 연다.
+  await panel.getByRole('button', { name: '닫기' }).click()
+  // 편집기 밖(기록 창)에서 돌아오면 클릭의 커서가 잠깐 늦게 잡힌다. 먼저 편집기에 초점을 둔다.
+  await a.locator('.ProseMirror').focus()
+
+  await caretAtEnd(a, 1)
+  await a.keyboard.type(' 고침')
+  await a.keyboard.press('Enter')
+  await a.keyboard.type('새 문단')
+  expect(await converged(a, b)).toEqual(['제목', '첫 판 고침', '새 문단'])
+
+  await a.getByTestId('versions-button').click()
+  await panel.getByTestId('version-item').filter({ hasText: '초안' }).click()
+  await expect(a.getByTestId('version-preview')).toContainText('첫 판')
+  await panel.getByRole('button', { name: '이 시점으로 복원' }).click()
+  await panel.getByTestId('confirm-restore').click()
+  expect(await converged(a, b)).toEqual(['제목', '첫 판'])
+  await expect(panel.getByTestId('version-item').first()).toContainText('복원')
+
+  await a.locator('.ProseMirror').click()
+  await a.keyboard.press('ControlOrMeta+z')
+  expect(await converged(a, b)).toEqual(['제목', '첫 판 고침', '새 문단'])
+})

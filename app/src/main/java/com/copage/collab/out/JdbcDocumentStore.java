@@ -72,6 +72,35 @@ public final class JdbcDocumentStore implements DocumentStore {
     }
 
     @Override
+    public Document loadAt(UUID docId, long rev) {
+        Optional<StoredSnapshot> snapshot = jdbc.sql("""
+                        SELECT rev, content FROM doc_snapshots
+                        WHERE doc_id = :docId AND rev <= :rev ORDER BY rev DESC LIMIT 1
+                        """)
+                .param("docId", docId)
+                .param("rev", rev)
+                .query((rs, row) -> new StoredSnapshot(rs.getLong("rev"), rs.getString("content")))
+                .optional();
+        Document document = snapshot
+                .map(s -> OpJson.readDocument(mapper.readTree(s.content())))
+                .orElseGet(() -> Document.create(docId.toString()));
+        long from = snapshot.map(StoredSnapshot::rev).orElse(0L);
+        List<StoredChange> changes = jdbc.sql("""
+                        SELECT rev, user_id, client_id, client_seq, ops, created_at FROM doc_ops
+                        WHERE doc_id = :docId AND rev > :fromRev AND rev <= :rev ORDER BY rev
+                        """)
+                .param("docId", docId)
+                .param("fromRev", from)
+                .param("rev", rev)
+                .query(this::change)
+                .list();
+        for (StoredChange change : changes) {
+            document = document.apply(change.ops());
+        }
+        return document;
+    }
+
+    @Override
     public List<StoredChange> changesSince(UUID docId, long fromRev) {
         return jdbc.sql("""
                         SELECT rev, user_id, client_id, client_seq, ops, created_at FROM doc_ops

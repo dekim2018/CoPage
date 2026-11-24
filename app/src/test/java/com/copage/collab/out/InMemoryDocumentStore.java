@@ -52,6 +52,20 @@ public final class InMemoryDocumentStore implements DocumentStore {
     }
 
     @Override
+    public Document loadAt(UUID docId, long rev) {
+        Log log = log(docId);
+        synchronized (log) {
+            Document document = Document.create(docId.toString());
+            for (StoredChange change : log.changes) {
+                if (change.rev() <= rev) {
+                    document = document.apply(change.ops());
+                }
+            }
+            return document;
+        }
+    }
+
+    @Override
     public ClientSeqs clientSeqs(UUID docId, String clientId, long clientSeq) {
         Log log = log(docId);
         synchronized (log) {
