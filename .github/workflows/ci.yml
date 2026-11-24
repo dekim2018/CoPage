@@ -52,7 +52,7 @@ jobs:
       - name: 적합성 벡터 만들기
         run: ./gradlew :ot-core:exportVectors
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -106,7 +106,7 @@ jobs:
       - name: 백엔드 jar 만들기
         run: ./gradlew :app:bootJar
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
