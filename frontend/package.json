@@ -24,6 +24,7 @@
     "vue-tsc": "3.3.14"
   },
   "dependencies": {
+    "@sentry/vue": "^11.17.0",
     "@tiptap/core": "3.35.0",
     "@tiptap/extension-bold": "3.35.0",
     "@tiptap/extension-code": "3.35.0",

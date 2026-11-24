@@ -32,6 +32,7 @@
 | `COPAGE_DOMAIN` | 예 | 화면과 API 의 도메인. 허용 Origin(`https://도메인`)도 이것으로 정한다 |
 | `COPAGE_DB_PASSWORD` | 예 | PostgreSQL 비밀번호. 처음 볼륨을 만들 때 정해지고, 바꾸려면 DB 안에서도 바꿔야 한다 |
 | `COPAGE_JWT_SECRET` | 예 | Access 토큰 서명 키. 32바이트 이상. 바꾸면 발급한 Access 토큰(최대 15분)이 401 이 되고 화면은 Refresh 쿠키로 다시 받는다 |
+| `COPAGE_SENTRY_DSN`, `COPAGE_SENTRY_DSN_WEB` | 아니요 | 에러 모니터링의 서버, 화면 DSN. 비우면 끈다 (D-49) |
 | `COPAGE_JAVA_OPTIONS` | 아니요 | 서버 JVM 옵션. 기본 `-Xmx1g` |
 | `COPAGE_HTTP_PORT`, `COPAGE_HTTPS_PORT` | 아니요 | 밖으로 여는 포트. 기본 80, 443. 로컬 확인용 |
 
@@ -50,7 +51,17 @@ docker compose -f deploy/prod/compose.yaml exec -T postgres pg_restore -U copage
 
 ## 지표와 상태 확인
 
-관리 포트(8081)는 서버 컨테이너 안의 127.0.0.1 에만 열린다. 밖에서 긁으려면 `COPAGE_MANAGEMENT_ADDRESS=0.0.0.0` 을 주고 Prometheus 를 같은 compose 네트워크에 둔다(관리 포트를 호스트에 열지 않는다). 지표 이름은 [11-TEST-PLAN.md](./11-TEST-PLAN.md) 13.4 에 있다. 이 구성에는 Prometheus 와 에러 모니터링(Sentry 등)을 넣지 않았다.
+### 에러 모니터링 (D-49)
+
+서버와 화면에 Sentry SDK 가 들어 있다. `.env` 에 `COPAGE_SENTRY_DSN`(서버), `COPAGE_SENTRY_DSN_WEB`(화면)을 주면 켜지고, 비우면 아무것도 보내지 않는다(화면은 SDK 를 내려받지도 않는다). Sentry 의 무료 등급이나, 같은 규약을 받는 자체 설치형 GlitchTip 에 보낼 수 있다. 화면 DSN 은 빌드할 때 들어가므로 바꾸면 `--build` 로 다시 띄운다.
+
+- 보내는 것: 서버의 처리하지 못한 예외(500)와 ERROR 로그(세션을 버림, 커밋 실패 등), 화면의 처리하지 못한 예외와 Vue 오류
+- 보내지 않는 것: 처리한 4xx(ProblemDetail), 사용자 정보, 쿠키, 헤더, 요청 본문, 주소의 쿼리. 주소와 메시지의 티켓, 공유 링크와 초대 토큰, Bearer 토큰은 보내기 전에 가린다
+- 확인: 가짜 수집 서버로 서버의 ERROR 로그와 500 이 가서 가려지는 것(`ErrorReportFlowTest`), 화면의 예외가 가서 가려지는 것(로컬에서 한 번)을 확인했다. 실제 Sentry 프로젝트로는 보내 보지 않았다
+
+### 지표
+
+관리 포트(8081)는 서버 컨테이너 안의 127.0.0.1 에만 열린다. 밖에서 긁으려면 `COPAGE_MANAGEMENT_ADDRESS=0.0.0.0` 을 주고 Prometheus 를 같은 compose 네트워크에 둔다(관리 포트를 호스트에 열지 않는다). 지표 이름은 [11-TEST-PLAN.md](./11-TEST-PLAN.md) 13.4 에 있다. 이 구성에는 Prometheus 를 넣지 않았다.
 
 ## 업데이트
 

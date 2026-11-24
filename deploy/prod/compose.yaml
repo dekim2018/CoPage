@@ -42,6 +42,9 @@ services:
       COPAGE_JWT_SECRET: ${COPAGE_JWT_SECRET:?COPAGE_JWT_SECRET 를 .env 에 적는다(32바이트 이상)}
       COPAGE_WEB_ALLOWED_ORIGINS: https://${COPAGE_DOMAIN}
       COPAGE_NODE_ID: node1
+      # 에러 모니터링(Sentry 나 GlitchTip). 비우면 끈다 (D-49).
+      COPAGE_SENTRY_DSN: ${COPAGE_SENTRY_DSN:-}
+      COPAGE_ENVIRONMENT: production
       # 4GB 서버에서 PostgreSQL 과 Redis, Caddy 에 남겨 둔다 (01-PLAN 1.4 의 노드 1대 수용량 조건).
       JAVA_TOOL_OPTIONS: ${COPAGE_JAVA_OPTIONS:--Xmx1g}
 
@@ -49,6 +52,9 @@ services:
     build:
       context: ../..
       dockerfile: deploy/prod/web.Dockerfile
+      args:
+        # 화면의 에러 모니터링. 빌드할 때 화면 코드에 들어간다(브라우저에 보이는 값이라 비밀이 아니다).
+        VITE_SENTRY_DSN: ${COPAGE_SENTRY_DSN_WEB:-}
     restart: unless-stopped
     depends_on: [app]
     environment:

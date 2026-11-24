@@ -4,6 +4,9 @@ WORKDIR /web
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+# 화면의 에러 모니터링 DSN (D-49). 비우면 SDK 를 싣지 않는다.
+ARG VITE_SENTRY_DSN=
+ENV VITE_SENTRY_DSN=${VITE_SENTRY_DSN}
 RUN npm run build
 
 FROM caddy:2.8

@@ -316,6 +316,26 @@ export class EditorBinding {
     this.editor.view.dispatch(this.editor.state.tr.addMark(from, to, type.create({ value: threadId })))
   }
 
+  /**
+   * 지운 스레드의 댓글 서식을 본문에서 걷는다 (D-49). 서식을 지우는 것도 보통 편집이라 다른 사람의 화면에서도 걷힌다. 걷을 것이
+   * 없으면 아무것도 보내지 않는다.
+   */
+  removeCommentMark(threadId: string): void {
+    const type = this.editor.state.schema.marks.comment
+    if (type === undefined) {
+      return
+    }
+    const tr = this.editor.state.tr
+    this.editor.state.doc.descendants((node, pos) => {
+      if (node.isText && node.marks.some((mark) => mark.type === type && mark.attrs.value === threadId)) {
+        tr.removeMark(pos, pos + node.nodeSize, type.create({ value: threadId }))
+      }
+    })
+    if (tr.docChanged) {
+      this.editor.view.dispatch(tr)
+    }
+  }
+
   /** 커서 앞의 "@찾는말"(멘션 메뉴, C-4). 없으면 null. */
   mentionQuery(): { query: string; from: number; to: number; left: number; bottom: number } | null {
     const { selection } = this.editor.state

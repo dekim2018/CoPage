@@ -47,6 +47,11 @@ public final class NotificationService {
         });
     }
 
+    /** dedupeKey 가 prefix 로 시작하는 알림을 지운다. 지운 댓글의 글이 알림 미리보기에 남지 않게 한다 (D-49). */
+    public void forget(String prefix) {
+        repository.deleteByDedupePrefix(prefix);
+    }
+
     public List<Notification> recent(UUID userId) {
         return repository.recent(userId, LIST_SIZE);
     }

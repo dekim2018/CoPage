@@ -17,6 +17,13 @@ dependencies {
     // 지표 (docs/11-TEST-PLAN.md 13.4). Prometheus 형식으로 관리 포트에 내보낸다.
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     runtimeOnly("io.micrometer:micrometer-registry-prometheus")
+    // 에러 모니터링 (D-49). DSN 을 주지 않으면 꺼져 있다. Sentry 와 같은 규약의 GlitchTip 같은 자체 설치형에도 보낼 수 있다.
+    implementation("io.sentry:sentry-spring-boot-4-starter:8.65.1")
+    // ERROR 로그(세션을 버림, 커밋 실패 등)도 보낸다. 스타터에 들어 있지 않다.
+    implementation("io.sentry:sentry-logback:8.65.1")
+    // Sentry 의 클래스 파일이 가리키는 주석. 없으면 컴파일 경고가 난다.
+    compileOnly("org.jetbrains:annotations:26.1.0")
+    testCompileOnly("org.jetbrains:annotations:26.1.0")
     implementation("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
 

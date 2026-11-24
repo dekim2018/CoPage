@@ -1,6 +1,6 @@
 # 11. REST API 목록
 
-REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 46개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
+REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 48개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
 
 오류 응답은 RFC 9457 형식(`application/problem+json`)으로 통일한다. Spring의 `ProblemDetail` 을 쓴다.
 
@@ -50,10 +50,12 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | GET | `/api/docs/{docId}/versions/{rev}` | VIEW | 200, `{rev, document}`. 그 시점의 문서(규약 JSON) | 400 음수 리비전. 404, 403 |
 | POST | `/api/docs/{docId}/versions` | EDIT | 201, 본문 `{kind: NAMED\|RESTORE, name, restoredFrom}`. 지금 마지막 리비전에 버전을 남긴다. 복원 자체는 클라이언트가 편집으로 보낸다 | 400 AUTO 이거나 NAMED 의 이름이 빔. 404, 403 |
 | POST | `/api/docs/{docId}/ws-ticket` | VIEW | 200, `{ticket, role}`. 티켓은 30초 1회용 | 404 페이지가 없거나 속하지 않음. 403 등급이 없음 |
-| GET | `/api/docs/{docId}/comments` | VIEW | 200, 스레드 목록(오래된 것부터, `{id, quote, createdAt, resolved, resolvedByName, comments: [{id, authorId, authorName, body, createdAt}]}`) (D-46) | 404, 403 |
+| GET | `/api/docs/{docId}/comments` | VIEW | 200, 스레드 목록(오래된 것부터, `{id, quote, createdAt, resolved, resolvedByName, comments: [{id, authorId, authorName, body, createdAt, editedAt, deleted}]}`) (D-46) | 404, 403 |
 | POST | `/api/docs/{docId}/comments` | COMMENT | 201, 본문 `{quote, body, mentions}`. 스레드와 첫 댓글. 위치 서식은 클라이언트가 편집으로 붙인다. 멘션한 사람 중 그 페이지를 볼 수 있는 사람에게 알린다 | 400 본문이 비거나 4,000자를 넘거나 멘션이 50명을 넘음. 404, 403 |
 | POST | `/api/comments/{threadId}/replies` | COMMENT | 201, 본문 `{body, mentions}`. 스레드에 쓴 사람들에게 답글 알림 | 400, 404, 403 위와 같음 |
 | PUT | `/api/comments/{threadId}/resolved` | COMMENT | 204, 본문 `{resolved}`. false 면 다시 연다 | 404, 403 |
+| PATCH | `/api/comments/{commentId}` | 쓴 사람(COMMENT 이상) | 200, 고친 댓글. 본문 `{body, mentions}`. 새로 멘션한 사람에게 알린다. 이 경로의 ID 는 댓글 ID 다(D-49) | 400 빈 글. 404 없거나 지운 댓글. 403 남의 댓글이거나 등급이 모자람 |
+| DELETE | `/api/comments/{commentId}` | 쓴 사람(COMMENT 이상)이나 그 페이지의 FULL | 200, `{threadDeleted}`. 글을 비우고 지운 표시를 남긴다. 그 댓글의 멘션, 답글 알림도 지운다. 스레드에 남은 댓글이 없으면 스레드도 지우고, 화면은 본문의 댓글 서식을 걷는다 (D-49) | 404, 403 위와 같음 |
 | GET | `/api/workspaces/{workspaceId}/search?q=` | 멤버 | 200, 최대 30개 `[{id, parentId, title, snippet}]`. 볼 수 있는 페이지만. 제목에 든 것이 먼저, 그 안에서는 최근에 고친 것이 먼저. 빈 검색어는 빈 목록 (D-47) | 404 멤버가 아님 |
 | GET | `/api/notifications` | 로그인 | 200, `{unread, items: [{id, kind, docId, actorName, preview, createdAt, read}]}`. 최근 50개 | |
 | POST | `/api/notifications/read` | 로그인 | 204, 본문 `{ids}`. 빈 목록이면 전부 읽음 | |
@@ -124,8 +126,8 @@ API 포트에는 `/actuator` 가 없다. 지표와 상태 확인은 관리 포�
 | GET | `/api/docs/{docId}/threads?status=` | 댓글 스레드 목록 | VIEW | 구현. 경로는 `/api/docs/{docId}/comments`, 해결한 것도 함께 준다(D-46) |
 | POST | `/api/docs/{docId}/threads` | 스레드 생성 (첫 댓글, 원문 발췌 포함) | COMMENT | 구현. 경로는 `/api/docs/{docId}/comments`(D-46) |
 | POST | `/api/threads/{threadId}/comments` | 답글 | COMMENT | 구현. 경로는 `/api/comments/{threadId}/replies`(D-46) |
-| PATCH | `/api/comments/{commentId}` | 내 댓글 수정 | 작성자 | 계획 |
-| DELETE | `/api/comments/{commentId}` | 내 댓글 삭제 | 작성자 또는 FULL | 계획 |
+| PATCH | `/api/comments/{commentId}` | 내 댓글 수정 | 작성자 | 구현(D-49) |
+| DELETE | `/api/comments/{commentId}` | 내 댓글 삭제 | 작성자 또는 FULL | 구현(D-49) |
 | POST | `/api/threads/{threadId}/resolve` | 해결 처리. `reopen` 으로 다시 연다 | COMMENT | 구현. `PUT /api/comments/{threadId}/resolved`(D-46) |
 | GET | `/api/workspaces/{wsId}/search?q=` | 제목과 본문 검색 | MEMBER 또는 GUEST | 구현(D-47) |
 | GET | `/api/notifications?before=` | 알림 목록 | 로그인 | 구현. 최근 50개, 커서는 아직 없다(D-46) |
