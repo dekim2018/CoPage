@@ -34,6 +34,8 @@ public final class DocumentSessions {
     /** 리스를 잡은 시각. 막 잡은 문서는 넘겨 달라는 요청을 받아도 넘기지 않는다(노드 사이를 오가는 것을 막는다). */
     private final Map<UUID, Instant> acquiredAt = new ConcurrentHashMap<>();
     private final Duration handoffGrace;
+    /** 노드를 내리는 중이다. 새 연결은 세션을 열지 않고 다른 노드로 보낸다. */
+    private volatile boolean draining;
 
     /** 노드 한 대 구성(시험). 리스는 언제나 이 노드가 쥔다. */
     public DocumentSessions(
@@ -97,6 +99,10 @@ public final class DocumentSessions {
 
     /** hello 를 받은 연결을 문서 세션에 넣는다. welcome 은 세션이 보낸다. */
     public void join(UUID docId, Connection connection, Hello hello, PageRole role, String name) {
+        if (draining) {
+            connection.close(CloseCodes.MOVED, "이 노드는 내려가는 중이다. 다시 접속한다");
+            return;
+        }
         DocumentSession session = sessions.compute(docId, (id, existing) -> {
             if (existing != null) {
                 return existing;
@@ -174,8 +180,12 @@ public final class DocumentSessions {
         }
     }
 
-    /** 노드를 내릴 때 모든 세션을 넘긴다. 연결은 4009 로 닫히고 클라이언트는 다른 노드로 다시 붙는다. */
+    /**
+     * 노드를 내릴 때 모든 세션을 넘긴다. 연결은 4009 로 닫히고 클라이언트는 다른 노드로 다시 붙는다. 그 뒤로 이 노드에 오는 연결은
+     * 세션을 열지 않는다(내려가는 노드가 리스를 다시 잡지 않게).
+     */
     public void handOffAll() {
+        draining = true;
         sessions.values().forEach(DocumentSession::handOff);
     }
 
