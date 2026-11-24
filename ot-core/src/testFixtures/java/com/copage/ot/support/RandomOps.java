@@ -30,7 +30,11 @@ public final class RandomOps {
 
     private static final String[] TYPES = {"paragraph", "heading", "todo", "quote"};
     private static final String[] POS_KEYS = {"A", "M", "V", "a", "m", "z"};
-    private static final String ALPHABET = "abcde가나다라 ";
+    /**
+     * 글을 이루는 낱자. 이모지는 UTF-16 두 단위(서로게이트 쌍)이고, 국기는 코드 포인트 둘(네 단위)이다. 위치는 UTF-16 단위로
+     * 세므로 이런 글자가 섞여야 위치 계산의 어긋남이 드러난다 (진단 DC-7). 편집기처럼 서로게이트 쌍의 가운데는 자르지 않는다.
+     */
+    private static final String[] TOKENS = {"a", "b", "c", "d", "e", "가", "나", "다", "라", " ", "😀", "👍", "🇰🇷"};
 
     private final Random random;
     private final String idPrefix;
@@ -93,23 +97,24 @@ public final class RandomOps {
 
     private Op text(Document doc) {
         Block block = pick(all(doc));
-        int length = block.text().length();
+        String plain = block.text().plainText();
+        int length = plain.length();
         Delta.Builder delta = Delta.builder();
         int cursor = 0;
         int edits = 1 + random.nextInt(2);
         for (int i = 0; i < edits; i++) {
-            int skip = random.nextInt(length - cursor + 1);
+            int skip = align(plain, cursor + random.nextInt(length - cursor + 1)) - cursor;
             delta.retain(skip);
             cursor += skip;
             int kind = random.nextInt(10);
             if (kind < 5) {
                 delta.insert(randomString(3), random.nextInt(4) == 0 ? Attrs.of("bold", true) : Attrs.NONE);
             } else if (kind < 8 && cursor < length) {
-                int count = 1 + random.nextInt(length - cursor);
+                int count = align(plain, cursor + 1 + random.nextInt(length - cursor)) - cursor;
                 delta.delete(count);
                 cursor += count;
             } else if (cursor < length) {
-                int count = 1 + random.nextInt(length - cursor);
+                int count = align(plain, cursor + 1 + random.nextInt(length - cursor)) - cursor;
                 delta.retain(count, randomAttrChange());
                 cursor += count;
             } else {
@@ -131,7 +136,7 @@ public final class RandomOps {
         String parent = random.nextInt(5) == 0 ? pick(all(doc)).id() : block.parentId();
         return new SplitBlock(
                 block.id(),
-                random.nextInt(block.text().length() + 1),
+                align(block.text().plainText(), random.nextInt(block.text().length() + 1)),
                 newId(),
                 parent,
                 randomPos(),
@@ -217,13 +222,23 @@ public final class RandomOps {
         return POS_KEYS[random.nextInt(POS_KEYS.length)];
     }
 
+    /** 낱자 1~maxLength 개. 스무 번에 한 번은 긴 글(낱자 수백 개)이다. */
     private String randomString(int maxLength) {
-        int length = 1 + random.nextInt(maxLength);
+        int length = random.nextInt(20) == 0 ? 100 + random.nextInt(300) : 1 + random.nextInt(maxLength);
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < length; i++) {
-            sb.append(ALPHABET.charAt(random.nextInt(ALPHABET.length())));
+            sb.append(TOKENS[random.nextInt(TOKENS.length)]);
         }
         return sb.toString();
+    }
+
+    /** 서로게이트 쌍의 가운데면 쌍 뒤로 옮긴다. */
+    private static int align(String text, int position) {
+        if (position > 0 && position < text.length()
+                && Character.isHighSurrogate(text.charAt(position - 1)) && Character.isLowSurrogate(text.charAt(position))) {
+            return position + 1;
+        }
+        return position;
     }
 
     private String pickType() {

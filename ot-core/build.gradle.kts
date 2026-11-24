@@ -1,6 +1,8 @@
 // 문서 모델과 연산 변환. 외부 의존성 없이 JDK 만으로 동작한다.
 plugins {
     `java-library`
+    // 무작위 연산 생성기(RandomOps)를 app 의 시험도 쓴다 (스냅샷과 로그 재생 일치, 진단 DC-7).
+    `java-test-fixtures`
 }
 
 dependencies {
