@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,8 +35,13 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
  */
 public final class AuthService {
 
-    /** 토큰 유효 시간. */
-    public record TokenSettings(Duration accessTokenTtl, Duration refreshTokenTtl) {
+    /**
+     * 토큰 유효 시간과 Access 토큰에 적는 값.
+     *
+     * @param issuer Access 토큰의 iss
+     * @param audience Access 토큰의 aud
+     */
+    public record TokenSettings(Duration accessTokenTtl, Duration refreshTokenTtl, String issuer, String audience) {
     }
 
     /** 로그인이나 재발급의 결과. refreshToken 은 쿠키로만 내보낸다. */
@@ -203,6 +209,8 @@ public final class AuthService {
         Instant expiresAt = now.plus(settings.accessTokenTtl());
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .subject(user.id().toString())
+                .issuer(settings.issuer())
+                .audience(List.of(settings.audience()))
                 .id(UUID.randomUUID().toString())
                 .issuedAt(now)
                 .expiresAt(expiresAt)

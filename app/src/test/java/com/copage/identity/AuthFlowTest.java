@@ -10,11 +10,20 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.test.context.TestPropertySource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -235,6 +244,47 @@ class AuthFlowTest extends TestInfra {
         String token = login(email, PASSWORD).accessToken();
         String forged = token.substring(0, token.lastIndexOf('.') + 1) + "c2lnbmF0dXJl";
         assertEquals(401, me(forged).status());
+    }
+
+    @Test
+    void TLS_를_끝내는_프록시_뒤에서도_같은_출처의_재발급은_받는다() throws Exception {
+        String email = newEmail();
+        signup(email, PASSWORD, "a");
+        Response session = login(email, PASSWORD);
+
+        // 프록시(같은 기기)가 https 를 끝내고 http 로 넘긴다. 브라우저의 Origin 은 https 다. 운영에서는 공개 포트가 443 이라
+        // 포트 헤더가 없어도 되지만, 이 시험은 무작위 포트라 프록시처럼 X-Forwarded-Port 를 붙인다.
+        String proto = "https";
+        Response proxied = refresh(session.refreshCookie(), "Origin", "https://localhost:" + port,
+                "X-Forwarded-Proto", proto, "X-Forwarded-Port", String.valueOf(port));
+        assertEquals(200, proxied.status(), String.valueOf(proxied.body()));
+        assertEquals(403, refresh(proxied.refreshCookie(), "Origin", "https://evil.example",
+                "X-Forwarded-Proto", proto, "X-Forwarded-Port", String.valueOf(port)).status());
+    }
+
+    @Test
+    void 발급자나_대상이_다른_토큰은_서명이_맞아도_401() throws Exception {
+        String email = newEmail();
+        signup(email, PASSWORD, "a");
+        String token = login(email, PASSWORD).accessToken();
+        assertEquals(200, me(token).status());
+        String userId = me(token).body().get("id").stringValue();
+        JwtEncoder encoder = NimbusJwtEncoder.withSecretKey(
+                new SecretKeySpec(JWT_SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256")).build();
+        java.time.Instant now = java.time.Instant.now();
+
+        for (JwtClaimsSet claims : new JwtClaimsSet[] {
+            JwtClaimsSet.builder().subject(userId).id(UUID.randomUUID().toString()).issuedAt(now)
+                    .expiresAt(now.plusSeconds(60)).build(),
+            JwtClaimsSet.builder().subject(userId).id(UUID.randomUUID().toString()).issuedAt(now)
+                    .expiresAt(now.plusSeconds(60)).issuer("copage").audience(List.of("other-service")).build(),
+            JwtClaimsSet.builder().subject(userId).id(UUID.randomUUID().toString()).issuedAt(now)
+                    .expiresAt(now.plusSeconds(60)).issuer("other").audience(List.of("copage-api")).build(),
+        }) {
+            String forged = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims))
+                    .getTokenValue();
+            assertEquals(401, me(forged).status(), claims.getClaims().toString());
+        }
     }
 
     @Test

@@ -1,3 +1,8 @@
+# 앞에 둔 프록시(Caddy)가 TLS 를 끝내고 X-Forwarded-Proto, X-Forwarded-For 를 붙인다. Tomcat 은 내부 주소(127/8, 10/8,
+# 192.168/16 등)에서 온 요청의 이 헤더만 믿는다. 재발급의 같은 출처 판정(OriginCheck)이 https 를 보게 된다 (D-28).
+server:
+  forward-headers-strategy: native
+
 spring:
   application:
     name: copage
