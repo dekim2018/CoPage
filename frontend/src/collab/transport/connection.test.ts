@@ -66,7 +66,7 @@ describe('연결', () => {
 
     connection(ticket, states).start()
     await vi.advanceTimersByTimeAsync(0)
-    FakeSocket.created[0].onclose?.({ code, reason: '' })
+    FakeSocket.created[0]?.onclose?.({ code, reason: '' })
     await vi.advanceTimersByTimeAsync(120_000)
 
     expect(ticket).toHaveBeenCalledTimes(1)
@@ -83,7 +83,7 @@ describe('연결', () => {
     const c = connection(ticket, states)
     c.start()
     await vi.advanceTimersByTimeAsync(0)
-    FakeSocket.created[0].onclose?.({ code: 4009, reason: '' })
+    FakeSocket.created[0]?.onclose?.({ code: 4009, reason: '' })
     await vi.advanceTimersByTimeAsync(3_000)
     c.stop()
 
