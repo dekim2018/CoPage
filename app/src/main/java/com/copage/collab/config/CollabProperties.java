@@ -17,6 +17,9 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param snapshotsKept 문서마다 남길 스냅샷 수
  * @param historyWindow 세션이 들고 있을 최근 확정 기록 수. 이보다 오래된 기준 리비전의 묶음을 보낸 연결은 4011 로 닫아
  *     재접속하게 한다. 1 이상
+ * @param leaseTtl 문서 소유 리스의 만료. 주인 노드가 죽으면 다른 노드는 이만큼 기다렸다 맡는다 (5.3, D-43)
+ * @param leaseRenewInterval 리스를 이어 쥐는 간격. 만료의 1/3 쯤
+ * @param handoffGrace 막 잡은 문서는 이 시간 동안 넘겨 달라는 요청을 받아도 넘기지 않는다. 노드 사이를 오가는 것을 막는다
  */
 @ConfigurationProperties("copage.collab")
 public record CollabProperties(
@@ -35,5 +38,8 @@ public record CollabProperties(
         @DefaultValue("7d") Duration rebaseMaxAge,
         @DefaultValue("200") long snapshotInterval,
         @DefaultValue("3") int snapshotsKept,
-        @DefaultValue("5000") int historyWindow) {
+        @DefaultValue("5000") int historyWindow,
+        @DefaultValue("6s") Duration leaseTtl,
+        @DefaultValue("2s") Duration leaseRenewInterval,
+        @DefaultValue("5s") Duration handoffGrace) {
 }
