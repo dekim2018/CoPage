@@ -58,6 +58,8 @@ export class CollabClient {
   private session: ClientSession | null = null
   /** 살려서 다시 넣은 편집이 다음에 보낼 묶음에 들어 있다. 그 묶음이 다시 거부되면 또 살리지 않는다(되풀이 막기). */
   private salvagePending = false
+  /** 확인되지 않은 내 편집이 있어 커서를 미뤄 두었다. */
+  private presenceDeferred = false
   private readonly salvageSeqs = new Set<number>()
   private welcomed = false
   private held = false
@@ -123,10 +125,21 @@ export class CollabClient {
     }
   }
 
+  /**
+   * 커서 위치는 내 화면 문서 기준이다. 화면 문서에 아직 확정되지 않은 내 편집이 있으면 그 위치를 서버가 확정한 문서에서 해석할 수
+   * 없다. 그런 커서를 보내면, 남은 그 커서를 받은 뒤 내 편집을 받으면서 커서를 한 번 더 옮겨 한 칸 어긋난다. 그래서 내 편집이
+   * 모두 확인될 때까지 미뤘다가 마지막 커서 하나만 보낸다. 확인(ack)은 서버가 내 편집을 남에게 보낸 뒤에 오므로, 그 뒤에 보낸
+   * 커서는 남에게 내 편집보다 늦게 닿는다 (docs/05-PROTOCOL.md 7.6).
+   */
   private flushPresence(): void {
     if (!this.welcomed) {
       return
     }
+    if (this.session?.hasPending()) {
+      this.presenceDeferred = true
+      return
+    }
+    this.presenceDeferred = false
     this.lastPresenceAt = Date.now()
     this.connection.send({ t: 'presence', cursor: this.myCursor })
   }
@@ -172,6 +185,7 @@ export class CollabClient {
       this.handle(message)
     }
     this.flush()
+    this.flushDeferredPresence()
     this.reportStatus()
   }
 
@@ -192,7 +206,16 @@ export class CollabClient {
     }
     this.handle(message)
     this.flush()
+    this.flushDeferredPresence()
     this.reportStatus()
+  }
+
+  /** 미뤄 둔 커서가 있고 이제 확인되지 않은 내 편집이 없으면 보낸다. 50ms 간격 제한은 그대로 거친다. */
+  private flushDeferredPresence(): void {
+    if (this.presenceDeferred && this.session !== null && !this.session.hasPending()) {
+      this.presenceDeferred = false
+      this.sendPresence(this.myCursor)
+    }
   }
 
   private handle(raw: unknown): void {
