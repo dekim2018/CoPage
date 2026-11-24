@@ -2,7 +2,7 @@
 
 docs/11-TEST-PLAN.md 13.2 의 장애 실험을 실제로 돌린 결과다. 실험은 자동 시험으로 만들어 CI 에서 계속 돈다. 표의 시간은 로컬 개발 기기(Docker Desktop)에서 잰 한 번의 값이다. 운영 환경의 값이 아니다.
 
-노드가 한 대인 구성 기준이다. 두 대 이상이 필요한 실험(노드 일시 정지와 리스, 노드 추가)은 다중 노드(로드맵 4단계, 진단 DC-1)와 함께 한다.
+위 표는 노드 한 대 구성이고, 아래 "노드 두세 대" 절은 소유 리스와 프록시를 갖춘 다중 노드 구성(D-43)이다.
 
 | 실험 | 방법 | 결과 | 시험 |
 | --- | --- | --- | --- |
@@ -46,8 +46,34 @@ kill -9 <서버 pid> && java -Xmx1g -jar app/build/libs/app-0.1.0-SNAPSHOT.jar -
 - 받 쪽이 느린 연결을 버릴 때 로그가 없었다(DEBUG). WARN 으로 남긴다.
 - DB 지연 실험에서 커밋 하나가 묶음 N 개에 DB 왕복 2N+1 번을 했다(묶음마다 중복 확인 SELECT 하나, INSERT 하나, 그리고 COMMIT). 문장 로그(log_statement=all)로 확인했다. 중복 확인을 연결의 첫 묶음에서만 하고 INSERT 를 문장 하나로 합쳐 묶음 크기와 상관없이 왕복 한 번으로 줄였다(PERF-2, D-38).
 
+## 노드 두세 대 (D-43)
+
+`deploy/cluster/compose.yaml` 로 노드 2대(실험 3에서 3대), nginx 프록시(문서 ID 일관 해시), PostgreSQL, Redis 를 띄우고 loadgen 을 프록시(8088)로 붙였다(`reconnect=true`, 초당 2타). 같은 노트북의 Docker Desktop 이다. 끝날 때마다 연산 로그에 빈틈이나 겹친 리비전이 있는 문서를 셌다(`count(*) <> max(rev)` 인 문서 수, 모두 0).
+
+| 실험 | 방법 | 결과 |
+| --- | --- | --- |
+| 소유 노드 강제 종료 | 문서 20개 x 3명 중 node1(9문서)을 `docker kill` | node1 의 연결 27개가 끊기고(1006) node2 가 리스 만료(6초)를 기다렸다 맡았다. 그동안의 재접속은 4009(55번). 끊김부터 첫 ack 까지 p50 4.4초, p99 4.6초. 대기 편집을 버린 재접속 0, nack 0, 20/20 수렴, 로그 이상 0 |
+| 소유 노드 일시 정지 | 문서 20개를 맡은 node2 를 `docker pause` 10초(리스 6초보다 길게) | 깨어난 node2 가 이어 쥐기에서 리스를 잃은 것을 알고 세션을 버렸다(4009, 연결 66개 재접속). 그동안의 편집은 클라이언트에 쌓였다가 다시 보내졌다(ack 최대 10.1초). 20/20 수렴, 로그 이상 0. 프록시는 멈춘 노드를 살아 있다고 보아 그동안 다른 노드가 맡지 않았다. 다른 노드가 맡은 뒤 옛 노드가 깨어나 쓰는 경우는 `MultiNodeTest`(리스를 지워 흉내) 가 기본 키로 막히는 것을 확인한다 |
+| 노드 추가 | 문서 30개 x 2명, 실행 중 node3 를 띄우고 중간에 문서마다 한 명씩 더 들어온다(loadgen `lateJoin=true`) | 해시가 node3 로 바뀐 문서 11개를 node3 이 넘겨받았다. 넘기며 닫힌 연결 33개(4009)가 p99 1.1초에 이어 편집했다. 30/30 수렴, 로그 이상 0 |
+| 노드 계획 종료 | 문서 20개 x 3명 중 node3 을 `docker stop`(SIGTERM) | 내리기 전에 세션을 넘기고 리스를 바로 풀어, 연결 18개가 p99 0.95초에 다른 노드에서 이어 편집했다(강제 종료의 4.6초와 비교). 로그 이상 0 |
+
+자동 시험(`MultiNodeTest`, 한 JVM 에 서버 둘): 한 문서는 한 노드만 맡고 다른 노드로 온 연결은 넘겨받은 뒤 이어진다, 리스를 잃은 노드는 세션을 버리고 같은 리비전이 두 번 들어가지 않는다, 계획 종료는 리스를 바로 푼다(다른 노드에서 111ms 에 이어 붙음), 다른 노드에서 바꾼 권한도 1초 안에 적용된다(43ms).
+
+다시 돌리는 법:
+
+```
+./gradlew :app:bootJar
+docker compose -f deploy/cluster/compose.yaml up -d --build postgres redis node1 node2 proxy
+./gradlew :loadgen:run --args="scenario=many-docs docs=20 editors=3 seconds=60 rate=2 reconnect=true base=http://localhost:8088"
+# 실행 중에: docker kill cluster-node1-1 / docker pause cluster-node2-1 (10초 뒤 unpause) / docker stop ...
+# 노드 추가: lateJoin=true 를 주고 실행 중에 docker compose -f deploy/cluster/compose.yaml up -d node3
+docker exec cluster-postgres-1 psql -U copage -d copage -c \
+  "SELECT count(*) FROM (SELECT doc_id FROM doc_ops GROUP BY doc_id HAVING count(*) <> max(rev)) x"
+```
+
 ## 남은 실험
 
 | 실험 | 계획 |
 | --- | --- |
-| 노드 일시 정지, 노드 추가 | 다중 노드와 함께 |
+| 실제 서버 여러 대(다른 기기)에서의 같은 실험 | 배포 준비(7단계)와 함께. 지금은 한 기기의 컨테이너다 |
+| 프록시가 멈춘 노드를 빼는 경우 | 운영의 상태 확인(준비 상태)과 함께. nginx 오픈 소스는 능동 상태 확인이 없다 |
