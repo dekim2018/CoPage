@@ -49,7 +49,7 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | POST | `/api/docs/{docId}/versions` | EDIT | 201, 본문 `{kind: NAMED\|RESTORE, name, restoredFrom}`. 지금 마지막 리비전에 버전을 남긴다. 복원 자체는 클라이언트가 편집으로 보낸다 | 400 AUTO 이거나 NAMED 의 이름이 빔. 404, 403 |
 | POST | `/api/docs/{docId}/ws-ticket` | VIEW | 200, `{ticket, role}`. 티켓은 30초 1회용 | 404 페이지가 없거나 속하지 않음. 403 등급이 없음 |
 | GET | `/api/docs/{docId}/comments` | VIEW | 200, 스레드 목록(오래된 것부터, `{id, quote, createdAt, resolved, resolvedByName, comments: [{id, authorId, authorName, body, createdAt}]}`) (D-46) | 404, 403 |
-| POST | `/api/docs/{docId}/comments` | COMMENT | 201, 본문 `{quote, body, mentions}`. 스레드와 첫 댓글. 위치 서식은 클라이언트가 편집으로 붙인다. 멘션한 사람 중 그 페이지를 볼 수 있는 사람에게 알린다 | 400 본문이 비거나 4,000자를 넘음. 404, 403 |
+| POST | `/api/docs/{docId}/comments` | COMMENT | 201, 본문 `{quote, body, mentions}`. 스레드와 첫 댓글. 위치 서식은 클라이언트가 편집으로 붙인다. 멘션한 사람 중 그 페이지를 볼 수 있는 사람에게 알린다 | 400 본문이 비거나 4,000자를 넘거나 멘션이 50명을 넘음. 404, 403 |
 | POST | `/api/comments/{threadId}/replies` | COMMENT | 201, 본문 `{body, mentions}`. 스레드에 쓴 사람들에게 답글 알림 | 400, 404, 403 위와 같음 |
 | PUT | `/api/comments/{threadId}/resolved` | COMMENT | 204, 본문 `{resolved}`. false 면 다시 연다 | 404, 403 |
 | GET | `/api/notifications` | 로그인 | 200, `{unread, items: [{id, kind, docId, actorName, preview, createdAt, read}]}`. 최근 50개 | |

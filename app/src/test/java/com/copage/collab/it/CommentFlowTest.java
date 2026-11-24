@@ -18,6 +18,7 @@ import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -123,6 +124,8 @@ class CommentFlowTest extends TestInfra {
         Account stranger = account("남");
 
         assertEquals(403, comment(team.page, "원문", "읽기만 하는 사람", List.of(), team.viewer).status());
+        List<UUID> crowd = Stream.generate(UUID::randomUUID).limit(51).toList();
+        assertEquals(400, comment(team.page, "원문", "너무 많은 멘션", crowd, team.member).status());
         Response created = comment(team.page, "원문", "확인 부탁", List.of(team.owner.id(), stranger.id()), team.member);
         assertEquals(201, created.status());
         String thread = created.body().get("id").stringValue();

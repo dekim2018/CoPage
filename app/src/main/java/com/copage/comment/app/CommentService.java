@@ -28,6 +28,8 @@ public final class CommentService {
 
     static final int MAX_BODY = 4_000;
     static final int MAX_QUOTE = 1_000;
+    /** 한 댓글에서 멘션할 수 있는 사람 수. 사람마다 권한 확인과 알림 한 줄이 든다. */
+    static final int MAX_MENTIONS = 50;
 
     private final CommentRepository repository;
     private final PagePermissions permissions;
@@ -58,6 +60,7 @@ public final class CommentService {
     public CommentThread create(UUID userId, UUID docId, String quote, String body, Collection<UUID> mentions) {
         require(userId, docId, PageLevel.COMMENT);
         String text = body(body);
+        checkMentions(mentions);
         if (quote == null || quote.isBlank()) {
             throw new CommentException(Kind.BAD_REQUEST, "댓글을 달 글자를 골라야 한다");
         }
@@ -75,6 +78,7 @@ public final class CommentService {
     public Comment reply(UUID userId, UUID threadId, String body, Collection<UUID> mentions) {
         UUID docId = docOf(threadId);
         require(userId, docId, PageLevel.COMMENT);
+        checkMentions(mentions);
         Comment comment = new Comment(UUID.randomUUID(), threadId, userId, null, body(body), now());
         Set<UUID> participants = repository.participants(threadId);
         repository.addComment(comment);
@@ -102,6 +106,12 @@ public final class CommentService {
                 notifications.notify(mentioned, Notification.Kind.COMMENT_MENTION, docId, actorId, comment.body(),
                         "comment-mention:" + comment.id() + ":" + mentioned);
             }
+        }
+    }
+
+    private static void checkMentions(Collection<UUID> mentions) {
+        if (mentions.size() > MAX_MENTIONS) {
+            throw new CommentException(Kind.BAD_REQUEST, "한 댓글에서 " + MAX_MENTIONS + " 명까지 멘션한다");
         }
     }
 
