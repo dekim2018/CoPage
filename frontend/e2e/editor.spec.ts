@@ -474,26 +474,26 @@ test('보내지 못한 편집은 탭을 닫았다 열어도 남아 있다가 연
   })
   await caretAtEnd(a, 1)
   await a.keyboard.type(' 오프라인')
-  // 브라우저에 남을 때까지 기다린다.
+  // 친 글자가 끝까지 브라우저에 남을 때까지 기다린다. 마지막 글자가 남기 전에 탭을 닫으면 그 글자는 없다.
   await expect
     .poll(() =>
       a.evaluate(
         () =>
-          new Promise<number>((resolve) => {
+          new Promise<string>((resolve) => {
             const request = indexedDB.open('copage', 1)
             request.onsuccess = () => {
               const all = request.result.transaction('docs').objectStore('docs').getAll()
               all.onsuccess = () =>
                 resolve(
                   (all.result as { session: { inflight: unknown[] | null; buffer: unknown[] } }[])
-                    .map((r) => (r.session.inflight?.length ?? 0) + r.session.buffer.length)
-                    .reduce((x, y) => x + y, 0),
+                    .map((r) => JSON.stringify([r.session.inflight ?? [], r.session.buffer]))
+                    .join(''),
                 )
             }
           }),
       ),
     )
-    .toBeGreaterThan(0)
+    .toContain('인')
   expect(await blocks(b)).toEqual(['제목', '본문'])
   const context = a.context()
   await a.close()
