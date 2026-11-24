@@ -47,6 +47,8 @@
 
 내보내는 곳은 관리 포트의 `/actuator/prometheus` 다(기본 8081, 이 기기에서만, `COPAGE_MANAGEMENT_PORT`, `COPAGE_MANAGEMENT_ADDRESS`). API 포트로는 열지 않는다. 분포는 히스토그램으로 내고 백분위는 수집하는 쪽에서 `histogram_quantile` 로 계산한다. 레이블에 문서 ID 와 사용자 ID 를 넣지 않는다(D-25). 리스 충돌은 리스(다중 노드, 4단계)가 생길 때 더한다.
 
+상태 확인은 셋이다. 생존 검사(재시작 판단)에는 `/actuator/health/liveness` 만 쓴다. 이것은 앱 자신만 보고 DB 와 Redis 를 보지 않는다. 트래픽을 보낼지는 `/actuator/health/readiness` 로 본다. 묶은 `/actuator/health` 는 DB 와 Redis 를 함께 보므로 Redis 장애 때 DOWN(503)이다. 이것을 생존 검사로 쓰면 Redis 장애가 모든 노드의 재시작으로 번지고, 열린 편집 연결이 끊긴다(9.7, D-03). 컨테이너에서 수집기가 닿도록 `COPAGE_MANAGEMENT_ADDRESS=0.0.0.0` 으로 열 때는 관리 포트를 공개 네트워크에 내지 않는다(`RedisOutageTest` 가 정지 중 liveness 200, health 503 을 확인한다).
+
 | 지표 | 이름 | 보는 이유 |
 | --- | --- | --- |
 | ack 지연 | `collab.ack.latency` (p50, p95, p99) | 사용자가 느끼는 저장 속도 |
