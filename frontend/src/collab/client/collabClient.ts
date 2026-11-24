@@ -210,10 +210,11 @@ export class CollabClient {
     this.reportStatus()
   }
 
-  /** 미뤄 둔 커서가 있고 이제 확인되지 않은 내 편집이 없으면 보낸다. */
+  /** 미뤄 둔 커서가 있고 이제 확인되지 않은 내 편집이 없으면 보낸다. 50ms 간격 제한은 그대로 거친다. */
   private flushDeferredPresence(): void {
     if (this.presenceDeferred && this.session !== null && !this.session.hasPending()) {
-      this.flushPresence()
+      this.presenceDeferred = false
+      this.sendPresence(this.myCursor)
     }
   }
 
