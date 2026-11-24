@@ -1,6 +1,6 @@
 # 11. REST API 목록
 
-REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 25개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
+REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 30개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
 
 오류 응답은 RFC 9457 형식(`application/problem+json`)으로 통일한다. Spring의 `ProblemDetail` 을 쓴다.
 
@@ -34,6 +34,11 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | DELETE | `/api/pages/{pageId}` | FULL | 204, 휴지통으로. 하위는 부모를 따라 보이지 않는다 | 404 없거나 이미 휴지통. 403 FULL 이 아님 |
 | POST | `/api/pages/{pageId}/restore` | 휴지통에 가기 전 FULL | 200, 꺼낸 페이지. 부모가 아직 휴지통에 있으면 최상위 맨 뒤 | 404 휴지통에 없거나 속하지 않음. 403 등급이 모자람 |
 | GET | `/api/workspaces/{wsId}/trash` | 워크스페이스의 모든 역할 | 200, 휴지통의 페이지(id, parentId, title, archivedAt, canRestore). 보내기 전에 볼 수 있던 페이지만 | 404 속하지 않은 워크스페이스 |
+| POST | `/api/workspaces/{wsId}/invites` | OWNER | 201, `{id, email, role, expiresAt, token}`. 본문 `{email, role}`(MEMBER 또는 GUEST). 토큰은 이때만 돌려준다. 메일은 보내지 않는다. 링크는 `/invite/{token}` (D-40) | 403 OWNER 가 아님. 400 OWNER 로 초대하거나 이메일 형식이 아님. 404 속하지 않은 워크스페이스 |
+| GET | `/api/workspaces/{wsId}/invites` | OWNER | 200, 받지 않았고 만료되지 않은 초대(토큰 없음) | 403, 404 위와 같음 |
+| DELETE | `/api/workspaces/{wsId}/invites/{inviteId}` | OWNER | 204, 초대 취소 | 404 대기 중인 초대가 아님. 403 위와 같음 |
+| GET | `/api/invites/{token}` | 로그인 | 200, `{workspaceId, workspaceName, email, role, expiresAt}` | 404 없거나 만료되었거나 받았거나 취소됨 |
+| POST | `/api/invites/{token}/accept` | 로그인, 초대한 이메일과 같은 계정 | 200, `{workspaceId}`. 멤버가 아니면 그 역할로 넣고, GUEST 가 MEMBER 초대를 받으면 올린다. 역할을 내리지는 않는다 | 404 없거나 만료됨. 409 이미 받음. 403 다른 이메일 |
 | POST | `/api/docs/{docId}/ws-ticket` | VIEW | 200, `{ticket, role}`. 티켓은 30초 1회용 | 404 페이지가 없거나 속하지 않음. 403 등급이 없음 |
 
 권한을 바꾸는 요청(멤버 역할, 내보내기, 페이지 권한, restricted, 페이지 옮기기, 휴지통으로 보내기와 꺼내기)은 커밋한 뒤 열린 편집 연결에 1초 안에 적용된다(9.4). 옮기면 새 부모의 권한을 물려받으므로, 제한된 페이지 밖으로 옮기면 더 넓게 보일 수 있다(D-39).
@@ -59,8 +64,8 @@ API 포트에는 `/actuator` 가 없다. 지표와 상태 확인은 관리 포�
 | POST | `/api/workspaces` | 생성 | 로그인 | 구현 |
 | GET | `/api/workspaces/{wsId}/members` | 멤버 목록 | MEMBER | 구현 |
 | POST | `/api/workspaces/{wsId}/members` | 가입한 사용자를 이메일로 바로 넣는다. 역할은 MEMBER 또는 GUEST. 초대(아래 invites)가 생기기 전까지 쓰는 임시 경로 | OWNER | 구현 |
-| POST | `/api/workspaces/{wsId}/invites` | 이메일로 초대 | OWNER | 계획 |
-| POST | `/api/invites/{token}/accept` | 초대 수락 | 로그인 | 계획 |
+| POST | `/api/workspaces/{wsId}/invites` | 이메일로 초대(링크를 만든다. 메일은 보내지 않는다) | OWNER | 구현(D-40) |
+| POST | `/api/invites/{token}/accept` | 초대 수락 | 로그인 | 구현(D-40) |
 | PATCH | `/api/workspaces/{wsId}/members/{userId}` | 역할 변경. 마지막 OWNER 는 내릴 수 없다(409) | OWNER | 구현 |
 | DELETE | `/api/workspaces/{wsId}/members/{userId}` | 내보내기. 그 워크스페이스에서 받은 페이지 권한도 지운다. 마지막 OWNER 는 내보낼 수 없다(409) | OWNER | 구현 |
 | GET | `/api/workspaces/{wsId}/pages?parentId=` | 한 단계 하위 페이지 목록. 권한 없는 페이지는 빼고 준다 | MEMBER 또는 GUEST | 구현 |
