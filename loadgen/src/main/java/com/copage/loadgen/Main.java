@@ -46,15 +46,20 @@ public final class Main {
         String wsBase = base.replaceFirst("^http", "ws");
         switch (scenario) {
             case "one-doc" -> typing(api, wsBase, management, 1, integer(options, "editors", 10),
-                    integer(options, "seconds", 30), integer(options, "rate", 5), reconnect(options));
+                    integer(options, "seconds", 30), integer(options, "rate", 5), reconnect(options),
+                    flag(options, "lateJoin"));
             case "many-docs" -> typing(api, wsBase, management, integer(options, "docs", 20),
                     integer(options, "editors", 5), integer(options, "seconds", 30), integer(options, "rate", 5),
-                    reconnect(options));
+                    reconnect(options), flag(options, "lateJoin"));
             case "open-doc" -> open(api, wsBase, management, integer(options, "blocks", 1000), integer(options, "opens", 20),
                     Boolean.parseBoolean(options.getOrDefault("cold", "false")));
             default -> throw new IllegalArgumentException("모르는 시나리오: " + scenario);
         }
         System.exit(0);
+    }
+
+    private static boolean flag(Map<String, String> options, String key) {
+        return Boolean.parseBoolean(options.getOrDefault(key, "false"));
     }
 
     private static boolean reconnect(Map<String, String> options) {
@@ -66,7 +71,7 @@ public final class Main {
     }
 
     private static void typing(Api api, String wsBase, String management, int docs, int editorsPerDoc, int seconds,
-            int rate, boolean reconnect) throws Exception {
+            int rate, boolean reconnect, boolean lateJoin) throws Exception {
         VirtualEditor.Shared shared = new VirtualEditor.Shared();
         // 계정은 문서마다 만들지 않고 편집자 자리마다 하나씩 만들어 모든 문서에서 함께 쓴다. 가입(bcrypt)이 준비 시간을 잡아먹지 않게.
         List<Api.Account> accounts = new ArrayList<>();
@@ -78,8 +83,10 @@ public final class Main {
         accounts.stream().skip(1).forEach(member -> api.addMember(owner, workspace, member));
         double heapBefore = api.metric(management, "jvm_memory_used_bytes{area=\"heap\"");
         List<List<VirtualEditor>> groups = new ArrayList<>();
+        List<String> pages = new ArrayList<>();
         for (int d = 0; d < docs; d++) {
             String page = api.page(owner, workspace);
+            pages.add(page);
             List<VirtualEditor> group = new ArrayList<>();
             for (int e = 0; e < editorsPerDoc; e++) {
                 VirtualEditor editor = new VirtualEditor("d" + d + "e" + e, page, shared, d * 1000L + e);
@@ -105,7 +112,26 @@ public final class Main {
             timer.scheduleAtFixedRate(guard(editor::typeOnce), jitter, period, TimeUnit.MILLISECONDS);
             timer.scheduleAtFixedRate(guard(editor::flush), jitter, 50, TimeUnit.MILLISECONDS);
         }
-        Thread.sleep(seconds * 1000L);
+        if (lateJoin) {
+            // 노드 추가 실험: 중간에 문서마다 한 명씩 더 들어온다. 새 연결은 프록시가 지금의 노드 구성으로 보낸다(D-43).
+            Thread.sleep(seconds * 500L);
+            System.out.println("문서마다 한 명씩 더 들어온다");
+            for (int d = 0; d < groups.size(); d++) {
+                VirtualEditor late = new VirtualEditor("d" + d + "late", pages.get(d), shared, d * 1000L + 999);
+                String page = pages.get(d);
+                // 첫 연결이 양도 중이라 4009 로 닫혀도 다시 붙는다. connect 는 welcome 까지 기다린다.
+                late.reconnectWith(() -> api.ticket(owner, page));
+                late.connect(wsBase, api.ticket(owner, page));
+                groups.get(d).add(late);
+                long jitter = ThreadLocalRandom.current().nextLong(period);
+                timer.scheduleAtFixedRate(guard(late::typeOnce), jitter, period, TimeUnit.MILLISECONDS);
+                timer.scheduleAtFixedRate(guard(late::flush), jitter, 50, TimeUnit.MILLISECONDS);
+            }
+            all = groups.stream().flatMap(List::stream).toList();
+            Thread.sleep(seconds * 500L);
+        } else {
+            Thread.sleep(seconds * 1000L);
+        }
         timer.shutdownNow();
         timer.awaitTermination(5, TimeUnit.SECONDS);
 

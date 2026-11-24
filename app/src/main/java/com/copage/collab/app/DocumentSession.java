@@ -610,6 +610,44 @@ public final class DocumentSession {
         }
     }
 
+    /**
+     * 다른 노드에 세션을 넘긴다 (docs/03-ARCHITECTURE.md 5.4). 모인 묶음을 먼저 확정하고, 스냅샷을 남기고, 모든 연결을 4009 로
+     * 닫는다. 클라이언트는 재접속해 새 노드에서 이어 간다. 세션을 내리면 소유 리스가 풀린다.
+     */
+    public void handOff() {
+        executor.execute(() -> {
+            if (closed) {
+                return;
+            }
+            if (!pending.isEmpty()) {
+                drain();
+            }
+            if (closed) {
+                return;
+            }
+            closed = true;
+            // 스냅샷은 지름길일 뿐이다. 남기지 못해도 새 노드는 로그로 복구한다.
+            if (server != null && server.rev() > lastSnapshotRev) {
+                saveSnapshot();
+            }
+            for (Member member : members.values()) {
+                member.connection().close(CloseCodes.MOVED, "문서가 다른 노드로 옮겨 간다. 다시 접속한다");
+            }
+            members.clear();
+            unloader.unloaded(this);
+        });
+    }
+
+    /** 소유 리스를 잃었다. 다른 노드가 이 문서를 맡았을 수 있어 커밋하지 않고 버린다(연결은 4009). */
+    public void leaseLost() {
+        executor.execute(() -> {
+            if (!closed) {
+                LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 소유 리스를 잃어 세션을 버린다");
+                discard();
+            }
+        });
+    }
+
     private void discard() {
         closed = true;
         pending.clear();

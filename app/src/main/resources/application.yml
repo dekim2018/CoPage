@@ -57,6 +57,8 @@ copage:
   web:
     # 브라우저에서 API 와 WebSocket 을 부를 수 있는 Origin. 비어 있으면 같은 출처만 받는다.
     allowed-origins: []
+    # 노드 이름(문서 소유 리스의 값). 비우면 시작할 때 무작위로 만든다. 노드마다 달라야 한다.
+    node-id: ${COPAGE_NODE_ID:}
   auth:
     # 32 바이트 이상. 저장소에 두지 않는다. 없으면 서버가 뜨지 않는다.
     jwt-secret: ${COPAGE_JWT_SECRET:}

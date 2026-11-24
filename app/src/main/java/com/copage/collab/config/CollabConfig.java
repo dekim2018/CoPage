@@ -5,6 +5,7 @@ import com.copage.collab.app.CollabMetrics;
 import com.copage.collab.app.DocumentSession;
 import com.copage.collab.app.DocumentSessions;
 import com.copage.collab.app.DocumentStore;
+import com.copage.collab.app.OwnershipLease;
 import com.copage.collab.app.TicketService;
 import com.copage.collab.app.TicketStore;
 import com.copage.collab.app.UserNames;
@@ -13,6 +14,7 @@ import com.copage.collab.in.CollabWebSocketHandler;
 import com.copage.collab.in.ProtocolCodec;
 import com.copage.collab.out.JdbcDocumentStore;
 import com.copage.collab.out.MicrometerCollabMetrics;
+import com.copage.collab.out.RedisOwnershipLease;
 import com.copage.collab.out.RedisTicketStore;
 import com.copage.identity.app.AuthException;
 import com.copage.identity.app.AuthService;
@@ -21,19 +23,26 @@ import com.copage.permission.app.PagePermissions;
 import com.copage.permission.app.PermissionChangeListener;
 import com.copage.permission.app.ShareLinks;
 import com.copage.permission.domain.PageLevel;
+import com.copage.web.NodeIdentity;
 import com.copage.workspace.app.WorkspaceService;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.listener.ChannelTopic;
+import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
@@ -43,6 +52,8 @@ import tools.jackson.databind.json.JsonMapper;
 @Configuration
 @EnableConfigurationProperties(CollabProperties.class)
 public class CollabConfig {
+
+    private static final System.Logger LOG = System.getLogger(CollabConfig.class.getName());
 
     private final CollabProperties properties;
 
@@ -128,7 +139,8 @@ public class CollabConfig {
             ScheduledExecutorService collabScheduler,
             Clock collabClock,
             WorkspaceService workspaceService,
-            CollabMetrics collabMetrics) {
+            CollabMetrics collabMetrics,
+            OwnershipLease ownershipLease) {
         DocumentSession.Settings settings = new DocumentSession.Settings(
                 properties.maxConnectionsPerDocument(),
                 properties.rebaseMaxGap(),
@@ -146,7 +158,85 @@ public class CollabConfig {
                 collabClock,
                 // 문서 제목은 페이지 목록과 경로가 보인다. 저장은 workspace 모듈이 한다 (D-21).
                 workspaceService::updateTitle,
-                collabMetrics);
+                collabMetrics,
+                ownershipLease,
+                properties.handoffGrace());
+    }
+
+    @Bean
+    OwnershipLease ownershipLease(StringRedisTemplate redis, NodeIdentity node) {
+        return new RedisOwnershipLease(redis, node.id(), properties.leaseTtl());
+    }
+
+    /** 쥔 리스를 주기적으로 이어 쥐고, 다른 노드의 넘겨 달라는 요청을 듣는다 (5.3, 5.4, D-43). */
+    @Bean
+    RedisMessageListenerContainer handoffListener(
+            RedisConnectionFactory connectionFactory,
+            DocumentSessions documentSessions,
+            ScheduledExecutorService collabScheduler) {
+        long renew = properties.leaseRenewInterval().toMillis();
+        collabScheduler.scheduleWithFixedDelay(() -> {
+            try {
+                documentSessions.renewLeases();
+            } catch (RuntimeException e) {
+                LOG.log(System.Logger.Level.WARNING, "소유 리스를 이어 쥐지 못했다", e);
+            }
+        }, renew, renew, TimeUnit.MILLISECONDS);
+        RedisMessageListenerContainer container = new RedisMessageListenerContainer();
+        container.setConnectionFactory(connectionFactory);
+        container.addMessageListener((message, pattern) -> {
+            try {
+                documentSessions.handOffRequested(
+                        UUID.fromString(new String(message.getBody(), StandardCharsets.UTF_8)));
+            } catch (IllegalArgumentException e) {
+                LOG.log(System.Logger.Level.WARNING, "넘겨 달라는 요청의 문서 ID 가 틀렸다", e);
+            }
+        }, new ChannelTopic(RedisOwnershipLease.HANDOFF_CHANNEL));
+        return container;
+    }
+
+    /**
+     * 노드를 내릴 때 새 연결보다 먼저 세션을 다른 노드에 넘긴다(5.4 의 "계획해서 내림"). 클라이언트는 4009 를 받고 다른 노드로
+     * 다시 붙는다. 스냅샷을 남길 시간을 조금 준다.
+     */
+    @Bean
+    SmartLifecycle sessionHandoffOnShutdown(DocumentSessions documentSessions) {
+        return new SmartLifecycle() {
+            private volatile boolean running;
+
+            // 스프링은 내리지 않고 멈췄다 다시 시작할 수도 있다(시험 컨텍스트를 쉬게 할 때). 다시 시작하면 연결을 받는다.
+            @Override
+            public void start() {
+                documentSessions.acceptJoins();
+                running = true;
+            }
+
+            @Override
+            public void stop() {
+                documentSessions.handOffAll();
+                long deadline = System.currentTimeMillis() + 3_000;
+                while (documentSessions.size() > 0 && System.currentTimeMillis() < deadline) {
+                    try {
+                        Thread.sleep(50);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+                running = false;
+            }
+
+            @Override
+            public boolean isRunning() {
+                return running;
+            }
+
+            // 웹 서버(우아한 종료)보다 먼저 멈춘다.
+            @Override
+            public int getPhase() {
+                return Integer.MAX_VALUE;
+            }
+        };
     }
 
     @Bean

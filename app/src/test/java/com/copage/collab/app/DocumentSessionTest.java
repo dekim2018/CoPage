@@ -584,6 +584,29 @@ class DocumentSessionTest {
     }
 
     @Test
+    void 노드를_내리면_세션을_넘기고_그_뒤의_연결은_다른_노드로_보낸다() {
+        FakeConnection a = join("A");
+        submit(a, 1, 0, paragraph("X", "가"));
+        runAll();
+
+        sessions.handOffAll();
+        runAll();
+        assertEquals(CloseCodes.MOVED, a.closedWith);
+        assertEquals(0, sessions.size());
+
+        FakeConnection late = join("B");
+        assertEquals(CloseCodes.MOVED, late.closedWith);
+        assertEquals(0, sessions.size(), "내려가는 노드는 세션을 다시 열지 않는다");
+        assertEquals(1, store.load(DOC).rev(), "넘기기 전에 확정한 묶음은 남는다");
+
+        // 멈췄다 다시 시작하면 다시 받는다.
+        sessions.acceptJoins();
+        FakeConnection again = join("C");
+        assertEquals(null, again.closedWith);
+        assertEquals(1, sessions.size());
+    }
+
+    @Test
     void 연결_한도로_읽기로_받은_연결은_다시_계산해도_읽기_위로_올리지_않는다() {
         join("A");
         join("B");
