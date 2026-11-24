@@ -13,8 +13,10 @@ import { canEdit } from '../collab/client/role'
 import type { PageRole } from '../collab/client/role'
 import { RemoteCursors } from '../collab/adapter/remoteCursors'
 import { FatalConnectionError } from '../collab/transport/connection'
+import BlockDragHandle from '../components/BlockDragHandle.vue'
 import EditorToolbar from '../components/EditorToolbar.vue'
 import ShareDialog from '../components/ShareDialog.vue'
+import SlashMenu from '../components/SlashMenu.vue'
 import { workspaceApi } from '../api/workspace'
 import type { PageDetail } from '../api/workspace'
 import { useAuth } from '../stores/auth'
@@ -219,5 +221,15 @@ onBeforeUnmount(() => {
     @restricted-changed="(value) => pageInfo && (pageInfo.restricted = value)"
   />
   <EditorToolbar v-if="editor && bindingRef && canEdit(role)" :editor="editor" :binding="bindingRef" />
-  <EditorContent :editor="editor" />
+  <SlashMenu v-if="editor && bindingRef && canEdit(role)" :editor="editor" :binding="bindingRef" />
+  <BlockDragHandle v-if="editor && bindingRef && canEdit(role)" :editor="editor" :binding="bindingRef" />
+  <EditorContent :editor="editor" class="editor-body" />
 </template>
+
+<style scoped>
+/* 블록 손잡이(BlockDragHandle)가 왼쪽 여백에 붙는다. */
+.editor-body {
+  position: relative;
+  padding-left: 28px;
+}
+</style>

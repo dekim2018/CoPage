@@ -14,6 +14,7 @@ import {
   localOps,
   mergeBackward,
   mergeForward,
+  moveBeside,
   moveTargets,
   newParagraphAfter,
   outdent,
@@ -32,6 +33,11 @@ export interface CollabTarget {
   release(): void
   /** 내 커서를 알린다. null 이면 편집기를 떠났다. */
   sendPresence(cursor: Cursor | null): void
+  /** 내 편집 하나를 되돌리고 적용한 연산을 돌려준다(E-8). 없으면 null. */
+  undoLast(): readonly Op[] | null
+  redoLast(): readonly Op[] | null
+  /** 커서를 다른 곳으로 옮겼다. 다음 편집은 새 되돌리기 단위다. */
+  closeUndoGroup(): void
 }
 
 /**
@@ -60,6 +66,7 @@ export class EditorBinding {
     dom.addEventListener('compositionstart', this.compositionStart)
     dom.addEventListener('compositionend', this.compositionEnd)
     dom.addEventListener(TOGGLE_EVENT, this.onToggle)
+    dom.addEventListener('mousedown', this.onPointer)
     editor.on('selectionUpdate', this.onSelection)
     editor.on('focus', this.onSelection)
     editor.on('blur', this.onBlur)
@@ -70,6 +77,7 @@ export class EditorBinding {
     dom.removeEventListener('compositionstart', this.compositionStart)
     dom.removeEventListener('compositionend', this.compositionEnd)
     dom.removeEventListener(TOGGLE_EVENT, this.onToggle)
+    dom.removeEventListener('mousedown', this.onPointer)
     this.editor.off('selectionUpdate', this.onSelection)
     this.editor.off('focus', this.onSelection)
     this.editor.off('blur', this.onBlur)
@@ -131,6 +139,38 @@ export class EditorBinding {
    * 지금 블록의 종류를 바꾼다. 편집기 노드만 바꾸면 전후 비교가 setProps 로 만든다. 글이 있는 블록을 구분선으로 바꾸면 글은
    * 지워진다.
    */
+  /**
+   * 슬래시 메뉴(E-6)를 열 자리. 커서가 제목이 아닌 글 블록의 끝에 있고 그 블록의 글이 "/찾는말" 뿐이면, 찾는 말과 화면 좌표를
+   * 돌려준다. 아니면 null.
+   */
+  slashQuery(): { query: string; left: number; top: number; bottom: number } | null {
+    const { state } = this.editor
+    const { selection } = state
+    const $from = selection.$from
+    if (!selection.empty || $from.depth < 1) {
+      return null
+    }
+    const parent = $from.parent
+    if (parent.type.name === 'title' || !parent.isTextblock || $from.parentOffset !== parent.content.size) {
+      return null
+    }
+    const match = /^\/([^\s/]*)$/.exec(parent.textContent)
+    if (match === null) {
+      return null
+    }
+    const coords = this.editor.view.coordsAtPos(selection.from)
+    return { query: match[1] as string, left: coords.left, top: coords.top, bottom: coords.bottom }
+  }
+
+  /** 슬래시 메뉴에서 고른 종류로 바꾼다. 친 "/찾는말" 은 지운다. 둘 다 편집기 변화라 보통 편집처럼 연산이 된다. */
+  applySlash(type: BlockType, props: Record<string, unknown> = {}): void {
+    const { state } = this.editor
+    const $from = state.selection.$from
+    const start = $from.start()
+    this.editor.view.dispatch(state.tr.delete(start, start + $from.parent.content.size))
+    this.setBlockType(type, props)
+  }
+
   setBlockType(type: BlockType, props: Record<string, unknown> = {}): void {
     const { state } = this.editor
     const $from = state.selection.$from
@@ -250,6 +290,36 @@ export class EditorBinding {
     return true
   }
 
+  /** 마우스로 커서를 옮기면 되돌리기 묶음을 닫는다. 다른 곳을 고치는 것은 따로 되돌린다. */
+  private readonly onPointer = (): void => {
+    this.target.closeUndoGroup()
+  }
+
+  /** 끌어 놓은 블록을 옮긴다 (E-5). 옮길 수 없으면(자기 하위, 이미 그 자리) false. */
+  moveBlock(blockId: string, targetId: string, after: boolean): boolean {
+    const view = this.target.view()
+    if (view === null || this.composing) {
+      return false
+    }
+    const intent = moveBeside(view, blockId, targetId, after)
+    if (intent === null) {
+      return false
+    }
+    return this.apply(intent)
+  }
+
+  /** Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z. 편집기 자체의 기록은 쓰지 않는다(남의 편집까지 되돌린다). 늘 키를 먹는다. */
+  history(redo: boolean): boolean {
+    if (this.composing) {
+      return true
+    }
+    const ops = redo ? this.target.redoLast() : this.target.undoLast()
+    if (ops !== null) {
+      this.render(caretAfter(ops))
+    }
+    return true
+  }
+
   private apply(intent: Intent): boolean {
     // 내가 접힌 토글 아래로 블록을 옮기면 그 토글을 펼친다. 옮긴 블록이 숨어 사라진 것처럼 보이지 않게 한다.
     for (const parentId of moveTargets(intent.ops)) {
@@ -335,7 +405,39 @@ export function keyboardExtension(binding: () => EditorBinding | null) {
         Delete: () => binding()?.deleteForward() ?? false,
         Tab: () => binding()?.tab(false) ?? false,
         'Shift-Tab': () => binding()?.tab(true) ?? false,
+        'Mod-z': () => binding()?.history(false) ?? false,
+        'Mod-Shift-z': () => binding()?.history(true) ?? false,
+        'Mod-y': () => binding()?.history(true) ?? false,
       }
     },
   })
+}
+
+/** 되돌린 연산 뒤의 커서. 마지막으로 바뀐 블록의, 마지막으로 바뀐 글자 뒤다. */
+function caretAfter(ops: readonly Op[]): BlockPosition | undefined {
+  for (let i = ops.length - 1; i >= 0; i--) {
+    const op = ops[i] as Op
+    if (op.op === 'text') {
+      let offset = 0
+      let end = 0
+      for (const component of op.delta.components) {
+        if (component.kind === 'retain') {
+          offset += component.count
+        } else if (component.kind === 'insert') {
+          offset += component.text.length
+          end = offset
+        } else {
+          end = offset
+        }
+      }
+      return { blockId: op.blockId, offset: end }
+    }
+    if (op.op === 'insertBlock' || op.op === 'split') {
+      return { blockId: op.op === 'split' ? op.newBlockId : op.blockId, offset: 0 }
+    }
+    if (op.op !== 'deleteBlock') {
+      return { blockId: op.blockId, offset: 0 }
+    }
+  }
+  return undefined
 }

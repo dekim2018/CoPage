@@ -10,6 +10,7 @@ import { moveCursor } from './presence'
 import type { Cursor, Peer } from './presence'
 import { parseRole } from './role'
 import { lostTexts, salvage } from './salvage'
+import { UndoStack } from './undo'
 import type { PageRole } from './role'
 
 /*
@@ -71,6 +72,7 @@ export class CollabClient {
   private currentClientId: string = crypto.randomUUID()
   /** 마지막으로 받은 내 등급. 브라우저에 함께 남겨 연결 전에도 편집할 수 있게 한다. */
   private role: PageRole | null = null
+  private readonly undo = new UndoStack()
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   /** 권한을 잃어 기록을 지웠다. 그 뒤로는 남기지 않는다. */
   private forgotten = false
@@ -118,6 +120,41 @@ export class CollabClient {
         },
       },
     )
+  }
+
+  /**
+   * 내가 한 편집 하나(600ms 안의 편집은 한 묶음)를 되돌린다 (E-8). 남의 편집은 그대로 둔다. 되돌린 연산을 돌려준다. 되돌릴 것이
+   * 없거나 지금 문서에 적용할 수 없으면 null.
+   */
+  undoLast(): readonly Op[] | null {
+    return this.applyHistory(this.undo.takeUndo(), true)
+  }
+
+  /** 커서를 다른 곳으로 옮겼다. 다음 편집은 새 되돌리기 단위다. */
+  closeUndoGroup(): void {
+    this.undo.closeGroup()
+  }
+
+  redoLast(): readonly Op[] | null {
+    return this.applyHistory(this.undo.takeRedo(), false)
+  }
+
+  private applyHistory(ops: readonly Op[] | null, wasUndo: boolean): readonly Op[] | null {
+    if (ops === null || this.session === null) {
+      return null
+    }
+    const before = this.session.view()
+    try {
+      this.session.edit(ops)
+    } catch (e) {
+      console.warn('되돌리기를 적용하지 못했다', e)
+      return null
+    }
+    this.undo.applied(ops, before, wasUndo)
+    this.movePeers(ops)
+    this.flush()
+    this.reportStatus()
+    return ops
   }
 
   get clientId(): string {
@@ -234,7 +271,9 @@ export class CollabClient {
     if (this.session === null || ops.length === 0) {
       return
     }
+    const before = this.session.view()
     this.session.edit(ops)
+    this.undo.recordEdit(ops, before, Date.now())
     // 내 편집도 남의 커서를 옮긴다.
     this.movePeers(ops)
     this.flush()
@@ -322,6 +361,7 @@ export class CollabClient {
       case 'remote': {
         const change = committed(message as unknown as CommittedJson)
         this.session?.onChange(change)
+        this.syncUndo()
         this.movePeers(change.ops)
         this.settle()
         this.notify()
@@ -368,6 +408,7 @@ export class CollabClient {
       this.salvageSeqs.clear()
       this.salvagePending = false
       this.session = new ClientSession(this.clientId, J.decodeDocument(message.snapshot), rev)
+      this.undo.clear()
       this.welcomed = true
       this.notify()
       return
@@ -375,6 +416,7 @@ export class CollabClient {
     const missed = (message.ops as CommittedJson[]).map(committed)
     this.welcomed = true
     const resend = (this.session as ClientSession).resync(missed)
+    this.syncUndo()
     if (resend !== null) {
       this.sendChange(resend)
     }
@@ -396,6 +438,8 @@ export class CollabClient {
     if (discards.length === 0) {
       return
     }
+    // 버려진 편집이 있으면 화면이 되돌리기 목록이 모르는 방식으로 바뀌었다. 목록을 비운다.
+    this.undo.clear()
     const resend = nack === undefined || (nack.code === 'rejected' && !nack.salvaged)
     const { kept, lost } = resend
       ? salvage(session.view(), discards)
@@ -458,6 +502,13 @@ export class CollabClient {
       baseRev: submission.baseRev,
       ops: J.encodeOps(submission.ops),
     })
+  }
+
+  /** 남의 편집이 화면 문서에 준 변화에 되돌리기 목록을 맞춘다. */
+  private syncUndo(): void {
+    for (const change of this.session?.takeViewChanges() ?? []) {
+      this.undo.remoteChange(change)
+    }
   }
 
   private notify(): void {

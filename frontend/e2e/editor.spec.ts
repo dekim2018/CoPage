@@ -1,5 +1,18 @@
 import { expect, test } from '@playwright/test'
-import { apiAs, blocks, caret, caretAtEnd, controlInbox, converged, newUser, newWorkspaceWith, sharedPage, open, prepare } from './helpers'
+import {
+  apiAs,
+  blocks,
+  caret,
+  caretAtEnd,
+  controlInbox,
+  converged,
+  newUser,
+  newWorkspaceWith,
+  open,
+  prepare,
+  shapes,
+  sharedPage,
+} from './helpers'
 
 /*
  * 브라우저 두 개로 같은 문서를 편집한다 (docs/12-ROADMAP.md 0단계 완료 기준, docs/11-TEST-PLAN.md 13.1 화면 테스트).
@@ -512,4 +525,68 @@ test('권한을 잃으면 브라우저에 남긴 그 문서의 기록을 지운�
 
   await expect(b.getByTestId('status')).toHaveAttribute('data-status', 'error', { timeout: 1_000 })
   await expect.poll(records).toBe(0)
+})
+
+test('되돌리기는 내 편집만 되돌리고 남이 그 뒤에 한 편집은 남긴다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
+  await Promise.all([open(a, docId), open(b, docId)])
+  await prepare(a, b, '제목', ['본문'])
+
+  await caretAtEnd(a, 1)
+  await a.keyboard.type(' 내 글')
+  expect(await converged(a, b)).toEqual(['제목', '본문 내 글'])
+  await caret(b, 1, 0)
+  await b.keyboard.type('남의 ')
+  expect(await converged(a, b)).toEqual(['제목', '남의 본문 내 글'])
+
+  await a.keyboard.press('ControlOrMeta+z')
+  expect(await converged(a, b)).toEqual(['제목', '남의 본문'])
+  await a.keyboard.press('ControlOrMeta+Shift+z')
+  expect(await converged(a, b)).toEqual(['제목', '남의 본문 내 글'])
+})
+
+test('빈 블록에 슬래시를 치면 메뉴가 뜨고 고른 종류로 바뀐다', async ({ browser }) => {
+  const a = await newUser(browser, 'a')
+  const docId = await sharedPage(a)
+  await open(a, docId)
+  await caretAtEnd(a, 0)
+  await a.keyboard.type('제목')
+  await a.keyboard.press('Enter')
+  await a.keyboard.type('/제목2')
+  await expect(a.getByTestId('slash-menu')).toContainText('제목 2')
+  await a.keyboard.press('Enter')
+  await expect(a.getByTestId('slash-menu')).toHaveCount(0)
+  await a.keyboard.type('소제목')
+  await expect.poll(async () => (await shapes(a))[1]).toEqual(['heading', '0', '소제목', '2'])
+  await expect(a.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+
+  // Esc 로 닫으면 친 글자가 남는다.
+  await a.keyboard.press('Enter')
+  await a.keyboard.type('/x')
+  await a.keyboard.press('Escape')
+  await expect(a.getByTestId('slash-menu')).toHaveCount(0)
+  expect((await blocks(a)).at(-1)).toBe('/x')
+})
+
+test('블록을 끌어 다른 블록 뒤로 옮기면 상대 화면에도 옮겨진다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
+  await Promise.all([open(a, docId), open(b, docId)])
+  await prepare(a, b, '제목', ['첫째', '둘째', '셋째'])
+
+  const first = a.locator('.ProseMirror > *').nth(1)
+  const third = a.locator('.ProseMirror > *').nth(3)
+  await first.hover()
+  const handle = a.getByTestId('drag-handle')
+  await expect(handle).toBeVisible()
+  // dragTo 는 이 손잡이의 HTML5 끌기를 시작하지 못한다. 마우스를 직접 움직인다.
+  const from = await handle.boundingBox()
+  const to = await third.boundingBox()
+  await a.mouse.move((from?.x ?? 0) + 3, (from?.y ?? 0) + 5)
+  await a.mouse.down()
+  await a.mouse.move((to?.x ?? 0) + 10, (to?.y ?? 0) + (to?.height ?? 20) - 3, { steps: 10 })
+  await a.mouse.up()
+
+  expect(await converged(a, b)).toEqual(['제목', '둘째', '셋째', '첫째'])
 })

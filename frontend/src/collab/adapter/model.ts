@@ -598,3 +598,31 @@ function applyComponent(tr: Transaction, pos: number, component: Component, targ
     }
   }
 }
+
+/**
+ * 블록을 끌어 다른 블록의 앞이나 뒤에 놓는다 (E-5). 놓인 블록과 같은 부모 아래, 그 블록 바로 앞이나 바로 뒤로 옮긴다. 자식은 따라
+ * 간다(부모 ID 가 트리를 나타낸다). 자기 자신이나 자기 하위 블록 옆에는 놓을 수 없고, 그 자리에 이미 있으면 할 일이 없다.
+ */
+export function moveBeside(view: Document, blockId: string, targetId: string, after: boolean): Intent | null {
+  const block = view.get(blockId)
+  const target = view.get(targetId)
+  if (block === undefined || target === undefined || target.parentId === null || blockId === view.rootId) {
+    return null
+  }
+  if (view.isSelfOrDescendant(targetId, blockId)) {
+    return null
+  }
+  const siblings = view.children(target.parentId).filter((sibling) => sibling.id !== blockId)
+  const index = siblings.findIndex((sibling) => sibling.id === targetId)
+  const before = after ? (siblings[index] as Block) : siblings[index - 1]
+  const next = after ? siblings[index + 1] : (siblings[index] as Block)
+  const pos = between(before?.pos ?? null, next?.pos ?? null)
+  if (block.parentId === target.parentId) {
+    const current = view.children(target.parentId).findIndex((sibling) => sibling.id === blockId)
+    const all = view.children(target.parentId)
+    if (all[current - 1]?.id === (before?.id ?? undefined) && all[current + 1]?.id === (next?.id ?? undefined)) {
+      return null
+    }
+  }
+  return { ops: [moveBlock(blockId, target.parentId, pos)], cursor: { blockId, offset: 0 } }
+}
