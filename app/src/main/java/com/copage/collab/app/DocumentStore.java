@@ -21,6 +21,12 @@ public interface DocumentStore {
      */
     Snapshot load(UUID docId);
 
+    /**
+     * rev 시점의 문서 (버전 기록, D-44). rev 이하의 가장 가까운 스냅샷에 그 뒤 연산을 rev 까지 적용한다. 스냅샷은 몇 개만 남으므로
+     * 오래된 시점은 빈 문서에서 로그 전체를 다시 적용한다. rev 가 마지막 리비전보다 크면 마지막 리비전까지다.
+     */
+    Document loadAt(UUID docId, long rev);
+
     /** fromRev 다음부터 최신까지의 확정 묶음. */
     List<StoredChange> changesSince(UUID docId, long fromRev);
 

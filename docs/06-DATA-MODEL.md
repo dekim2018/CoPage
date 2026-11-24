@@ -56,7 +56,7 @@ ack는 DB 커밋 뒤에만 보낸다. 다른 사람에게 보내는 `remote` 도
 
 첫 구현(2단계)에서는 표의 일부만 넣었다. 연산 200개마다와 세션을 내릴 때 스냅샷을 남기고, 최근 3개만 남긴다. 아래 둘은 아직 없다.
 
-- 버전 기록이 가리키는 스냅샷을 남기는 것: `doc_versions` 가 5단계에서 생긴다.
+- 버전 기록은 연산 로그의 리비전을 가리킨다(`doc_versions`, D-44). 스냅샷은 몇 개만 남으므로 오래된 시점은 로그를 처음부터 다시 적용한다.
 - 세션을 다른 노드로 양도할 때 남기는 것: 양도가 다중 노드(4단계)에서 생긴다.
 - 삭제 표시 후 30일이 지난 블록을 빼는 것: 블록에 삭제 시각이 없어서 지금은 언제 지웠는지 알 수 없다. 블록 모델에 삭제 시각을 더하는 작업에서 넣는다.
 
@@ -81,7 +81,7 @@ ack는 DB 커밋 뒤에만 보낸다. 다른 사람에게 보내는 `remote` 도
 | `share_links` | id, page_id(유일), token_hash(유일), level(VIEW, COMMENT, EDIT), expires_at(없으면 끌 때까지), created_by, created_at | 토큰은 SHA-256 해시. 끄면 행을 지운다(revoked_at 은 두지 않았다) | 구현 (V7, D-41) |
 | `doc_ops` | 8.1 참고 | doc_id 는 페이지 ID 지만 외래 키를 걸지 않는다(V3 이전 문서가 남아 있다) | V1 |
 | `doc_snapshots` | 8.1 참고 |  | V1 |
-| `doc_versions` | id, doc_id, rev, kind(AUTO, NAMED, RESTORE), name, created_by, created_at | 버전 기록 목록 | 계획 (5단계) |
+| `doc_versions` | id, doc_id, rev, kind(AUTO, NAMED, RESTORE), name, created_by, created_at. (doc_id, rev, kind) 유일 | 버전 기록 목록. 과거 시점은 그 리비전 이하의 스냅샷과 로그로 만든다 | 구현 (V8, D-44) |
 | `comment_threads` | id, doc_id, created_by, status(OPEN, RESOLVED), quote, orphaned | quote는 댓글을 달 당시의 원문 | 계획 (5단계) |
 | `comments` | id, thread_id, author_id, body, created_at, edited_at, deleted_at |  | 계획 (5단계) |
 | `notifications` | id, user_id, type, page_id, ref_id, dedupe_key, read_at | 유일 (user_id, dedupe_key) | 계획 (5단계) |

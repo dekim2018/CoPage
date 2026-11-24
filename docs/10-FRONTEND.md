@@ -6,9 +6,9 @@
 
 | 층 | 위치 | 책임 |
 | --- | --- | --- |
-| 편집기 | `src/collab/adapter/` (`schema.ts`, `blocks.ts`, `remoteCursors.ts`), `src/components/EditorToolbar.vue` | Tiptap 스키마(블록 10종, 서식), 키 입력, 도구 막대, 남의 커서 그리기. 처음에는 `src/editor/` 로 나누려 했으나 어댑터와 붙어 있어 한 폴더에 두었다. 슬래시 메뉴와 드래그 핸들은 아직 없다 |
+| 편집기 | `src/collab/adapter/` (`schema.ts`, `blocks.ts`, `remoteCursors.ts`), `src/components/EditorToolbar.vue` | Tiptap 스키마(블록 10종, 서식), 키 입력, 도구 막대, 남의 커서 그리기, 슬래시 메뉴(`SlashMenu.vue`, `blockChoices.ts`), 블록 끌기 손잡이(`BlockDragHandle.vue`, `moveBeside`). 처음에는 `src/editor/` 로 나누려 했으나 어댑터와 붙어 있어 한 폴더에 두었다 |
 | 어댑터 | `src/collab/adapter/` | 편집기에서 일어난 변화를 연산 묶음으로, 받은 연산을 편집기 변경으로 바꾼다 |
-| 협업 클라이언트 | `src/collab/client/` | 확정 문서, inflight, buffer를 관리하는 상태 기계(`clientSession.ts`). 보내기 간격과 묶음 크기(`collabClient.ts`, `sendBudget.ts`), 거부된 편집 살리기(`salvage.ts`), 남의 커서(`presence.ts`), 내 등급(`role.ts`), 브라우저 보관(`offlineStore.ts`, 12.4). 되돌리기 목록은 아직 없다 |
+| 협업 클라이언트 | `src/collab/client/` | 확정 문서, inflight, buffer를 관리하는 상태 기계(`clientSession.ts`). 보내기 간격과 묶음 크기(`collabClient.ts`, `sendBudget.ts`), 거부된 편집 살리기(`salvage.ts`), 남의 커서(`presence.ts`), 내 등급(`role.ts`), 브라우저 보관(`offlineStore.ts`, 12.4), 내 편집만 되돌리기(`undo.ts`, D-45), 과거 시점으로 복원하는 연산(`restore.ts`, D-44) |
 | OT 코어 | `src/collab/ot/` | `ot-core` 의 TypeScript 구현. 적용, 변환, 합성, 역연산 |
 | 전송 | `src/collab/transport/` | 티켓 발급, WebSocket 연결, 재접속(지수 백오프 1초부터 최대 30초, 무작위 지연 포함), 핑 |
 | 상태 저장소 | `src/stores/` | Pinia: 인증(`auth.ts`), 워크스페이스와 트리(`workspace.ts`). 알림과 댓글은 5단계에서 더한다 |
@@ -108,7 +108,7 @@ IndexedDB에 문서별로 세 가지를 둔다.
 | Backspace (블록 처음) | 문단이 아니면 먼저 문단으로 바꾼다. 위 줄이 구분선이면 구분선을 지운다. 합칠 블록에 자식이 있으면 먼저 바로 뒤 형제로 옮긴 뒤 합친다 | 6.6 의 "자식이 남은 블록은 합칠 수 없다" |
 | Tab, Shift+Tab | Tab 은 앞 형제의 마지막 자식으로, Shift+Tab 은 부모의 다음 형제로 옮긴다. 내어쓸 때 뒤에 있던 형제는 이 블록의 자식으로 따라온다. 코드 블록 안의 Tab 은 공백 두 칸 | 화면 순서가 바뀌지 않는다 |
 | 토글 접기 | 내 화면에만 적용하고 문서에 저장하지 않는다. 접힌 토글의 자식은 편집기 문서에 넣지 않는다 | 다른 사람의 화면을 바꾸지 않는다 |
-| 블록 종류 고르기 | 슬래시 메뉴(E-6) 대신 도구 막대의 목록 | 슬래시 메뉴는 5단계 |
+| 블록 종류 고르기 | 도구 막대의 목록과 슬래시 메뉴(E-6) | 둘 다 같은 목록(`blockChoices.ts`)을 쓴다 |
 | 원격 반영 성능 | 문서의 부모별 자식 색인을 한 번 만들어 쓰고, 편집기에 반영할 때 바뀌지 않은 블록은 건너뛴다. 5,000 블록 문서에서 원격 편집 하나 반영이 301ms 에서 3.1ms 가 되었다(`npm run perf`) | 한 화면 프레임(16ms) 안에 들어야 입력이 끊겨 보이지 않는다 (D-26) |
 | 가로채는 키 | 문단의 Enter 는 `split`, 블록 처음의 Backspace 는 앞 문단으로 `merge`, 블록 끝의 Delete 는 다음 문단을 `merge`. 제목에서 Enter 는 본문 맨 앞에 빈 문단, 빈 첫 문단의 Backspace 는 그 문단을 지운다 | 루트 블록은 나누거나 합칠 수 없다 |
 | 그 밖의 입력 | 트랜잭션 전후를 블록 ID 로 비교한다. 글자 차이는 앞뒤로 같은 부분을 남긴 `text` 하나, 사라진 블록은 `deleteBlock`, 새 노드는 `insertBlock` | 편집기는 한 트랜잭션에서 보통 한 곳만 바꾼다. 이모지 가운데에서는 자르지 않는다 |

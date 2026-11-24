@@ -1,32 +1,11 @@
 <script setup lang="ts">
 import type { Editor } from '@tiptap/vue-3'
 import { ref } from 'vue'
-import type { BlockType } from '../collab/adapter/blocks'
+import { BLOCK_CHOICES as choices } from '../collab/adapter/blockChoices'
 import type { EditorBinding } from '../collab/adapter/editorBinding'
 
-/** 블록 종류와 글자 서식을 바꾸는 도구 막대 (docs/01-PLAN.md E-1, E-2). 슬래시 메뉴(E-6)는 다음 작업이다. */
+/** 블록 종류와 글자 서식을 바꾸는 도구 막대 (docs/01-PLAN.md E-1, E-2). 슬래시 메뉴(E-6)는 SlashMenu.vue 다. */
 const props = defineProps<{ editor: Editor; binding: EditorBinding }>()
-
-interface Choice {
-  label: string
-  type: BlockType
-  props?: Record<string, unknown>
-}
-
-const choices: Choice[] = [
-  { label: '문단', type: 'paragraph' },
-  { label: '제목 1', type: 'heading', props: { level: 1 } },
-  { label: '제목 2', type: 'heading', props: { level: 2 } },
-  { label: '제목 3', type: 'heading', props: { level: 3 } },
-  { label: '글머리 기호 목록', type: 'bulleted' },
-  { label: '번호 목록', type: 'numbered' },
-  { label: '할 일', type: 'todo' },
-  { label: '토글', type: 'toggle' },
-  { label: '인용', type: 'quote' },
-  { label: '콜아웃', type: 'callout' },
-  { label: '코드', type: 'code' },
-  { label: '구분선', type: 'divider' },
-]
 
 const link = ref('')
 const linkError = ref('')

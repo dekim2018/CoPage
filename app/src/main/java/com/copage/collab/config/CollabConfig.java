@@ -9,10 +9,12 @@ import com.copage.collab.app.OwnershipLease;
 import com.copage.collab.app.TicketService;
 import com.copage.collab.app.TicketStore;
 import com.copage.collab.app.UserNames;
+import com.copage.collab.app.VersionLog;
 import com.copage.collab.domain.PageRole;
 import com.copage.collab.in.CollabWebSocketHandler;
 import com.copage.collab.in.ProtocolCodec;
 import com.copage.collab.out.JdbcDocumentStore;
+import com.copage.collab.out.JdbcVersionLog;
 import com.copage.collab.out.MicrometerCollabMetrics;
 import com.copage.collab.out.RedisOwnershipLease;
 import com.copage.collab.out.RedisTicketStore;
@@ -29,11 +31,13 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.SmartLifecycle;
@@ -161,6 +165,26 @@ public class CollabConfig {
                 collabMetrics,
                 ownershipLease,
                 properties.handoffGrace());
+    }
+
+    @Bean
+    VersionLog versionLog(JdbcClient jdbcClient) {
+        return new JdbcVersionLog(jdbcClient);
+    }
+
+    /**
+     * 자동 버전을 남기는 주기 작업 (D-44). 편집이 2분 조용하거나 마지막 버전에서 10분이 지난 문서에 하나. 여러 노드가 함께 돌려도
+     * 한 번만 남는다.
+     */
+    @Bean
+    ScheduledFuture<?> autoVersionJob(VersionLog versionLog, ScheduledExecutorService collabScheduler) {
+        return collabScheduler.scheduleWithFixedDelay(() -> {
+            try {
+                versionLog.recordAutoVersions(Duration.ofMinutes(2), Duration.ofMinutes(10));
+            } catch (RuntimeException e) {
+                LOG.log(System.Logger.Level.WARNING, "자동 버전을 남기지 못했다", e);
+            }
+        }, 1, 1, TimeUnit.MINUTES);
     }
 
     @Bean

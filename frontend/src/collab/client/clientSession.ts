@@ -76,6 +76,8 @@ export class ClientSession {
    * takeDiscarded 로 꺼내 살릴 것을 고른다(salvage.ts).
    */
   private discards: Discard[] = []
+  /** 남의 편집이 화면 문서에 준 변화. null 은 옮길 수 없었던 것이다. takeViewChanges 로 꺼낸다. */
+  private viewChanges: (readonly Op[] | null)[] = []
   /** 지금 inflight 를 이미 discards 에 적었는지. 죽은 inflight 는 다른 사람의 편집이 올 때 적고, nack 때 다시 적지 않는다. */
   private inflightRecorded = false
 
@@ -119,6 +121,11 @@ export class ClientSession {
     session.buffer = J.decodeOps(saved.buffer)
     session.rebuildView()
     return session
+  }
+
+  /** 마지막으로 꺼낸 뒤 남의 편집이 화면 문서에 준 변화들. 차례대로다. null 은 옮길 수 없었던 변화다. */
+  takeViewChanges(): (readonly Op[] | null)[] {
+    return this.viewChanges.splice(0)
   }
 
   /** 화면에 보이는 문서. 내 편집이 서버 확인 전에 먼저 반영되어 있다. */
@@ -269,6 +276,15 @@ export class ClientSession {
   }
 
   private onRemote(ops: readonly Op[]): void {
+    // 화면 문서에 실제로 일어난 변화(남의 편집을 내 대기 편집 위로 옮긴 것). 되돌리기 목록을 맞추는 데 쓴다 (E-8).
+    try {
+      this.viewChanges.push(transform(ops, this.pendingOps(), false).a)
+    } catch (e) {
+      if (!(e instanceof TransformConflictError)) {
+        throw e
+      }
+      this.viewChanges.push(null)
+    }
     this.confirmedDoc = this.confirmedDoc.apply(ops)
     this.rev++
 

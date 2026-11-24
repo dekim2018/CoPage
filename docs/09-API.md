@@ -1,6 +1,6 @@
 # 11. REST API 목록
 
-REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 35개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
+REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 38개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
 
 오류 응답은 RFC 9457 형식(`application/problem+json`)으로 통일한다. Spring의 `ProblemDetail` 을 쓴다.
 
@@ -44,6 +44,9 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | DELETE | `/api/pages/{pageId}/share-link` | FULL | 204, 링크를 끈다 | 404, 403 위와 같음 |
 | GET | `/api/share/{token}` | 없음 | 200, `{pageId, title, level}` | 404 없거나 만료되었거나 페이지가 휴지통에 있음 |
 | POST | `/api/share/{token}/ws-ticket` | 없음(토큰이 있으면 그 사용자) | 200, `{ticket, role, pageId, title}`. 로그인했으면 자기 등급과 링크 등급 중 높은 것, 아니면 링크 등급과 임시 이름(익명 수달 등) | 404 위와 같음 |
+| GET | `/api/docs/{docId}/versions?before=` | VIEW | 200, 버전 목록(최근부터 50개, `{id, rev, kind, name, createdAt, editors}`). `before` 보다 작은 리비전만 (D-44) | 404, 403 |
+| GET | `/api/docs/{docId}/versions/{rev}` | VIEW | 200, `{rev, document}`. 그 시점의 문서(규약 JSON) | 400 음수 리비전. 404, 403 |
+| POST | `/api/docs/{docId}/versions` | EDIT | 201, 본문 `{kind: NAMED\|RESTORE, name, restoredFrom}`. 지금 마지막 리비전에 버전을 남긴다. 복원 자체는 클라이언트가 편집으로 보낸다 | 400 AUTO 이거나 NAMED 의 이름이 빔. 404, 403 |
 | POST | `/api/docs/{docId}/ws-ticket` | VIEW | 200, `{ticket, role}`. 티켓은 30초 1회용 | 404 페이지가 없거나 속하지 않음. 403 등급이 없음 |
 
 권한을 바꾸는 요청(멤버 역할, 내보내기, 페이지 권한, restricted, 페이지 옮기기, 휴지통으로 보내기와 꺼내기)은 커밋한 뒤 열린 편집 연결에 1초 안에 적용된다(9.4). 옮기면 새 부모의 권한을 물려받으므로, 제한된 페이지 밖으로 옮기면 더 넓게 보일 수 있다(D-39).
@@ -104,10 +107,10 @@ API 포트에는 `/actuator` 가 없다. 지표와 상태 확인은 관리 포�
 | --- | --- | --- | --- | --- |
 | POST | `/api/docs/{docId}/ws-ticket` | WebSocket 티켓 발급. 티켓에 내 등급을 담는다. 페이지가 없거나 속하지 않으면 404, 등급이 없으면 403 | VIEW | 구현 |
 | POST | `/api/docs/{docId}/conflict-copy` | 오프라인 편집본을 복사본 페이지로 저장 | 부모의 EDIT | 계획 |
-| GET | `/api/docs/{docId}/versions?before=` | 버전 목록 (커서 방식 페이지) | VIEW | 계획 |
-| GET | `/api/docs/{docId}/versions/{rev}` | 그 시점의 문서 내용 | VIEW | 계획 |
-| POST | `/api/docs/{docId}/versions` | 현재 시점에 이름 붙이기 | EDIT | 계획 |
-| POST | `/api/docs/{docId}/versions/{rev}/restore` | 그 시점으로 복원 | FULL | 계획 |
+| GET | `/api/docs/{docId}/versions?before=` | 버전 목록 (커서 방식 페이지) | VIEW | 구현(D-44) |
+| GET | `/api/docs/{docId}/versions/{rev}` | 그 시점의 문서 내용 | VIEW | 구현(D-44) |
+| POST | `/api/docs/{docId}/versions` | 현재 시점에 이름 붙이기, 복원 시점 남기기 | EDIT | 구현(D-44) |
+| POST | `/api/docs/{docId}/versions/{rev}/restore` | 그 시점으로 복원 | FULL | 만들지 않음. 클라이언트가 편집으로 보낸다(D-44) |
 | GET | `/api/docs/{docId}/threads?status=` | 댓글 스레드 목록 | VIEW | 계획 |
 | POST | `/api/docs/{docId}/threads` | 스레드 생성 (첫 댓글, 원문 발췌 포함) | COMMENT | 계획 |
 | POST | `/api/threads/{threadId}/comments` | 답글 | COMMENT | 계획 |

@@ -7,14 +7,20 @@ import { EditorBinding, keyboardExtension } from '../collab/adapter/editorBindin
 import { schemaExtensions } from '../collab/adapter/schema'
 import { CollabClient } from '../collab/client/collabClient'
 import { openOfflineStore } from '../collab/client/offlineStore'
+import { restoreOps } from '../collab/client/restore'
+import type { Document } from '../collab/ot/document'
+import { versionsApi } from '../api/versions'
 import type { LostEdits, SyncStatus } from '../collab/client/collabClient'
 import type { Peer } from '../collab/client/presence'
 import { canEdit } from '../collab/client/role'
 import type { PageRole } from '../collab/client/role'
 import { RemoteCursors } from '../collab/adapter/remoteCursors'
 import { FatalConnectionError } from '../collab/transport/connection'
+import BlockDragHandle from '../components/BlockDragHandle.vue'
 import EditorToolbar from '../components/EditorToolbar.vue'
 import ShareDialog from '../components/ShareDialog.vue'
+import SlashMenu from '../components/SlashMenu.vue'
+import VersionsPanel from '../components/VersionsPanel.vue'
 import { workspaceApi } from '../api/workspace'
 import type { PageDetail } from '../api/workspace'
 import { useAuth } from '../stores/auth'
@@ -53,6 +59,37 @@ async function copyLost() {
   await navigator.clipboard.writeText(lostTextAll.value)
 }
 const sharing = ref(false)
+const showVersions = ref(false)
+const versionsPanel = ref<InstanceType<typeof VersionsPanel> | null>(null)
+
+/**
+ * 과거 시점으로 복원한다 (V-2, D-44). 지금 화면 문서를 그 시점으로 바꾸는 편집을 보통 편집처럼 보낸다. 서버에 확정되면 복원
+ * 시점을 기록에 남긴다.
+ */
+function restoreTo(past: Document, rev: number) {
+  const view = client?.view()
+  if (!client || !view) {
+    return
+  }
+  const ops = restoreOps(view, past)
+  if (ops.length > 0) {
+    // 복원은 그 자체로 한 번의 되돌리기 단위다. 앞뒤 편집과 묶지 않는다.
+    client.closeUndoGroup()
+    client.edit(ops)
+    client.closeUndoGroup()
+    binding?.render()
+  }
+  const stop = watch(
+    status,
+    (now) => {
+      if (now === 'saved') {
+        stop()
+        void versionsApi.record(props.pageId, 'RESTORE', undefined, rev).then(() => versionsPanel.value?.load())
+      }
+    },
+    { immediate: true },
+  )
+}
 
 /**
  * 연결할 때마다 티켓을 받는다. 401(로그인이 끝남), 403(접근 권한 없음), 404 는 다시 시도해도 소용없으니 재접속을 멈춘다. 401 이면
@@ -193,6 +230,9 @@ onBeforeUnmount(() => {
   <div class="editor-head">
     <p class="status" data-testid="status" :data-status="status">{{ label }}</p>
     <p v-if="role !== null && !canEdit(role)" class="readonly" data-testid="readonly">읽기 전용</p>
+    <button v-if="role !== null && !shareToken" type="button" data-testid="versions-button" @click="showVersions = !showVersions">
+      기록
+    </button>
     <button v-if="role === 'FULL' && !shareToken" type="button" class="share-button" @click="sharing = !sharing">
       공유
     </button>
@@ -211,6 +251,15 @@ onBeforeUnmount(() => {
     <button v-if="lostTextAll" type="button" @click="copyLost">글 복사</button>
     <button type="button" @click="lost = []">닫기</button>
   </aside>
+  <VersionsPanel
+    v-if="showVersions && !shareToken"
+    ref="versionsPanel"
+    :doc-id="pageId"
+    :can-restore="role === 'FULL'"
+    :can-name="canEdit(role)"
+    @restore="restoreTo"
+    @close="showVersions = false"
+  />
   <ShareDialog
     v-if="sharing && pageInfo"
     :page-id="pageId"
@@ -219,5 +268,15 @@ onBeforeUnmount(() => {
     @restricted-changed="(value) => pageInfo && (pageInfo.restricted = value)"
   />
   <EditorToolbar v-if="editor && bindingRef && canEdit(role)" :editor="editor" :binding="bindingRef" />
-  <EditorContent :editor="editor" />
+  <SlashMenu v-if="editor && bindingRef && canEdit(role)" :editor="editor" :binding="bindingRef" />
+  <BlockDragHandle v-if="editor && bindingRef && canEdit(role)" :editor="editor" :binding="bindingRef" />
+  <EditorContent :editor="editor" class="editor-body" />
 </template>
+
+<style scoped>
+/* 블록 손잡이(BlockDragHandle)가 왼쪽 여백에 붙는다. */
+.editor-body {
+  position: relative;
+  padding-left: 28px;
+}
+</style>
