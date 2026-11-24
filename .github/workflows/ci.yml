@@ -17,7 +17,7 @@ jobs:
           distribution: temurin
           java-version: 25
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       - name: 빌드와 테스트
         run: ./gradlew build
@@ -47,7 +47,7 @@ jobs:
           distribution: temurin
           java-version: 25
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       - name: 적합성 벡터 만들기
         run: ./gradlew :ot-core:exportVectors
@@ -101,7 +101,7 @@ jobs:
           distribution: temurin
           java-version: 25
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       - name: 백엔드 jar 만들기
         run: ./gradlew :app:bootJar
