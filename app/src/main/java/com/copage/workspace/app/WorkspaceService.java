@@ -16,6 +16,7 @@ import com.copage.workspace.domain.WorkspaceRole;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +47,10 @@ public final class WorkspaceService {
      * @param path 내가 볼 수 있는 조상. 루트 쪽부터
      */
     public record PageView(Page page, PageLevel level, List<Page> path) {
+    }
+
+    /** @param canRestore 꺼낼 수 있는지(휴지통에 가기 전 FULL 이었는지) */
+    public record TrashView(Page page, Instant archivedAt, boolean canRestore) {
     }
 
     private final WorkspaceRepository repository;
@@ -237,6 +242,91 @@ public final class WorkspaceService {
                     : "부모 페이지에 편집 권한이 없다");
         }
         return repository.createPage(workspaceId, UUID.randomUUID(), parentId, afterId, userId, now());
+    }
+
+    /**
+     * 페이지를 새 부모 아래 afterId 뒤로 옮긴다 (docs/09-API.md). 그 페이지의 FULL 과 새 부모의 EDIT(최상위면 워크스페이스
+     * 역할의 기본 권한)가 필요하다. 옮기면 물려받는 권한이 바뀌므로 그 페이지와 하위의 열린 연결이 등급을 다시 계산한다. 제한된
+     * 페이지 밖으로 옮기면 더 넓게 보이게 되지만, FULL 은 공유할 권한을 포함하므로 막지 않는다 (D-39).
+     *
+     * @param newParentId 최상위면 null
+     * @param afterId 이 형제 바로 뒤. null 이면 맨 뒤
+     */
+    public Page movePage(UUID userId, UUID pageId, UUID newParentId, UUID afterId) {
+        Access.Granted granted = requireLevel(userId, pageId, PageLevel.FULL, "이 페이지를 옮길 권한이 없다");
+        PageLevel target = permissions.levelForNewChild(userId, granted.workspaceId(), newParentId);
+        if (target == null && newParentId != null) {
+            throw new WorkspaceException(Kind.NOT_FOUND, "새 부모 페이지가 없다");
+        }
+        if (target == null || !target.atLeast(PageLevel.EDIT)) {
+            throw new WorkspaceException(Kind.FORBIDDEN, "새 부모 페이지에 편집 권한이 없다");
+        }
+        Page moved = repository.movePage(granted.workspaceId(), pageId, newParentId, afterId);
+        grants.treeChanged(repository.subtree(pageId));
+        return moved;
+    }
+
+    /**
+     * 휴지통으로 보낸다. 그 페이지의 FULL 이 필요하다. 하위 페이지는 부모를 따라 보이지 않는다. 그 페이지와 하위를 열어 둔 연결은
+     * 등급을 다시 계산해 닫힌다(4003).
+     */
+    public void trashPage(UUID userId, UUID pageId) {
+        Access.Granted granted = requireLevel(userId, pageId, PageLevel.FULL, "이 페이지를 휴지통으로 보낼 권한이 없다");
+        if (repository.archive(granted.workspaceId(), pageId, now())) {
+            grants.treeChanged(repository.subtree(pageId));
+        }
+    }
+
+    /**
+     * 휴지통에서 꺼낸다. 휴지통에 가기 전에 FULL 이었어야 한다. 부모가 아직 휴지통에 있으면 최상위 맨 뒤로 간다.
+     *
+     * @throws WorkspaceException NOT_FOUND 휴지통에 없거나 볼 수 없음, FORBIDDEN FULL 이 아님
+     */
+    public Page restorePage(UUID userId, UUID pageId) {
+        UUID workspaceId = switch (permissions.accessIgnoringTrash(userId, pageId)) {
+            case Access.NotFound notFound -> throw new WorkspaceException(Kind.NOT_FOUND, "휴지통에 그 페이지가 없다");
+            case Access.Denied denied -> throw new WorkspaceException(Kind.FORBIDDEN, "이 페이지를 꺼낼 권한이 없다");
+            case Access.Granted granted -> {
+                if (!granted.level().atLeast(PageLevel.FULL)) {
+                    throw new WorkspaceException(Kind.FORBIDDEN, "이 페이지를 꺼낼 권한이 없다");
+                }
+                yield granted.workspaceId();
+            }
+        };
+        Page restored = repository.restore(workspaceId, pageId)
+                .orElseThrow(() -> new WorkspaceException(Kind.NOT_FOUND, "휴지통에 그 페이지가 없다"));
+        grants.treeChanged(repository.subtree(pageId));
+        return restored;
+    }
+
+    /**
+     * 워크스페이스의 휴지통. 휴지통에 가기 전에 볼 수 있었던 페이지만 보인다. 제한된(restricted) 페이지의 제목이 새지 않게 하기
+     * 위해서다. GUEST 는 빈 목록이다(기본 권한이 없다).
+     */
+    public List<TrashView> trash(UUID userId, UUID workspaceId) {
+        roleOf(workspaceId, userId);
+        List<TrashView> views = new ArrayList<>();
+        for (WorkspaceRepository.TrashedPage trashed : repository.trash(workspaceId)) {
+            if (permissions.accessIgnoringTrash(userId, trashed.page().id()) instanceof Access.Granted granted
+                    && granted.workspaceId().equals(workspaceId)) {
+                views.add(new TrashView(trashed.page(), trashed.archivedAt(), granted.level().atLeast(PageLevel.FULL)));
+            }
+        }
+        return views;
+    }
+
+    /** 이 페이지에 level 이상이어야 한다. 없으면 NOT_FOUND, 워크스페이스에 속하지만 등급이 없거나 모자라면 FORBIDDEN(page 와 같다). */
+    private Access.Granted requireLevel(UUID userId, UUID pageId, PageLevel level, String forbidden) {
+        return switch (permissions.access(userId, pageId)) {
+            case Access.NotFound notFound -> throw new WorkspaceException(Kind.NOT_FOUND, "페이지가 없다");
+            case Access.Denied denied -> throw new WorkspaceException(Kind.FORBIDDEN, forbidden);
+            case Access.Granted granted -> {
+                if (!granted.level().atLeast(level)) {
+                    throw new WorkspaceException(Kind.FORBIDDEN, forbidden);
+                }
+                yield granted;
+            }
+        };
     }
 
     private WorkspaceRole roleOf(UUID workspaceId, UUID userId) {

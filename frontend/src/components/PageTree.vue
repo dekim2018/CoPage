@@ -15,6 +15,17 @@ async function addChild(parentId: string) {
   const page = await store.createPage(parentId)
   await router.push(`/w/${props.workspaceId}/p/${page.id}`)
 }
+
+/**
+ * 휴지통으로 보낸다. 휴지통에서 꺼낼 수 있어 묻지 않는다. 열어 둔 페이지면 워크스페이스 첫 화면으로 간다. 하위 페이지를 열어
+ * 두었으면 그 편집기는 권한을 다시 계산해 닫힌다.
+ */
+async function trash(pageId: string) {
+  await store.trashPage(pageId, props.parentId)
+  if (route.params.pageId === pageId) {
+    await router.push(`/w/${props.workspaceId}`)
+  }
+}
 </script>
 
 <template>
@@ -35,6 +46,9 @@ async function addChild(parentId: string) {
         </RouterLink>
         <button v-if="canEdit(node.level)" type="button" class="tree-add" title="하위 페이지 만들기" @click="addChild(node.id)">
           +
+        </button>
+        <button v-if="node.level === 'FULL'" type="button" class="tree-add" title="휴지통으로 보내기" @click="trash(node.id)">
+          ×
         </button>
       </div>
       <template v-if="store.expanded.has(node.id)">

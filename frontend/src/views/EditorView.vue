@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Editor, EditorContent } from '@tiptap/vue-3'
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ApiError, api } from '../api/http'
 import { EditorBinding, keyboardExtension } from '../collab/adapter/editorBinding'
@@ -23,6 +23,16 @@ const router = useRouter()
 const workspace = useWorkspace()
 // 경로(볼 수 있는 조상)와 제한 여부. 연결과 따로 읽는다. 읽지 못해도 편집은 된다.
 const pageInfo = ref<PageDetail | null>(null)
+
+// 이 탭에서 이 페이지의 조상을 휴지통으로 보냈다. 편집기는 권한을 다시 계산해 닫히므로 오류 화면에 남지 않고 첫 화면으로 간다.
+watch(
+  () => pageInfo.value?.path.some((ancestor) => workspace.trashed.has(ancestor.id)) ?? false,
+  (trashedAbove) => {
+    if (trashedAbove) {
+      void router.push(`/w/${props.workspaceId}`)
+    }
+  },
+)
 // 살리지 못한 내 편집 (DC-3). 닫을 때까지 쌓아 보인다.
 const lost = ref<LostEdits[]>([])
 const lostTextAll = computed(() => lost.value.flatMap((item) => item.texts).join('\n'))

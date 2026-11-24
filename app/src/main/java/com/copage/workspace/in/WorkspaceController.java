@@ -11,6 +11,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -69,6 +70,14 @@ class WorkspaceController {
             Page page = summary.page();
             return new PageResponse(
                     page.id(), page.workspaceId(), page.parentId(), page.title(), summary.hasChildren(), level);
+        }
+    }
+
+    /** @param canRestore 꺼낼 수 있는지(휴지통에 가기 전 FULL 이었는지) */
+    record TrashResponse(UUID id, UUID parentId, String title, Instant archivedAt, boolean canRestore) {
+        static TrashResponse of(WorkspaceService.TrashView view) {
+            Page page = view.page();
+            return new TrashResponse(page.id(), page.parentId(), page.title(), view.archivedAt(), view.canRestore());
         }
     }
 
@@ -143,6 +152,11 @@ class WorkspaceController {
         Page page = workspaces.createPage(userId(jwt), workspaceId, body.parentId(), body.afterId());
         // 만든 사람은 부모의 등급을 물려받는다. 이 페이지에 따로 준 권한은 아직 없다.
         return PageResponse.of(new PageSummary(page, false), workspaces.page(userId(jwt), page.id()).level());
+    }
+
+    @GetMapping("/{workspaceId}/trash")
+    List<TrashResponse> trash(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID workspaceId) {
+        return workspaces.trash(userId(jwt), workspaceId).stream().map(TrashResponse::of).toList();
     }
 
     private static UUID userId(Jwt jwt) {

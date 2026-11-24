@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -135,6 +136,16 @@ public final class PageGrants {
      */
     public void memberChanged(UUID userId) {
         publisher.accept(PermissionChange.allPagesOf(userId));
+    }
+
+    /**
+     * 페이지 트리가 바뀌었을 때(옮기기, 휴지통으로 보내기와 꺼내기) 그 페이지들에 접근하는 모든 사람의 등급을 다시 계산하게 알린다.
+     * 옮기면 물려받는 권한과 경계가 바뀌고, 휴지통에 가면 아무도 볼 수 없다.
+     *
+     * @param pageIds 옮기거나 보내거나 꺼낸 페이지와 그 하위 전부
+     */
+    public void treeChanged(Set<UUID> pageIds) {
+        publisher.accept(new PermissionChange(pageIds, null));
     }
 
     private Access.Granted requireFull(UUID actor, UUID pageId) {
