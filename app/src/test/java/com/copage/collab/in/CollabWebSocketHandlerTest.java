@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.copage.collab.app.ChangePolicy;
 import com.copage.collab.app.CloseCodes;
+import com.copage.collab.app.CollabMetrics;
 import com.copage.collab.app.DocumentSession;
 import com.copage.collab.app.DocumentSessions;
 import com.copage.collab.domain.PageRole;
@@ -59,14 +60,16 @@ class CollabWebSocketHandlerTest {
             Runnable::run,
             (task, delay) -> { },
             clock,
-            (docId, title, rev) -> { });
+            (docId, title, rev) -> { },
+            CollabMetrics.NONE);
 
     private final CollabWebSocketHandler handler = new CollabWebSocketHandler(
             sessions,
             new ProtocolCodec(JsonMapper.builder().build()),
             new CollabWebSocketHandler.Limits(65536, 30, 5, Duration.ofSeconds(45), Duration.ofSeconds(10), 1 << 20),
             clock,
-            Runnable::run);
+            Runnable::run,
+            CollabMetrics.NONE);
 
     /** 받은 메시지와 닫힌 상태를 적어 두는 가짜 WebSocket 세션. */
     private static final class Socket {

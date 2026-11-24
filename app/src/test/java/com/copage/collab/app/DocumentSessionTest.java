@@ -13,20 +13,22 @@ import com.copage.collab.domain.ClientMessage.Hello;
 import com.copage.collab.domain.Cursor;
 import com.copage.collab.domain.PageRole;
 import com.copage.collab.domain.Peer;
-import com.copage.collab.domain.ServerMessage;
 import com.copage.collab.domain.ServerMessage.Ack;
 import com.copage.collab.domain.ServerMessage.Nack;
 import com.copage.collab.domain.ServerMessage.Remote;
 import com.copage.collab.domain.ServerMessage.Welcome;
+import com.copage.collab.domain.ServerMessage;
 import com.copage.collab.domain.StoredChange;
 import com.copage.collab.out.InMemoryDocumentStore;
+import com.copage.collab.out.MicrometerCollabMetrics;
 import com.copage.ot.model.Document;
-import com.copage.ot.op.Op;
 import com.copage.ot.op.Op.InsertBlock;
 import com.copage.ot.op.Op.TextOp;
+import com.copage.ot.op.Op;
 import com.copage.ot.text.Attrs;
 import com.copage.ot.text.Delta;
 import com.copage.ot.text.RichText;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -55,6 +57,8 @@ class DocumentSessionTest {
     /** 알린 제목. (문서, 제목, 리비전). */
     private final List<String> titleUpdates = new ArrayList<>();
     private final TitleSink titles = (docId, title, rev) -> titleUpdates.add(title + "@" + rev);
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    private final CollabMetrics metrics = new MicrometerCollabMetrics(registry);
     private final DocumentSessions sessions = sessions(2);
 
     private DocumentSessions sessions(int maxConnections) {
@@ -82,7 +86,8 @@ class DocumentSessionTest {
                 tasks::add,
                 (task, delay) -> scheduled.add(task),
                 clock,
-                titles);
+                titles,
+                metrics);
     }
 
     /** 메모리 저장소에 append 횟수를 세고, 원하면 실패하게 하는 기능을 더했다. */
@@ -489,7 +494,8 @@ class DocumentSessionTest {
                 background::add,
                 (task, delay) -> scheduled.add(task),
                 Clock.systemUTC(),
-                titles);
+                titles,
+                metrics);
         FakeConnection a = new FakeConnection("A");
         ordered.join(DOC, a, new Hello("client-A", 0, false), PageRole.EDIT, "이름");
         runAll();
@@ -564,6 +570,35 @@ class DocumentSessionTest {
         runAll();
 
         assertEquals(List.of("@0"), titleUpdates);
+    }
+
+    @Test
+    void 지표는_ack_변환_횟수_커밋_묶음_거부_분류를_남긴다() {
+        FakeConnection a = join("A");
+        FakeConnection b = join("B");
+        FakeConnection viewer = join("V", 0, PageRole.VIEW);
+        submit(a, 1, 0, paragraph("X", "가"));
+        runAll();
+        // a 와 b 가 같은 차례에 보낸다. b 는 a 의 묶음 하나만큼 뒤처져 있다.
+        submit(a, 2, 1, type("X", 0, "나"));
+        submit(b, 1, 1, type("X", 1, "다"));
+        runAll();
+        submit(viewer, 1, 3, type("X", 0, "라"));
+        submit(a, 3, 3);
+        submit(a, 4, 3, new InsertBlock("Y", ROOT, "a", "iframe", Attrs.NONE, RichText.EMPTY));
+        submit(a, 5, 3, new Op.MergeBlock("없는블록", "X", 0));
+        runAll();
+
+        assertEquals(1, registry.get("collab.session.load").timer().count());
+        assertEquals(3, registry.get("collab.ack.latency").timer().count());
+        assertEquals(2, registry.get("collab.commit.batch.size").summary().count(), "커밋 두 번");
+        assertEquals(3, registry.get("collab.commit.batch.size").summary().totalAmount(), "1 + 2 묶음");
+        // 변환 횟수: 0(첫 묶음), 0(a), 1(b), 0(병합 시도)
+        assertEquals(1, registry.get("collab.transform.count").summary().totalAmount());
+        assertEquals(1, registry.get("collab.nack").tag("reason", "permission").counter().count());
+        assertEquals(1, registry.get("collab.nack").tag("reason", "empty").counter().count());
+        assertEquals(1, registry.get("collab.nack").tag("reason", "input").counter().count());
+        assertEquals(1, registry.get("collab.nack").tag("reason", "rejected").counter().count());
     }
 
     @Test

@@ -9,6 +9,7 @@ import javax.crypto.SecretKey;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.core.env.Environment;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -23,6 +24,7 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -35,6 +37,9 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  *   <li>{@code /ws/**}: 핸드셰이크에서 1회용 티켓으로 인증하므로 여기서는 통과시킨다 (9.3)
  *   <li>그 밖: 오류 응답만 열고 모두 막는다
  * </ol>
+ *
+ * <p>관리 포트(지표, 상태 확인)는 따로 둔다. 관리 포트로 들어온 요청만 열고, 그 포트는 기본으로 이 기기에서만 받는다
+ * (application.yml 의 management). API 포트의 /actuator 는 위 셋째 체인이 막는다.
  *
  * <p>JWT 검증은 Spring Security 의 리소스 서버(HS256)를 쓴다. 서명과 만료에 더해, 로그아웃으로 막은 토큰과 모든 세션을 끊은
  * 사용자의 예전 토큰을 거부하는 검증기를 붙였다.
@@ -80,6 +85,25 @@ public class SecurityConfig {
         DefaultBearerTokenResolver resolver = new DefaultBearerTokenResolver();
         return (HttpServletRequest request) ->
                 request.getRequestURI().startsWith("/api/auth/") ? null : resolver.resolve(request);
+    }
+
+    /**
+     * 관리 포트로 들어온 요청. 포트 번호는 서버가 뜬 뒤 local.management.port 로 알 수 있어 요청마다 읽는다(0 이면 무작위 포트).
+     * 관리 포트를 따로 두지 않으면(같은 포트) 이 체인은 아무 요청에도 맞지 않고, /actuator 는 셋째 체인이 막는다.
+     */
+    @Bean
+    @Order(0)
+    SecurityFilterChain management(HttpSecurity http, Environment environment) throws Exception {
+        RequestMatcher onManagementPort = request -> {
+            Integer managementPort = environment.getProperty("local.management.port", Integer.class);
+            Integer serverPort = environment.getProperty("local.server.port", Integer.class);
+            return managementPort != null && !managementPort.equals(serverPort) && request.getLocalPort() == managementPort;
+        };
+        return http.securityMatcher(onManagementPort)
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .build();
     }
 
     @Bean

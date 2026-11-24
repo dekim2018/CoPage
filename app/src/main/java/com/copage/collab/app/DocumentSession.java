@@ -107,7 +107,8 @@ public final class DocumentSession {
         }
     }
 
-    private record Pending(Connection connection, Change change) {
+    /** @param receivedNanos 받은 때. ack 지연을 잰다 */
+    private record Pending(Connection connection, Change change, long receivedNanos) {
     }
 
     private final UUID docId;
@@ -120,6 +121,7 @@ public final class DocumentSession {
     private final Clock clock;
     private final Unloader unloader;
     private final TitleSink titles;
+    private final CollabMetrics metrics;
     /** 마지막으로 알린 제목. 같은 제목을 다시 쓰지 않는다. */
     private String lastTitle;
 
@@ -145,9 +147,11 @@ public final class DocumentSession {
             Scheduler scheduler,
             Clock clock,
             TitleSink titles,
+            CollabMetrics metrics,
             Unloader unloader) {
         this.docId = docId;
         this.titles = titles;
+        this.metrics = metrics;
         this.store = store;
         this.policy = policy;
         this.settings = settings;
@@ -189,13 +193,14 @@ public final class DocumentSession {
 
     /** 편집 묶음을 받는다. 처리는 다음 커밋 차례에 한다. */
     public void submit(Connection connection, Change change) {
+        long received = System.nanoTime();
         executor.execute(() -> {
             if (closed || !members.containsKey(connection.id())) {
                 // 내려간 세션에 남은 연결이다. 다시 붙으면 새 세션에서 이어진다.
                 connection.close(CloseCodes.MOVED, "문서 세션이 다시 열린다");
                 return;
             }
-            pending.add(new Pending(connection, change));
+            pending.add(new Pending(connection, change, received));
             if (!drainQueued) {
                 drainQueued = true;
                 executor.execute(this::drain);
@@ -318,7 +323,9 @@ public final class DocumentSession {
 
     private void ensureLoaded() {
         if (server == null) {
+            long started = System.nanoTime();
             DocumentStore.Snapshot snapshot = store.load(docId);
+            metrics.sessionLoad(System.nanoTime() - started);
             server = new ServerDocument(snapshot.document(), snapshot.rev(), settings.historyWindow());
             lastSnapshotRev = snapshot.snapshotRev();
             // 제목을 동기화하기 전에 만든 페이지도 처음 열릴 때 채워진다. 받는 쪽은 리비전이 같으면 바꾸지 않는다.
@@ -381,6 +388,7 @@ public final class DocumentSession {
             process(item, now, commits, replies);
         }
         if (!commits.isEmpty()) {
+            metrics.commitBatch(commits.size());
             try {
                 store.append(docId, commits);
             } catch (RuntimeException e) {
@@ -407,33 +415,40 @@ public final class DocumentSession {
             // 보낸 뒤 끊긴 연결이다. 처리하지 않으면 재접속한 클라이언트가 같은 순번으로 다시 보낸다.
             return;
         }
-        Optional<String> refused = change.ops().isEmpty()
-                ? Optional.of("빈 묶음")
-                : policy.check(change.ops(), member.role());
+        Optional<ChangePolicy.Refusal> refused = change.ops().isEmpty()
+                ? Optional.of(new ChangePolicy.Refusal("empty", "빈 묶음"))
+                : policy.refuse(change.ops(), member.role());
         if (refused.isPresent()) {
             long rev = server.rev();
-            replies.add(() -> sender.send(new ServerMessage.Nack(seq, refused.get(), rev)));
+            metrics.nack(refused.get().category());
+            replies.add(() -> sender.send(new ServerMessage.Nack(seq, refused.get().message(), rev)));
             return;
         }
         // 세션이 다시 올라오면 ServerDocument 는 예전 순번을 모른다. 저장소에서 한 번 더 확인한다 (7.5 의 4번).
         OptionalLong earlier = store.committedRev(docId, member.clientId(), seq);
         if (earlier.isPresent()) {
             long rev = earlier.getAsLong();
-            replies.add(() -> sender.send(new ServerMessage.Ack(seq, rev)));
+            replies.add(() -> ack(sender, seq, rev, item.receivedNanos()));
             return;
         }
+        metrics.transforms(Math.max(0, server.rev() - change.baseRev()));
         Submission submission = new Submission(member.clientId(), seq, change.baseRev(), change.ops());
         switch (server.submit(submission, policy::checkSize)) {
             case SubmitResult.Accepted accepted -> {
                 StoredChange stored = new StoredChange(
                         accepted.change().rev(), sender.userId(), member.clientId(), seq, accepted.change().ops(), now);
                 commits.add(stored);
-                replies.add(() -> broadcast(sender, stored));
+                replies.add(() -> {
+                    broadcast(sender, stored);
+                    metrics.ackLatency(System.nanoTime() - item.receivedNanos());
+                });
             }
             case SubmitResult.Duplicate duplicate ->
-                    replies.add(() -> sender.send(new ServerMessage.Ack(seq, duplicate.rev())));
+                    replies.add(() -> ack(sender, seq, duplicate.rev(), item.receivedNanos()));
             case SubmitResult.Rejected rejected -> {
                 long rev = server.rev();
+                // 변환할 수 없는 충돌, 적용할 수 없는 연산, 문서 크기 한도
+                metrics.nack("rejected");
                 replies.add(() -> sender.send(new ServerMessage.Nack(seq, rejected.reason(), rev)));
             }
             case SubmitResult.Stale stale -> {
@@ -443,6 +458,11 @@ public final class DocumentSession {
                 replies.add(() -> sender.close(CloseCodes.SLOW, reason));
             }
         }
+    }
+
+    private void ack(Connection sender, long seq, long rev, long receivedNanos) {
+        sender.send(new ServerMessage.Ack(seq, rev));
+        metrics.ackLatency(System.nanoTime() - receivedNanos);
     }
 
     /** 보낸 연결에는 ack, 나머지에는 remote. 같은 클라이언트가 다른 연결로 다시 붙어 있으면 그 연결도 remote 를 받는다. */
