@@ -545,6 +545,11 @@ function selectionAt(doc: PmNode, pos: number): Selection {
 
 /** 같은 자리의 노드 하나를 target 처럼 고친다. */
 function patchNode(tr: Transaction, start: number, current: PmNode, target: PmNode): void {
+  // 원격 편집 하나는 보통 블록 하나만 바꾼다. 같은 노드는 글자 차이를 계산하지 않고 넘어간다(PERF-1). ID 가 아직 없는 노드는
+  // 속성이 달라 여기서 걸리지 않는다.
+  if (current.eq(target)) {
+    return
+  }
   if (current.type !== target.type || current.isAtom) {
     if (current.type !== target.type || !sameAttrs(current, target)) {
       tr.replaceWith(start, start + current.nodeSize, target)
