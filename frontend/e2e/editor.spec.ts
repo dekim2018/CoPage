@@ -262,3 +262,41 @@ test('구조 충돌로 묶음이 거부되어도 다른 블록에 친 글자는 
   expect(await converged(a, b)).toEqual(['제목', '둘째', '셋째x 살아남을 글'])
   await expect(b.getByTestId('lost')).toContainText('다른 사람의 편집과 겹쳐')
 })
+
+test('빠르게 쳐도(초당 50타) 묶음을 서버 한도 아래로 보내 연결이 끊기지 않는다', async ({ browser }) => {
+  const a = await newUser(browser, 'a')
+  const docId = await sharedPage(a)
+  const sent: number[] = []
+  const closes: number[] = []
+  await a.routeWebSocket(/\/ws\/docs\//, (ws) => {
+    const server = ws.connectToServer()
+    ws.onMessage((message) => {
+      if (String(message).includes('"t":"change"')) {
+        sent.push(Date.now())
+      }
+      server.send(message)
+    })
+    server.onMessage((message) => ws.send(message))
+    server.onClose((code) => {
+      closes.push(code ?? 0)
+    })
+  })
+  await open(a, docId)
+  await caretAtEnd(a, 0)
+
+  // 키를 누르고 있는 것과 비슷한 속도다. 답이 빠르면 예전에는 키마다 묶음이 나가 서버가 4008 로 끊었다.
+  await a.keyboard.type('x'.repeat(150), { delay: 20 })
+
+  await expect(a.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+  let most = 0
+  for (let i = 0; i < sent.length; i++) {
+    let j = i
+    while (j < sent.length && (sent[j] as number) - (sent[i] as number) < 1000) {
+      j++
+    }
+    most = Math.max(most, j - i)
+  }
+  expect(closes).toEqual([])
+  expect(most).toBeLessThanOrEqual(21)
+  expect((await blocks(a))[0]).toBe('x'.repeat(150))
+})

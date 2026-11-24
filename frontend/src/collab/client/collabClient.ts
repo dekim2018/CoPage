@@ -45,6 +45,13 @@ export interface LostEdits {
 /** 커서가 움직여도 이 간격에 한 번만 보낸다 (docs/05-PROTOCOL.md 7.6). */
 const PRESENCE_INTERVAL_MS = 50
 
+/**
+ * 묶음은 이 간격에 많아야 하나 보낸다(초당 20개). 서버는 연결마다 초당 30개를 넘는 change 를 규약 위반으로 보고 4008 로 끊는다
+ * (docs/05-PROTOCOL.md 7.7). 답(ack)이 빠르면 키를 누를 때마다 묶음 하나가 나가서, 빠르게 치거나 키를 누르고 있으면(초당 30회
+ * 넘게 반복) 한도를 넘었다. 사이에 친 글자는 buffer 에 모여 다음 묶음 하나로 나간다 (D-34).
+ */
+const CHANGE_INTERVAL_MS = 50
+
 interface CommittedJson {
   rev: number
   clientId: string
@@ -70,6 +77,8 @@ export class CollabClient {
   private myCursor: Cursor | null = null
   private lastPresenceAt = 0
   private presenceTimer: ReturnType<typeof setTimeout> | null = null
+  private lastChangeAt = 0
+  private changeTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     docId: string,
@@ -101,6 +110,10 @@ export class CollabClient {
   stop(): void {
     if (this.presenceTimer !== null) {
       clearTimeout(this.presenceTimer)
+    }
+    if (this.changeTimer !== null) {
+      clearTimeout(this.changeTimer)
+      this.changeTimer = null
     }
     this.connection.stop()
   }
@@ -328,7 +341,16 @@ export class CollabClient {
   }
 
   private flush(): void {
-    if (this.held || !this.welcomed || this.session === null) {
+    if (this.held || !this.welcomed || this.session === null || this.changeTimer !== null) {
+      return
+    }
+    const wait = this.lastChangeAt + CHANGE_INTERVAL_MS - Date.now()
+    if (wait > 0 && this.session.hasPending()) {
+      this.changeTimer = setTimeout(() => {
+        this.changeTimer = null
+        this.flush()
+        this.reportStatus()
+      }, wait)
       return
     }
     const submission = this.session.poll()
@@ -338,6 +360,7 @@ export class CollabClient {
         this.salvageSeqs.add(submission.clientSeq)
         this.salvagePending = false
       }
+      this.lastChangeAt = Date.now()
       this.sendChange(submission)
     }
   }
