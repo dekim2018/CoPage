@@ -4,6 +4,8 @@ import com.copage.identity.app.AuthException;
 import com.copage.identity.app.AuthService;
 import com.copage.identity.config.AuthProperties;
 import com.copage.identity.domain.User;
+import com.copage.web.WebProperties;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -61,11 +63,18 @@ class AuthController {
     private final AuthService auth;
     private final AuthProperties properties;
     private final JwtDecoder jwtDecoder;
+    private final OriginCheck origins;
 
-    AuthController(AuthService auth, AuthProperties properties, JwtDecoder jwtDecoder) {
+    AuthController(AuthService auth, AuthProperties properties, JwtDecoder jwtDecoder, WebProperties web) {
         this.auth = auth;
         this.properties = properties;
         this.jwtDecoder = jwtDecoder;
+        this.origins = new OriginCheck(web.allowedOrigins());
+    }
+
+    private static ResponseEntity<ProblemDetail> foreignOrigin() {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "허용하지 않은 출처의 요청이다"));
     }
 
     @PostMapping("/signup")
@@ -87,11 +96,15 @@ class AuthController {
      * Refresh 토큰을 새로 바꾸고 Access 토큰을 다시 준다. 실패하면 쿠키를 지운다. 다만 동시 재발급(409)일 때는 지우지 않는다.
      * 먼저 온 요청이 내려 준 새 쿠키까지 지워 버리기 때문이다.
      *
-     * <p>쿠키를 쓰는 유일한 경로라서 SameSite=Strict 에 더해 Origin 을 검사한다 (9.2). 검사는 보안 설정의 CORS 필터가
-     * 컨트롤러 앞에서 한다. 다른 출처의 요청은 Origin 이 허용 목록(copage.web.allowed-origins)에 없으면 403 으로 막힌다.
+     * <p>쿠키를 쓰는 경로라서 SameSite=Strict 에 더해 Origin 을 검사한다 (9.2). CORS 필터가 먼저 막고, CORS 설정이 바뀌어도
+     * 풀리지 않도록 여기서도 본다(OriginCheck, SEC-4).
      */
     @PostMapping("/refresh")
-    ResponseEntity<?> refresh(@CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken) {
+    ResponseEntity<?> refresh(
+            @CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken, HttpServletRequest request) {
+        if (!origins.allows(request)) {
+            return foreignOrigin();
+        }
         try {
             return withSession(auth.refresh(refreshToken));
         } catch (AuthException e) {
@@ -107,9 +120,13 @@ class AuthController {
 
     /** Refresh 토큰을 지우고, Authorization 헤더의 Access 토큰이 아직 유효하면 남은 시간 동안 막는다. */
     @PostMapping("/logout")
-    ResponseEntity<Void> logout(
+    ResponseEntity<?> logout(
             @CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken,
-            @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+            @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            HttpServletRequest request) {
+        if (!origins.allows(request)) {
+            return foreignOrigin();
+        }
         String jti = null;
         Instant expiresAt = null;
         if (authorization != null && authorization.startsWith("Bearer ")) {

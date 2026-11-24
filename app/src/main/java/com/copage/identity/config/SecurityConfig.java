@@ -18,7 +18,10 @@ import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtClaimNames;
+import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
@@ -49,9 +52,13 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
     @Bean
-    JwtDecoder jwtDecoder(SecretKey jwtKey, AuthService authService) {
+    JwtDecoder jwtDecoder(SecretKey jwtKey, AuthService authService, AuthProperties properties) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(jwtKey).macAlgorithm(MacAlgorithm.HS256).build();
-        decoder.setJwtValidator(JwtValidators.createDefaultWithValidators(List.of(notRevoked(authService))));
+        // 발급자와 대상이 이 서비스인 토큰만 받는다 (진단 SEC-5). 같은 비밀키를 다른 서비스와 나눠 쓰게 되어도 섞이지 않는다.
+        OAuth2TokenValidator<Jwt> audience = new JwtClaimValidator<List<String>>(
+                JwtClaimNames.AUD, aud -> aud != null && aud.contains(properties.audience()));
+        decoder.setJwtValidator(JwtValidators.createDefaultWithValidators(List.of(
+                new JwtIssuerValidator(properties.issuer()), audience, notRevoked(authService))));
         return decoder;
     }
 

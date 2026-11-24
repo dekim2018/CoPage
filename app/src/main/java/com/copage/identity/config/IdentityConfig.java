@@ -75,7 +75,8 @@ public class IdentityConfig {
                         redis, properties.loginMaxFailures(), properties.loginWindow(), properties.loginLock()),
                 passwordEncoder,
                 jwtEncoder,
-                new AuthService.TokenSettings(properties.accessTokenTtl(), properties.refreshTokenTtl()),
+                new AuthService.TokenSettings(
+                        properties.accessTokenTtl(), properties.refreshTokenTtl(), properties.issuer(), properties.audience()),
                 Clock.systemUTC());
     }
 }
