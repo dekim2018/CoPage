@@ -91,6 +91,20 @@ export const useWorkspace = defineStore('workspace', () => {
     }
   }
 
+  /**
+   * 사이드바가 아는 페이지 제목. 편집기에서 고친 제목이 바로 들어 있다. 모르면 undefined. 경로(빵 부스러기)는 페이지를 열 때
+   * 받은 제목이 그 뒤 바뀌어도 이것으로 최신을 보인다.
+   */
+  function titleOf(pageId: string): string | undefined {
+    for (const list of children.values()) {
+      const node = list.find((page) => page.id === pageId)
+      if (node !== undefined) {
+        return node.title
+      }
+    }
+    return undefined
+  }
+
   function reset(): void {
     workspaces.value = []
     current.value = null
@@ -110,6 +124,7 @@ export const useWorkspace = defineStore('workspace', () => {
     toggle,
     createPage,
     setTitle,
+    titleOf,
     reset,
   }
 })

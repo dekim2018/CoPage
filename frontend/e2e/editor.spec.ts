@@ -151,7 +151,17 @@ test('워크스페이스를 만들고 사이드바에서 페이지를 만들면 
   await a.keyboard.type('회의록')
   await expect(a.getByTestId('tree-item').first()).toContainText('회의록')
 
-  // 하위 페이지를 만들면 부모가 펼쳐지고 경로에 부모가 보인다.
+  // 하위 페이지를 만들면 부모가 펼쳐지고 경로에 부모가 보인다. 부모 제목의 마지막 커밋이 서버에 저장되기 전에 경로를 받아
+  // 오면 예전 제목이 온다(CI 에서 "제목 없음" 으로 실패했다). 그 경우를 일부러 만든다: 경로의 제목을 비워 돌려준다.
+  // 경로는 사이드바가 아는 최신 제목을 보여야 한다.
+  await a.route(/\/api\/pages\/[0-9a-f-]{36}$/, async (route) => {
+    const response = await route.fetch()
+    const page = await response.json()
+    for (const ancestor of page.path ?? []) {
+      ancestor.title = ''
+    }
+    await route.fulfill({ response, json: page })
+  })
   await a.getByTestId('tree-item').first().getByTitle('하위 페이지 만들기').click()
   await expect(a.getByTestId('status')).toHaveAttribute('data-status', 'saved')
   await expect(a.getByTestId('crumbs')).toContainText('회의록')
