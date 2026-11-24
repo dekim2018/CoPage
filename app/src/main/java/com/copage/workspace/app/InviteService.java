@@ -36,7 +36,8 @@ public final class InviteService {
     static final Duration TTL = Duration.ofDays(7);
 
     /** 초대를 만든 결과. token 은 이때만 알 수 있다. */
-    public record Created(Invite invite, String token) {
+    /** @param mailed 초대 메일을 보내기로 했는지. false 면 링크를 직접 건넨다 */
+    public record Created(Invite invite, String token, boolean mailed) {
     }
 
     /** 초대 링크를 연 사람에게 보일 내용. */
@@ -50,6 +51,12 @@ public final class InviteService {
     private final Transactions transactions;
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
+    private volatile InviteMailer mailer = InviteMailer.NONE;
+
+    /** 초대 메일을 보낼 곳 (D-50). 메일 서버가 없으면 NONE 이다. */
+    public void mailerIs(InviteMailer mailer) {
+        this.mailer = mailer;
+    }
 
     public InviteService(
             InviteRepository invites,
@@ -78,7 +85,13 @@ public final class InviteService {
         random.nextBytes(bytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
         invites.create(invite, hash(token));
-        return new Created(invite, token);
+        InviteMailer current = mailer;
+        if (current.enabled()) {
+            String workspaceName = workspaces.findWorkspace(workspaceId).map(Workspace::name).orElse("");
+            String inviterName = users.findAllById(List.of(userId)).stream().findFirst().map(User::name).orElse("");
+            current.send(new InviteMailer.Invitation(invite.email(), workspaceName, inviterName, token, invite.expiresAt()));
+        }
+        return new Created(invite, token, current.enabled());
     }
 
     public List<Invite> pending(UUID userId, UUID workspaceId) {

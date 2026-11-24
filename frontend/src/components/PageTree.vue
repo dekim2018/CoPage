@@ -33,22 +33,15 @@ function onDragStart(event: DragEvent, node: PageNode) {
   }
 }
 
-function onDragOver(event: DragEvent, node: PageNode, index: number) {
+function onDragOver(event: DragEvent, node: PageNode) {
   if (!event.dataTransfer?.types.includes(PAGE_TYPE)) {
     return
   }
   event.preventDefault()
   const row = event.currentTarget as HTMLElement
   const ratio = (event.clientY - row.getBoundingClientRect().top) / row.offsetHeight
-  let zone: Zone = ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'inside'
-  // 맨 앞에 두는 API 는 없다(afterId 가 없으면 맨 뒤다). 첫 줄의 위쪽은 안으로 넣는다.
-  if (zone === 'before' && index === 0) {
-    zone = 'inside'
-  }
-  if (zone === 'inside' && !canEdit(node.level)) {
-    zone = 'after'
-  }
-  target.value = { id: node.id, zone }
+  const zone: Zone = ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'inside'
+  target.value = { id: node.id, zone: zone === 'inside' && !canEdit(node.level) ? 'after' : zone }
 }
 
 async function onDrop(event: DragEvent, node: PageNode, index: number) {
@@ -59,6 +52,8 @@ async function onDrop(event: DragEvent, node: PageNode, index: number) {
     return
   }
   event.preventDefault()
+  // 첫 줄의 앞은 맨 앞이다(D-50). 그 밖의 앞은 바로 위 형제의 뒤다.
+  const first = zone === 'before' && index === 0
   const [parentId, afterId] =
     zone === 'inside'
       ? [node.id, null]
@@ -70,7 +65,7 @@ async function onDrop(event: DragEvent, node: PageNode, index: number) {
   }
   try {
     store.moveError = null
-    await store.movePage(pageId, parentId, afterId)
+    await store.movePage(pageId, parentId, first ? null : afterId, first)
   } catch (e) {
     store.moveError = e instanceof ApiError && e.status === 400 ? '자기 하위로는 옮길 수 없다' : '옮기지 못했다'
   }
@@ -100,7 +95,7 @@ async function trash(pageId: string) {
         }"
         :draggable="node.level === 'FULL'"
         @dragstart="onDragStart($event, node)"
-        @dragover="onDragOver($event, node, index)"
+        @dragover="onDragOver($event, node)"
         @dragleave="target = target?.id === node.id ? null : target"
         @drop="onDrop($event, node, index)"
         @dragend="target = null"

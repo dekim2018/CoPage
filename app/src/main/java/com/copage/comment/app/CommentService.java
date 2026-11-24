@@ -9,9 +9,11 @@ import com.copage.permission.app.PagePermissions;
 import com.copage.permission.app.PagePermissions.Access;
 import com.copage.permission.domain.PageLevel;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -141,6 +143,45 @@ public final class CommentService {
         notifications.forget("comment-mention:" + commentId + ":");
         announce.accept(ref.docId(), ref.threadId());
         return threadGone;
+    }
+
+    /**
+     * 문서 세션이 알린, 본문에 서식이 있는 스레드 (D-50). 원문이 다 지워진 스레드는 "원문이 삭제됨" 으로 보이게 표시하고, 다시
+     * 나타나면(되돌리기) 표시를 끈다. 바뀐 것이 있으면 문서를 연 사람들에게 알린다. 스레드 ID 가 아닌 값은 무시한다.
+     */
+    public void anchorsSeen(UUID docId, Set<String> threadIds) {
+        List<UUID> changed = repository.updateAnchors(docId, threadIdsOf(threadIds), now());
+        if (!changed.isEmpty()) {
+            announce.accept(docId, changed.getFirst());
+        }
+    }
+
+    /** 방금 커밋한 편집이 이 스레드들에 서식을 붙였다 (D-50). 붙이자마자 지워져도 원문이 지워졌다고 보일 수 있게 바로 적는다. */
+    public void marked(UUID docId, Set<String> threadIds) {
+        List<UUID> changed = repository.markAnchored(docId, threadIdsOf(threadIds), now());
+        if (!changed.isEmpty()) {
+            announce.accept(docId, changed.getFirst());
+        }
+    }
+
+    private static Set<UUID> threadIdsOf(Set<String> values) {
+        Set<UUID> ids = new HashSet<>();
+        for (String id : values) {
+            try {
+                ids.add(UUID.fromString(id));
+            } catch (IllegalArgumentException e) {
+                // 서식 값은 클라이언트가 정한다. 스레드 ID 가 아니면 가리키는 스레드도 없다.
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * 만든 지 age 가 지났는데 본문에 서식이 한 번도 붙지 않은 스레드를 지운다 (10.2, D-50). 스레드를 만든 뒤 서식을 붙이는 편집이
+     * 실패한 경우다. 주기 작업이 부른다.
+     */
+    public int purgeUnanchored(Duration age) {
+        return repository.purgeUnanchored(now().minus(age));
     }
 
     private CommentRepository.CommentRef live(UUID commentId) {

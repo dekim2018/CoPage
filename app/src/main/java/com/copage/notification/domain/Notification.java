@@ -27,6 +27,8 @@ public record Notification(
         /** 댓글에서 나를 멘션했다. */
         COMMENT_MENTION,
         /** 내가 참여한 댓글 스레드에 답글이 달렸다. */
-        REPLY
+        REPLY,
+        /** 누가 나에게 페이지 권한을 주었다 (D-50). */
+        PAGE_SHARED
     }
 }

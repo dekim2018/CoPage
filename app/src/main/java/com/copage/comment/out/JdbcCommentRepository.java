@@ -10,6 +10,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -59,13 +60,14 @@ public final class JdbcCommentRepository implements CommentRepository {
     }
 
     private record ThreadRow(UUID id, String quote, UUID createdBy, Instant createdAt, Instant resolvedAt,
-            String resolvedByName) {
+            String resolvedByName, boolean orphaned) {
     }
 
     @Override
     public List<CommentThread> threads(UUID docId) {
         List<ThreadRow> rows = jdbc.sql("""
-                        SELECT t.id, t.quote, t.created_by, t.created_at, t.resolved_at, u.name AS resolved_by_name
+                        SELECT t.id, t.quote, t.created_by, t.created_at, t.resolved_at, t.orphaned,
+                               u.name AS resolved_by_name
                         FROM comment_threads t LEFT JOIN users u ON u.id = t.resolved_by
                         WHERE t.doc_id = :docId
                         ORDER BY t.created_at, t.id
@@ -75,7 +77,8 @@ public final class JdbcCommentRepository implements CommentRepository {
                     Timestamp resolved = rs.getTimestamp("resolved_at");
                     return new ThreadRow(rs.getObject("id", UUID.class), rs.getString("quote"),
                             rs.getObject("created_by", UUID.class), rs.getTimestamp("created_at").toInstant(),
-                            resolved == null ? null : resolved.toInstant(), rs.getString("resolved_by_name"));
+                            resolved == null ? null : resolved.toInstant(), rs.getString("resolved_by_name"),
+                            rs.getBoolean("orphaned"));
                 })
                 .list();
         Map<UUID, List<Comment>> comments = new LinkedHashMap<>();
@@ -99,7 +102,7 @@ public final class JdbcCommentRepository implements CommentRepository {
                 .forEach(comment -> comments.get(comment.threadId()).add(comment));
         return rows.stream()
                 .map(row -> new CommentThread(row.id(), docId, row.quote(), row.createdBy(), row.createdAt(),
-                        row.resolvedAt(), row.resolvedByName(), List.copyOf(comments.get(row.id()))))
+                        row.resolvedAt(), row.resolvedByName(), List.copyOf(comments.get(row.id())), row.orphaned()))
                 .toList();
     }
 
@@ -167,6 +170,66 @@ public final class JdbcCommentRepository implements CommentRepository {
                     .update() == 1;
         });
         return Boolean.TRUE.equals(threadGone);
+    }
+
+    @Override
+    public List<UUID> updateAnchors(UUID docId, Set<UUID> present, Instant now) {
+        String[] ids = present.stream().map(UUID::toString).toArray(String[]::new);
+        return jdbc.sql("""
+                        WITH next AS (
+                            SELECT t.id,
+                                   t.orphaned AS was_orphaned,
+                                   t.id = ANY(CAST(:ids AS uuid[])) AS present,
+                                   t.anchored_at
+                            FROM comment_threads t WHERE t.doc_id = :docId
+                        )
+                        UPDATE comment_threads t
+                        SET anchored_at = CASE WHEN n.present THEN coalesce(n.anchored_at, :now) ELSE n.anchored_at END,
+                            orphaned = NOT n.present AND n.anchored_at IS NOT NULL
+                        FROM next n
+                        WHERE t.id = n.id
+                          AND (n.was_orphaned IS DISTINCT FROM (NOT n.present AND n.anchored_at IS NOT NULL)
+                               OR (n.present AND n.anchored_at IS NULL))
+                        RETURNING t.id, n.was_orphaned IS DISTINCT FROM t.orphaned AS flipped
+                        """)
+                .param("docId", docId)
+                .param("ids", ids)
+                .param("now", Timestamp.from(now))
+                .query((rs, row) -> rs.getBoolean("flipped") ? rs.getObject("id", UUID.class) : null)
+                .list()
+                .stream()
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    @Override
+    public List<UUID> markAnchored(UUID docId, Set<UUID> threads, Instant now) {
+        String[] ids = threads.stream().map(UUID::toString).toArray(String[]::new);
+        return jdbc.sql("""
+                        WITH before AS (
+                            SELECT id, orphaned FROM comment_threads
+                            WHERE doc_id = :docId AND id = ANY(CAST(:ids AS uuid[]))
+                        )
+                        UPDATE comment_threads t SET anchored_at = coalesce(t.anchored_at, :now), orphaned = false
+                        FROM before b
+                        WHERE t.id = b.id
+                        RETURNING t.id, b.orphaned AS was_orphaned
+                        """)
+                .param("docId", docId)
+                .param("ids", ids)
+                .param("now", Timestamp.from(now))
+                .query((rs, row) -> rs.getBoolean("was_orphaned") ? rs.getObject("id", UUID.class) : null)
+                .list()
+                .stream()
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    @Override
+    public int purgeUnanchored(Instant before) {
+        return jdbc.sql("DELETE FROM comment_threads WHERE anchored_at IS NULL AND created_at < :before")
+                .param("before", Timestamp.from(before))
+                .update();
     }
 
     @Override

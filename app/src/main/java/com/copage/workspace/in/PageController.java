@@ -43,14 +43,17 @@ class PageController {
         this.workspaces = workspaces;
     }
 
-    /** @param afterId 이 형제 바로 뒤. 없으면 맨 뒤 */
-    record MoveRequest(UUID parentId, UUID afterId) {
+    /**
+     * @param afterId 이 형제 바로 뒤. 없으면 맨 뒤
+     * @param first true 면 맨 앞(D-50). afterId 와 함께 줄 수 없다
+     */
+    record MoveRequest(UUID parentId, UUID afterId, Boolean first) {
     }
 
     @PostMapping("/api/pages/{pageId}/move")
     PageDetail move(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID pageId, @RequestBody MoveRequest request) {
         UUID userId = UUID.fromString(jwt.getSubject());
-        workspaces.movePage(userId, pageId, request.parentId(), request.afterId());
+        workspaces.movePage(userId, pageId, request.parentId(), request.afterId(), Boolean.TRUE.equals(request.first()));
         return page(jwt, pageId);
     }
 

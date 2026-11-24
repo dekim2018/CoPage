@@ -30,7 +30,8 @@ class InviteController {
     }
 
     /** @param token 초대 링크에 넣을 값. 만들 때만 돌려준다 */
-    record CreatedInvite(UUID id, String email, WorkspaceRole role, Instant expiresAt, String token) {
+    /** @param mailed 초대 메일을 보냈는지(메일 서버가 설정되어 있을 때). 아니면 화면이 링크를 건네라고 보인다 */
+    record CreatedInvite(UUID id, String email, WorkspaceRole role, Instant expiresAt, String token, boolean mailed) {
     }
 
     record PendingInvite(UUID id, String email, WorkspaceRole role, Instant createdAt, Instant expiresAt) {
@@ -56,7 +57,8 @@ class InviteController {
             @Valid @RequestBody CreateInviteRequest request) {
         InviteService.Created created = invites.create(userId(jwt), workspaceId, request.email(), request.role());
         Invite invite = created.invite();
-        return new CreatedInvite(invite.id(), invite.email(), invite.role(), invite.expiresAt(), created.token());
+        return new CreatedInvite(invite.id(), invite.email(), invite.role(), invite.expiresAt(), created.token(),
+                created.mailed());
     }
 
     @GetMapping("/api/workspaces/{workspaceId}/invites")

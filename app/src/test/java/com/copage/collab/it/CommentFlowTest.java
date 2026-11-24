@@ -3,6 +3,7 @@ package com.copage.collab.it;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.copage.comment.app.CommentService;
 import com.copage.ot.op.Op.TextOp;
 import com.copage.ot.text.Attrs;
 import com.copage.ot.text.Delta;
@@ -11,6 +12,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,8 +22,10 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -78,6 +82,8 @@ class CommentFlowTest extends TestInfra {
             send("POST", "/api/workspaces/" + id + "/members", Map.of("email", member.email(), "role", "MEMBER"), owner);
             page = send("POST", "/api/workspaces/" + id + "/pages", Map.of(), owner).body().get("id").stringValue();
             send("PUT", "/api/pages/" + page + "/grants/" + viewer.id(), Map.of("level", "VIEW"), owner);
+            // 권한을 받은 알림(PAGE_SHARED)은 따로 본다. 다른 시험의 숫자에 섞이지 않게 읽어 둔다.
+            send("POST", "/api/notifications/read", Map.of("ids", List.of()), viewer);
         }
     }
 
@@ -270,5 +276,95 @@ class CommentFlowTest extends TestInfra {
         Response last = send("DELETE", "/api/comments/" + first, null, team.owner);
         assertEquals(true, last.body().get("threadDeleted").booleanValue());
         assertEquals(0, send("GET", "/api/docs/" + team.page + "/comments", null, team.owner).body().size());
+    }
+
+    @Autowired
+    CommentService commentService;
+
+    @Autowired
+    JdbcClient jdbc;
+
+    private boolean orphaned(Team team, String thread) throws Exception {
+        for (JsonNode node : send("GET", "/api/docs/" + team.page + "/comments", null, team.owner).body()) {
+            if (node.get("id").stringValue().equals(thread)) {
+                return node.get("orphaned").booleanValue();
+            }
+        }
+        throw new AssertionError("스레드가 없다: " + thread);
+    }
+
+    @Test
+    void 원문이_다_지워지면_원문이_삭제됨으로_표시하고_서식이_한_번도_붙지_않은_스레드는_정리한다() throws Exception {
+        Team team = new Team();
+        String ticket = send("POST", "/api/docs/" + team.page + "/ws-ticket", null, team.member).body().get("ticket")
+                .stringValue();
+        TestClient client = new TestClient("writer");
+        client.connect(URI.create("ws://localhost:" + port + "/ws/docs/" + team.page + "?ticket=" + ticket + "&v=1"));
+        while (!client.connected()) {
+            client.process(5_000);
+        }
+        String thread = comment(team.page, "검토", "봐 주세요", List.of(), team.member).body().get("id").stringValue();
+        client.edit(List.of(new TextOp(team.page, Delta.builder().insert("검토", Attrs.of("comment", thread)).build())));
+        while (client.session.hasPending()) {
+            client.process(5_000);
+        }
+        // 세션이 몇 초 안에 본문의 서식을 알린다. 아직 지우지 않았으니 표시가 없다.
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (jdbc.sql("SELECT anchored_at IS NOT NULL FROM comment_threads WHERE id = :id")
+                .param("id", UUID.fromString(thread)).query(Boolean.class).single() == Boolean.FALSE
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(100);
+        }
+        assertEquals(false, orphaned(team, thread));
+
+        client.edit(List.of(new TextOp(team.page, Delta.builder().delete(2).build())));
+        while (client.session.hasPending()) {
+            client.process(5_000);
+        }
+        deadline = System.currentTimeMillis() + 10_000;
+        while (!orphaned(team, thread) && System.currentTimeMillis() < deadline) {
+            Thread.sleep(200);
+        }
+        assertTrue(orphaned(team, thread), "원문이 지워졌다");
+
+        // 다시 넣으면(되돌리기) 표시가 꺼진다.
+        client.edit(List.of(new TextOp(team.page, Delta.builder().insert("검토", Attrs.of("comment", thread)).build())));
+        while (client.session.hasPending()) {
+            client.process(5_000);
+        }
+        deadline = System.currentTimeMillis() + 10_000;
+        while (orphaned(team, thread) && System.currentTimeMillis() < deadline) {
+            Thread.sleep(200);
+        }
+        assertEquals(false, orphaned(team, thread));
+
+        // 서식이 한 번도 붙지 않은 오래된 스레드만 지운다. 원문이 지워진 스레드는 남는다.
+        String never = comment(team.page, "없는 글", "서식이 실패했다", List.of(), team.member).body().get("id")
+                .stringValue();
+        jdbc.sql("UPDATE comment_threads SET created_at = now() - interval '2 days' WHERE id IN (:ids)")
+                .param("ids", List.of(UUID.fromString(never), UUID.fromString(thread)))
+                .update();
+        assertTrue(commentService.purgeUnanchored(Duration.ofDays(1)) >= 1);
+        JsonNode left = send("GET", "/api/docs/" + team.page + "/comments", null, team.owner).body();
+        assertEquals(1, left.size());
+        assertEquals(thread, left.get(0).get("id").stringValue());
+    }
+
+    @Test
+    void 페이지_권한을_받으면_알림이_가고_같은_등급은_한_번만_간다() throws Exception {
+        Team team = new Team();
+        Account guest = account("손님");
+        send("PUT", "/api/pages/" + team.page + "/grants/" + guest.id(), Map.of("level", "COMMENT"), team.owner);
+        send("PUT", "/api/pages/" + team.page + "/grants/" + guest.id(), Map.of("level", "COMMENT"), team.owner);
+        JsonNode inbox = send("GET", "/api/notifications", null, guest).body();
+        assertEquals(1, inbox.get("unread").longValue());
+        JsonNode item = inbox.get("items").get(0);
+        assertEquals("PAGE_SHARED", item.get("kind").stringValue());
+        assertEquals(team.page, item.get("docId").stringValue());
+        assertEquals("주인", item.get("actorName").stringValue());
+        assertEquals("댓글 권한을 받았다", item.get("preview").stringValue());
+
+        send("PUT", "/api/pages/" + team.page + "/grants/" + guest.id(), Map.of("level", "EDIT"), team.owner);
+        assertEquals(2, unread(guest), "등급이 바뀌면 다시 알린다");
     }
 }

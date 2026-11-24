@@ -150,6 +150,20 @@ class PageTreeFlowTest extends TestInfra {
         // 최상위로 되돌린다.
         assertEquals(200, move(b, null, null, team.owner).status());
         assertEquals(List.of(a, b), team.children(null, team.owner));
+
+        // 맨 앞으로 (D-50). 이미 맨 앞이어도 된다. afterId 와 함께 줄 수 없다.
+        Map<String, Object> first = new HashMap<>();
+        first.put("parentId", a);
+        first.put("first", true);
+        assertEquals(200, send("POST", "/api/pages/" + a2 + "/move", first, team.owner).status());
+        assertEquals(List.of(a2, a1), team.children(a, team.owner));
+        assertEquals(200, send("POST", "/api/pages/" + a2 + "/move", first, team.owner).status());
+        assertEquals(List.of(a2, a1), team.children(a, team.owner));
+        first.put("parentId", null);
+        assertEquals(200, send("POST", "/api/pages/" + b + "/move", first, team.owner).status());
+        assertEquals(List.of(b, a), team.children(null, team.owner));
+        first.put("afterId", a);
+        assertEquals(400, send("POST", "/api/pages/" + b + "/move", first, team.owner).status());
     }
 
     @Test

@@ -32,11 +32,11 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | POST | `/api/pages/{pageId}/grants` | FULL | 200, 준 권한. 본문 `{email, level}` | 404 그 이메일로 가입한 사용자가 없음. 그 밖은 위와 같음 |
 | DELETE | `/api/pages/{pageId}/grants/{userId}` | FULL | 204 | 404 이 페이지에 그 사용자에게 준 권한이 없음. 그 밖은 위와 같음 |
 | PUT | `/api/pages/{pageId}/restricted` | FULL | 200, `{restricted}`. 켜는 사람이 OWNER 가 아니면 그 페이지에 자신의 FULL 을 남긴다 | 위와 같음 |
-| POST | `/api/pages/{pageId}/move` | 그 페이지의 FULL + 새 부모의 EDIT(최상위면 역할의 기본 권한) | 200, 옮긴 페이지(GET 과 같은 모양). 본문 `{parentId, afterId}`, 둘 다 생략하면 최상위 맨 뒤 | 400 자기 자신이나 하위 아래로, afterId 가 새 부모의 하위가 아님, 옮기면 11단계 이상이 됨(W-2). 404 없거나 휴지통이거나 새 부모를 볼 수 없음. 403 등급이 모자람 |
+| POST | `/api/pages/{pageId}/move` | 그 페이지의 FULL + 새 부모의 EDIT(최상위면 역할의 기본 권한) | 200, 옮긴 페이지(GET 과 같은 모양). 본문 `{parentId, afterId, first}`, 다 생략하면 최상위 맨 뒤. `first: true` 면 맨 앞(afterId 와 함께 줄 수 없다, D-50) | 400 자기 자신이나 하위 아래로, afterId 가 새 부모의 하위가 아님, 옮기면 11단계 이상이 됨(W-2). 404 없거나 휴지통이거나 새 부모를 볼 수 없음. 403 등급이 모자람 |
 | DELETE | `/api/pages/{pageId}` | FULL | 204, 휴지통으로. 하위는 부모를 따라 보이지 않는다 | 404 없거나 이미 휴지통. 403 FULL 이 아님 |
 | POST | `/api/pages/{pageId}/restore` | 휴지통에 가기 전 FULL | 200, 꺼낸 페이지. 부모가 아직 휴지통에 있으면 최상위 맨 뒤 | 404 휴지통에 없거나 속하지 않음. 403 등급이 모자람 |
 | GET | `/api/workspaces/{wsId}/trash` | 워크스페이스의 모든 역할 | 200, 휴지통의 페이지(id, parentId, title, archivedAt, canRestore). 보내기 전에 볼 수 있던 페이지만 | 404 속하지 않은 워크스페이스 |
-| POST | `/api/workspaces/{wsId}/invites` | OWNER | 201, `{id, email, role, expiresAt, token}`. 본문 `{email, role}`(MEMBER 또는 GUEST). 토큰은 이때만 돌려준다. 메일은 보내지 않는다. 링크는 `/invite/{token}` (D-40) | 403 OWNER 가 아님. 400 OWNER 로 초대하거나 이메일 형식이 아님. 404 속하지 않은 워크스페이스 |
+| POST | `/api/workspaces/{wsId}/invites` | OWNER | 201, `{id, email, role, expiresAt, token, mailed}`. 본문 `{email, role}`(MEMBER 또는 GUEST). 토큰은 이때만 돌려준다. 메일 서버가 설정되어 있으면 그 이메일로 링크를 보내고 mailed 가 true(D-50). 링크는 `/invite/{token}` (D-40) | 403 OWNER 가 아님. 400 OWNER 로 초대하거나 이메일 형식이 아님. 404 속하지 않은 워크스페이스 |
 | GET | `/api/workspaces/{wsId}/invites` | OWNER | 200, 받지 않았고 만료되지 않은 초대(토큰 없음) | 403, 404 위와 같음 |
 | DELETE | `/api/workspaces/{wsId}/invites/{inviteId}` | OWNER | 204, 초대 취소 | 404 대기 중인 초대가 아님. 403 위와 같음 |
 | GET | `/api/invites/{token}` | 로그인 | 200, `{workspaceId, workspaceName, email, role, expiresAt}` | 404 없거나 만료되었거나 받았거나 취소됨 |
@@ -50,14 +50,14 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | GET | `/api/docs/{docId}/versions/{rev}` | VIEW | 200, `{rev, document}`. 그 시점의 문서(규약 JSON) | 400 음수 리비전. 404, 403 |
 | POST | `/api/docs/{docId}/versions` | EDIT | 201, 본문 `{kind: NAMED\|RESTORE, name, restoredFrom}`. 지금 마지막 리비전에 버전을 남긴다. 복원 자체는 클라이언트가 편집으로 보낸다 | 400 AUTO 이거나 NAMED 의 이름이 빔. 404, 403 |
 | POST | `/api/docs/{docId}/ws-ticket` | VIEW | 200, `{ticket, role}`. 티켓은 30초 1회용 | 404 페이지가 없거나 속하지 않음. 403 등급이 없음 |
-| GET | `/api/docs/{docId}/comments` | VIEW | 200, 스레드 목록(오래된 것부터, `{id, quote, createdAt, resolved, resolvedByName, comments: [{id, authorId, authorName, body, createdAt, editedAt, deleted}]}`) (D-46) | 404, 403 |
+| GET | `/api/docs/{docId}/comments` | VIEW | 200, 스레드 목록(오래된 것부터, `{id, quote, createdAt, resolved, resolvedByName, orphaned, comments: [{id, authorId, authorName, body, createdAt, editedAt, deleted}]}`) (D-46) | 404, 403 |
 | POST | `/api/docs/{docId}/comments` | COMMENT | 201, 본문 `{quote, body, mentions}`. 스레드와 첫 댓글. 위치 서식은 클라이언트가 편집으로 붙인다. 멘션한 사람 중 그 페이지를 볼 수 있는 사람에게 알린다 | 400 본문이 비거나 4,000자를 넘거나 멘션이 50명을 넘음. 404, 403 |
 | POST | `/api/comments/{threadId}/replies` | COMMENT | 201, 본문 `{body, mentions}`. 스레드에 쓴 사람들에게 답글 알림 | 400, 404, 403 위와 같음 |
 | PUT | `/api/comments/{threadId}/resolved` | COMMENT | 204, 본문 `{resolved}`. false 면 다시 연다 | 404, 403 |
 | PATCH | `/api/comments/{commentId}` | 쓴 사람(COMMENT 이상) | 200, 고친 댓글. 본문 `{body, mentions}`. 새로 멘션한 사람에게 알린다. 이 경로의 ID 는 댓글 ID 다(D-49) | 400 빈 글. 404 없거나 지운 댓글. 403 남의 댓글이거나 등급이 모자람 |
 | DELETE | `/api/comments/{commentId}` | 쓴 사람(COMMENT 이상)이나 그 페이지의 FULL | 200, `{threadDeleted}`. 글을 비우고 지운 표시를 남긴다. 그 댓글의 멘션, 답글 알림도 지운다. 스레드에 남은 댓글이 없으면 스레드도 지우고, 화면은 본문의 댓글 서식을 걷는다 (D-49) | 404, 403 위와 같음 |
 | GET | `/api/workspaces/{workspaceId}/search?q=` | 멤버 | 200, 최대 30개 `[{id, parentId, title, snippet}]`. 볼 수 있는 페이지만. 제목에 든 것이 먼저, 그 안에서는 최근에 고친 것이 먼저. 빈 검색어는 빈 목록 (D-47) | 404 멤버가 아님 |
-| GET | `/api/notifications` | 로그인 | 200, `{unread, items: [{id, kind, docId, actorName, preview, createdAt, read}]}`. 최근 50개 | |
+| GET | `/api/notifications` | 로그인 | 200, `{unread, items: [{id, kind, docId, actorName, preview, createdAt, read}]}`. kind 는 MENTION, COMMENT_MENTION, REPLY, PAGE_SHARED(페이지 권한을 받음, D-50). 최근 50개 | |
 | POST | `/api/notifications/read` | 로그인 | 204, 본문 `{ids}`. 빈 목록이면 전부 읽음 | |
 | GET | `/api/notifications/stream` | 로그인(Authorization 헤더) | 200, `text/event-stream`. 처음에 `ready`, 그 뒤 `notification`(새 알림), `tree`(`{workspaceId, parentIds}`, 사이드바 다시 읽기). 25초마다 주석 줄 | 401 |
 
@@ -84,7 +84,7 @@ API 포트에는 `/actuator` 가 없다. 지표와 상태 확인은 관리 포�
 | POST | `/api/workspaces` | 생성 | 로그인 | 구현 |
 | GET | `/api/workspaces/{wsId}/members` | 멤버 목록 | MEMBER | 구현 |
 | POST | `/api/workspaces/{wsId}/members` | 가입한 사용자를 이메일로 바로 넣는다. 역할은 MEMBER 또는 GUEST. 초대(아래 invites)가 생기기 전까지 쓰는 임시 경로 | OWNER | 구현 |
-| POST | `/api/workspaces/{wsId}/invites` | 이메일로 초대(링크를 만든다. 메일은 보내지 않는다) | OWNER | 구현(D-40) |
+| POST | `/api/workspaces/{wsId}/invites` | 이메일로 초대(링크를 만들고, 메일 서버가 있으면 메일로 보낸다) | OWNER | 구현(D-40, D-50) |
 | POST | `/api/invites/{token}/accept` | 초대 수락 | 로그인 | 구현(D-40) |
 | PATCH | `/api/workspaces/{wsId}/members/{userId}` | 역할 변경. 마지막 OWNER 는 내릴 수 없다(409) | OWNER | 구현 |
 | DELETE | `/api/workspaces/{wsId}/members/{userId}` | 내보내기. 그 워크스페이스에서 받은 페이지 권한도 지운다. 마지막 OWNER 는 내보낼 수 없다(409) | OWNER | 구현 |

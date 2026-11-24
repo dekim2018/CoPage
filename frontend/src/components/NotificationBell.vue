@@ -20,6 +20,7 @@ const KIND: Record<NotificationItem['kind'], string> = {
   MENTION: '본문에서 멘션',
   COMMENT_MENTION: '댓글에서 멘션',
   REPLY: '답글',
+  PAGE_SHARED: '페이지 공유',
 }
 
 async function load() {

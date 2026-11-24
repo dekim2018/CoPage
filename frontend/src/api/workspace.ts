@@ -64,6 +64,8 @@ export interface CreatedInvite {
   role: WorkspaceRole
   expiresAt: string
   token: string
+  /** 서버가 초대 메일을 보냈는지(메일 서버가 설정되어 있을 때, D-50) */
+  mailed: boolean
 }
 
 /** 초대 링크를 연 사람에게 보일 내용. */
@@ -132,8 +134,9 @@ export const workspaceApi = {
   createPage: (workspaceId: string, parentId: string | null) =>
     api<PageNode>(`/api/workspaces/${workspaceId}/pages`, { method: 'POST', ...json({ parentId }) }),
   page: (pageId: string) => api<PageDetail>(`/api/pages/${pageId}`),
-  movePage: (pageId: string, parentId: string | null, afterId: string | null) =>
-    api<PageDetail>(`/api/pages/${pageId}/move`, { method: 'POST', ...json({ parentId, afterId }) }),
+  /** first 면 맨 앞 (D-50). afterId 와 함께 쓰지 않는다 */
+  movePage: (pageId: string, parentId: string | null, afterId: string | null, first = false) =>
+    api<PageDetail>(`/api/pages/${pageId}/move`, { method: 'POST', ...json({ parentId, afterId, first }) }),
   trashPage: (pageId: string) => api<void>(`/api/pages/${pageId}`, { method: 'DELETE' }),
   restorePage: (pageId: string) => api<PageDetail>(`/api/pages/${pageId}/restore`, { method: 'POST' }),
   trash: (workspaceId: string) => api<TrashedPage[]>(`/api/workspaces/${workspaceId}/trash`),

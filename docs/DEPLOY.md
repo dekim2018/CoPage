@@ -33,6 +33,7 @@
 | `COPAGE_DB_PASSWORD` | 예 | PostgreSQL 비밀번호. 처음 볼륨을 만들 때 정해지고, 바꾸려면 DB 안에서도 바꿔야 한다 |
 | `COPAGE_JWT_SECRET` | 예 | Access 토큰 서명 키. 32바이트 이상. 바꾸면 발급한 Access 토큰(최대 15분)이 401 이 되고 화면은 Refresh 쿠키로 다시 받는다 |
 | `COPAGE_SENTRY_DSN`, `COPAGE_SENTRY_DSN_WEB` | 아니요 | 에러 모니터링의 서버, 화면 DSN. 비우면 끈다 (D-49) |
+| `COPAGE_SMTP_HOST`, `COPAGE_SMTP_PORT`, `COPAGE_SMTP_USERNAME`, `COPAGE_SMTP_PASSWORD`, `COPAGE_MAIL_FROM` | 아니요 | 초대 메일(SMTP, STARTTLS). 호스트를 비우면 보내지 않고 OWNER 가 링크를 직접 건넨다. 보내는 주소의 도메인은 SPF, DKIM 을 맞춰 둔다(예: Amazon SES 에서 도메인 인증) (D-50) |
 | `COPAGE_JAVA_OPTIONS` | 아니요 | 서버 JVM 옵션. 기본 `-Xmx1g` |
 | `COPAGE_HTTP_PORT`, `COPAGE_HTTPS_PORT` | 아니요 | 밖으로 여는 포트. 기본 80, 443. 로컬 확인용 |
 

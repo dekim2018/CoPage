@@ -293,6 +293,11 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
 
     @Override
     public Page movePage(UUID workspaceId, UUID pageId, UUID newParentId, UUID afterId) {
+        return movePage(workspaceId, pageId, newParentId, afterId, false);
+    }
+
+    @Override
+    public Page movePage(UUID workspaceId, UUID pageId, UUID newParentId, UUID afterId, boolean first) {
         return tx.execute(status -> {
             lockWorkspace(workspaceId);
             Page page = findPage(workspaceId, pageId)
@@ -308,7 +313,11 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
             if (pageId.equals(afterId)) {
                 throw new WorkspaceException(Kind.BAD_REQUEST, "afterId 가 옮기는 페이지 자신이다");
             }
-            String pos = positionAfter(workspaceId, newParentId, afterId);
+            // 맨 앞: 옮기는 페이지 자신을 뺀 형제 중 가장 앞의 앞.
+            String pos = first
+                    ? FractionalIndex.between(null, siblingValue("min(p.pos)", workspaceId, newParentId,
+                            "p.id <> :pageId", Map.of("pageId", pageId)))
+                    : positionAfter(workspaceId, newParentId, afterId);
             jdbc.sql("UPDATE pages SET parent_id = :parentId, pos = :pos WHERE id = :pageId")
                     .param("pageId", pageId)
                     .param("parentId", newParentId, Types.OTHER)

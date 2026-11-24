@@ -40,6 +40,7 @@ public final class PageGrants {
     private final WorkspaceMembership membership;
     private final UserDirectory users;
     private final Consumer<PermissionChange> publisher;
+    private volatile GrantNotices notices = GrantNotices.NONE;
 
     public PageGrants(
             PagePermissions permissions,
@@ -100,7 +101,13 @@ public final class PageGrants {
         membership.ensureGuest(page.workspaceId(), user.id());
         grants.upsert(pageId, user.id(), level, actor);
         publisher.accept(new PermissionChange(grants.subtree(pageId), user.id()));
+        notices.granted(actor, pageId, user.id(), level);
         return new GrantView(user.id(), user.email(), user.name(), level, null);
+    }
+
+    /** 권한을 준 것을 받을 곳 (D-50). */
+    public void grantNoticesTo(GrantNotices notices) {
+        this.notices = notices;
     }
 
     /** 이 페이지에 준 권한만 지운다. 조상에서 물려받은 권한은 그 조상에서 지워야 한다. */
