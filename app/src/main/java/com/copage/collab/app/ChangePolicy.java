@@ -5,6 +5,7 @@ import com.copage.ot.model.Block;
 import com.copage.ot.model.Document;
 import com.copage.ot.model.InvalidOperationException;
 import com.copage.ot.op.Op;
+import com.copage.ot.FractionalIndex;
 import com.copage.ot.op.Op.InsertBlock;
 import com.copage.ot.op.Op.SetProps;
 import com.copage.ot.op.Op.SplitBlock;
@@ -35,6 +36,9 @@ import java.util.Set;
  * <p>없는 블록이나 길이를 넘는 위치는 여기서 보지 않는다. 적용할 때 ot-core 가 거부한다.
  */
 public final class ChangePolicy {
+
+    /** 순서 키의 최대 길이. 같은 두 키 사이에 1,271~1,525번 거듭 끼워 넣으면 닿는다(2026-11-24 측정). */
+    static final int MAX_POS_LENGTH = 256;
 
     /** 블록 종류 10종 (docs/01-PLAN.md E-1). 루트 블록의 page 는 연산으로 만들 수 없다. */
     public static final Set<String> BLOCK_TYPES = Set.of(
@@ -123,9 +127,10 @@ public final class ChangePolicy {
                 }
                 yield Optional.empty();
             }
-            case SplitBlock split -> checkType(split.type());
+            case SplitBlock split -> checkPos(split.pos()).or(() -> checkType(split.type()));
+            case Op.MoveBlock move -> checkPos(move.pos());
             case InsertBlock insert -> {
-                Optional<String> reason = checkType(insert.type());
+                Optional<String> reason = checkPos(insert.pos()).or(() -> checkType(insert.type()));
                 for (Segment segment : insert.text().segments()) {
                     reason = reason.or(() -> checkMarks(segment.attrs()));
                 }
@@ -135,6 +140,20 @@ public final class ChangePolicy {
                     setProps.value() instanceof String type ? checkType(type) : Optional.of("블록 종류가 문자열이 아니다");
             default -> Optional.empty();
         };
+    }
+
+    /**
+     * 순서 키의 모양과 길이 (진단 DC-5, D-24). 모양이 틀린 키는 다른 클라이언트가 그 옆에 키를 만들 때 실패하게 한다. 키는 맨 뒤
+     * 추가로는 거의 자라지 않지만, 같은 두 키 사이에 계속 끼워 넣으면 한 번에 약 5분의 1 글자씩 자란다. 그 한도다.
+     */
+    private static Optional<String> checkPos(String pos) {
+        if (!FractionalIndex.isValid(pos)) {
+            return Optional.of("순서 키의 모양이 올바르지 않다");
+        }
+        if (pos.length() > MAX_POS_LENGTH) {
+            return Optional.of("순서 키가 " + MAX_POS_LENGTH + " 글자를 넘는다");
+        }
+        return Optional.empty();
     }
 
     private static Optional<String> checkStorable(Op op) {
