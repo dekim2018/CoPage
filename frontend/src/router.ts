@@ -20,6 +20,7 @@ export const router = createRouter({
         { path: '', component: () => import('./views/WorkspaceHomeView.vue') },
         { path: 'p/:pageId', component: () => import('./views/EditorView.vue'), props: true },
         { path: 'members', component: () => import('./views/MembersView.vue'), props: true },
+        { path: 'trash', component: () => import('./views/TrashView.vue'), props: true },
       ],
     },
   ],

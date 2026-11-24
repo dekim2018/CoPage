@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { reactive, ref } from 'vue'
 import { workspaceApi } from '../api/workspace'
-import type { PageNode, Workspace } from '../api/workspace'
+import type { PageDetail, PageNode, Workspace } from '../api/workspace'
 
 /** 최상위 페이지 목록의 열쇠. */
 const ROOT = ''
@@ -81,6 +81,36 @@ export const useWorkspace = defineStore('workspace', () => {
     return page
   }
 
+  /** 휴지통으로 보내고 부모의 목록을 다시 읽는다. 부모에 남은 하위가 없으면 펼침 단추를 지운다. */
+  async function trashPage(pageId: string, parentId: string | null): Promise<void> {
+    await workspaceApi.trashPage(pageId)
+    expanded.delete(pageId)
+    await loadChildren(parentId)
+    if (parentId !== null && (childrenOf(parentId) ?? []).length === 0) {
+      for (const list of children.values()) {
+        const parent = list.find((node) => node.id === parentId)
+        if (parent !== undefined) {
+          parent.hasChildren = false
+        }
+      }
+    }
+  }
+
+  /** 휴지통에서 꺼내고 돌아간 자리의 목록을 다시 읽는다. 부모가 아직 휴지통에 있으면 최상위로 간다(서버가 정한다). */
+  async function restorePage(pageId: string): Promise<PageDetail> {
+    const page = await workspaceApi.restorePage(pageId)
+    await loadChildren(page.parentId)
+    if (page.parentId !== null) {
+      for (const list of children.values()) {
+        const parent = list.find((node) => node.id === page.parentId)
+        if (parent !== undefined) {
+          parent.hasChildren = true
+        }
+      }
+    }
+    return page
+  }
+
   /** 이 탭의 편집기에서 고친 제목. 서버에 저장되기 전에도 가장 새로운 값이다. */
   const editedTitles = new Map<string, string>()
 
@@ -123,6 +153,8 @@ export const useWorkspace = defineStore('workspace', () => {
     childrenOf,
     toggle,
     createPage,
+    trashPage,
+    restorePage,
     setTitle,
     editedTitle,
     reset,

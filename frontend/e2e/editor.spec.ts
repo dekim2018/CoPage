@@ -330,3 +330,32 @@ test('빠르게 쳐도(초당 50타) 묶음을 서버 한도 아래로 보내 �
   expect(most).toBeLessThanOrEqual(21)
   expect((await blocks(a))[0]).toBe('x'.repeat(150))
 })
+
+test('사이드바에서 휴지통으로 보내면 열어 둔 상대 편집기가 1초 안에 닫히고, 휴지통에서 꺼내면 돌아온다', async ({ browser }) => {
+  const [owner, member] = await Promise.all([newUser(browser, 'owner'), newUser(browser, 'member')])
+  const workspaceId = await newWorkspaceWith(owner, member, 'MEMBER')
+  await owner.goto(`/w/${workspaceId}`)
+  await owner.getByRole('button', { name: '새 페이지' }).click()
+  await owner.waitForURL(/\/p\/[0-9a-f-]{36}$/)
+  await expect(owner.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+  await caretAtEnd(owner, 0)
+  await owner.keyboard.type('버릴 페이지')
+  await expect(owner.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+  const pageId = owner.url().split('/p/')[1] as string
+  await open(member, pageId)
+
+  const item = owner.locator(`[data-testid=tree-item][data-page-id="${pageId}"]`)
+  await item.getByTitle('휴지통으로 보내기').click()
+  await expect(item).toHaveCount(0)
+  await owner.waitForURL(new RegExp(`/w/${workspaceId}$`))
+  await expect(member.getByTestId('status')).toHaveAttribute('data-status', 'error', { timeout: 1_000 })
+
+  await owner.getByRole('link', { name: '휴지통' }).click()
+  const trashed = owner.locator(`[data-testid=trash-item][data-page-id="${pageId}"]`)
+  await expect(trashed).toContainText('버릴 페이지')
+  await trashed.getByRole('button', { name: '꺼내기' }).click()
+  await owner.waitForURL(new RegExp(`/p/${pageId}$`))
+  await expect(owner.locator(`[data-testid=tree-item][data-page-id="${pageId}"]`)).toContainText('버릴 페이지')
+  await expect(owner.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+  await expect.poll(async () => (await blocks(owner))[0]).toBe('버릴 페이지')
+})
