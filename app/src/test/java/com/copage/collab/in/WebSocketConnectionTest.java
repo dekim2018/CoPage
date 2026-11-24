@@ -85,7 +85,8 @@ class WebSocketConnectionTest {
 
     private WebSocketConnection connection(boolean blocking, long bufferLimitBytes) {
         return new WebSocketConnection(
-                session(blocking), UUID.randomUUID(), codec, executor, clock, Duration.ofSeconds(10), bufferLimitBytes);
+                session(blocking), UUID.randomUUID(), null, codec, executor, clock, Duration.ofSeconds(10),
+                bufferLimitBytes);
     }
 
     private void awaitClosed() throws InterruptedException {

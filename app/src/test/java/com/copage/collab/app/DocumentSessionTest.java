@@ -431,10 +431,10 @@ class DocumentSessionTest {
 
     /** userId 가 users 에 있으면 그 등급, 없으면 권한 없음. 물어본 사용자를 asked 에 남긴다. */
     private DocumentSession.RoleResolver resolver(Map<UUID, PageRole> roles, List<UUID> asked) {
-        return (userId, docId) -> {
+        return (principal, docId) -> {
             assertEquals(DOC, docId);
-            asked.add(userId);
-            return Optional.ofNullable(roles.get(userId));
+            asked.add(principal.userId());
+            return Optional.ofNullable(roles.get(principal.userId()));
         };
     }
 
@@ -537,6 +537,50 @@ class DocumentSessionTest {
 
         assertFalse(a.received.stream().anyMatch(new ServerMessage.Role(PageRole.VIEW)::equals),
                 "낡은 계산이 나중에 끝나 VIEW 로 덮었다");
+    }
+
+    @Test
+    void 다시_계산한_순번은_계산이_끝났고_연결이_없는_주체만_지운다() {
+        List<Runnable> background = new ArrayList<>();
+        DocumentSessions held = new DocumentSessions(
+                store,
+                new ChangePolicy(20, 100),
+                new DocumentSession.Settings(2, 3, Duration.ofDays(7), Duration.ofSeconds(60), 3, 3),
+                tasks::add,
+                background::add,
+                (task, delay) -> scheduled.add(task),
+                Clock.systemUTC(),
+                titles,
+                metrics);
+        FakeConnection a = new FakeConnection("A");
+        FakeConnection b = new FakeConnection("B");
+        held.join(DOC, a, new Hello("client-A", 0, false), PageRole.EDIT, "이름");
+        held.join(DOC, b, new Hello("client-B", 0, false), PageRole.EDIT, "이름");
+        runAll();
+        background.forEach(Runnable::run);
+        background.clear();
+        DocumentSession session = held.session(DOC);
+
+        held.reauthorize(doc -> true, user -> true, (principal, docId) -> Optional.of(PageRole.EDIT));
+        runAll();
+        background.forEach(Runnable::run);
+        background.clear();
+        runAll();
+        assertEquals(2, session.appliedSeqSize());
+
+        // 계산이 끝나지 않은 동안에는 나간 주체의 순번을 지우지 않는다.
+        held.reauthorize(doc -> true, user -> true, (principal, docId) -> Optional.of(PageRole.EDIT));
+        runAll();
+        held.leave(DOC, a);
+        runAll();
+        assertEquals(2, session.appliedSeqSize());
+        background.forEach(Runnable::run);
+        runAll();
+        assertEquals(1, session.appliedSeqSize(), "계산이 끝나면 나간 A 의 순번을 지운다");
+
+        held.leave(DOC, b);
+        runAll();
+        assertEquals(0, session.appliedSeqSize());
     }
 
     @Test

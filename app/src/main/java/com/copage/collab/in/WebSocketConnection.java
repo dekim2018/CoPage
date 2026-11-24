@@ -35,6 +35,7 @@ final class WebSocketConnection implements Connection {
 
     private final WebSocketSession raw;
     private final UUID userId;
+    private final UUID shareLinkId;
     private final ProtocolCodec codec;
     private final Executor executor;
     private final Clock clock;
@@ -51,6 +52,7 @@ final class WebSocketConnection implements Connection {
     WebSocketConnection(
             WebSocketSession raw,
             UUID userId,
+            UUID shareLinkId,
             ProtocolCodec codec,
             Executor executor,
             Clock clock,
@@ -58,6 +60,7 @@ final class WebSocketConnection implements Connection {
             long bufferLimitBytes) {
         this.raw = raw;
         this.userId = userId;
+        this.shareLinkId = shareLinkId;
         this.codec = codec;
         this.executor = executor;
         this.clock = clock;
@@ -73,6 +76,11 @@ final class WebSocketConnection implements Connection {
     @Override
     public UUID userId() {
         return userId;
+    }
+
+    @Override
+    public UUID shareLinkId() {
+        return shareLinkId;
     }
 
     /** 대기열에 넣고 바로 돌아온다. 쓰기는 전송 작업이 한다. */

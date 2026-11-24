@@ -109,7 +109,7 @@ public final class CollabWebSocketHandler extends TextWebSocketHandler {
         }
         UUID docId = (UUID) attributes.get(TicketHandshakeInterceptor.DOC_ID);
         WebSocketConnection connection = new WebSocketConnection(
-                session, ticket.userId(), codec, sendExecutor, clock, limits.sendTimeLimit(), limits.sendBufferBytes());
+                session, ticket.userId(), ticket.shareLinkId(), codec, sendExecutor, clock, limits.sendTimeLimit(), limits.sendBufferBytes());
         states.put(session.getId(), new State(connection, docId, ticket, clock.instant()));
     }
 

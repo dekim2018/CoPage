@@ -19,6 +19,8 @@ import com.copage.identity.app.AuthService;
 import com.copage.permission.app.PagePermissions.Access;
 import com.copage.permission.app.PagePermissions;
 import com.copage.permission.app.PermissionChangeListener;
+import com.copage.permission.app.ShareLinks;
+import com.copage.permission.domain.PageLevel;
 import com.copage.workspace.app.WorkspaceService;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -80,11 +82,19 @@ public class CollabConfig {
      * 오지만, 여기서는 열린 세션을 훑어 일을 넘기기만 하고 저장소 읽기는 세션이 background 에서 한다.
      */
     @Bean
-    PermissionChangeListener liveRoleUpdater(DocumentSessions documentSessions, PagePermissions pagePermissions) {
-        DocumentSession.RoleResolver resolver = (userId, docId) ->
-                pagePermissions.access(userId, docId) instanceof Access.Granted granted
-                        ? Optional.of(PageRole.valueOf(granted.level().name()))
-                        : Optional.empty();
+    PermissionChangeListener liveRoleUpdater(
+            DocumentSessions documentSessions, PagePermissions pagePermissions, ShareLinks shareLinks) {
+        // 공유 링크로 들어온 연결은 자기 등급과 링크 등급 중 높은 것이다. 링크가 꺼지거나 새로 만들어졌으면 링크 몫은 없다 (D-41).
+        DocumentSession.RoleResolver resolver = (principal, docId) -> {
+            PageLevel own = pagePermissions.access(principal.userId(), docId) instanceof Access.Granted granted
+                    ? granted.level()
+                    : null;
+            PageLevel viaLink = principal.shareLinkId() == null
+                    ? null
+                    : shareLinks.levelOf(principal.shareLinkId(), docId).orElse(null);
+            PageLevel level = PageLevel.max(own, viaLink);
+            return level == null ? Optional.empty() : Optional.of(PageRole.valueOf(level.name()));
+        };
         return change -> documentSessions.reauthorize(
                 docId -> change.pageIds() == null || change.pageIds().contains(docId),
                 userId -> change.userId() == null || change.userId().equals(userId),

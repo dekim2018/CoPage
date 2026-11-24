@@ -16,10 +16,12 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
@@ -138,8 +140,13 @@ public final class DocumentSession {
     private Instant idleSince;
     /** 다시 계산을 시작한 순번. 실행 흐름에서만 고친다. */
     private long reauthorizeSeq;
-    /** 사용자마다 마지막으로 적용한 다시 계산의 순번. 늦게 끝난 낡은 계산이 새 결과를 덮지 않게 한다. */
-    private final Map<UUID, Long> appliedSeq = new HashMap<>();
+    /** 권한 주체(사용자, 공유 링크)마다 마지막으로 적용한 다시 계산의 순번. 늦게 끝난 낡은 계산이 새 결과를 덮지 않게 한다. */
+    private final Map<Principal, Long> appliedSeq = new HashMap<>();
+    /**
+     * 끝나지 않은 다시 계산의 수. 0 일 때만 연결이 없는 주체의 순번을 지운다. 계산 중에 지우면 늦게 끝난 낡은 결과가 다시 붙은
+     * 같은 주체에 적용될 수 있다. 공유 링크의 비로그인 방문자는 연결마다 새 주체라 지우지 않으면 끝없이 쌓인다 (D-41).
+     */
+    private int reauthorizeInFlight;
 
     public DocumentSession(
             UUID docId,
@@ -224,9 +231,12 @@ public final class DocumentSession {
         });
     }
 
-    /** 사용자의 이 문서 권한을 다시 계산한다. 권한이 없으면 빈 값. 저장소를 읽으므로 세션 실행 흐름 밖에서 부른다. */
+    /**
+     * 이 문서 권한을 다시 계산한다. 권한이 없으면 빈 값. 공유 링크로 들어온 연결은 링크가 살아 있는지도 본다. 저장소를 읽으므로
+     * 세션 실행 흐름 밖에서 부른다.
+     */
     public interface RoleResolver {
-        Optional<PageRole> roleOf(UUID userId, UUID docId);
+        Optional<PageRole> roleOf(Principal principal, UUID docId);
     }
 
     /**
@@ -246,24 +256,26 @@ public final class DocumentSession {
             if (closed) {
                 return;
             }
-            List<UUID> targets = members.values().stream()
-                    .map(member -> member.connection().userId())
-                    .filter(users)
+            List<Principal> targets = members.values().stream()
+                    .map(member -> member.connection().principal())
+                    .filter(principal -> users.test(principal.userId()))
                     .distinct()
                     .toList();
             if (targets.isEmpty()) {
                 return;
             }
             long seq = ++reauthorizeSeq;
+            reauthorizeInFlight++;
             background.execute(() -> {
-                Map<UUID, Optional<PageRole>> roles = new HashMap<>();
+                Map<Principal, Optional<PageRole>> roles = new HashMap<>();
                 try {
-                    for (UUID userId : targets) {
-                        roles.put(userId, resolver.roleOf(userId, docId));
+                    for (Principal principal : targets) {
+                        roles.put(principal, resolver.roleOf(principal, docId));
                     }
                 } catch (RuntimeException e) {
                     // 계산하지 못하면 바꾸지 않는다. 다음 재접속 때 새 티켓이 바른 등급을 준다.
                     LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 권한을 다시 계산하지 못했다", e);
+                    executor.execute(this::finishReauthorize);
                     return;
                 }
                 executor.execute(() -> applyRoles(seq, roles));
@@ -271,11 +283,30 @@ public final class DocumentSession {
         });
     }
 
-    private void applyRoles(long seq, Map<UUID, Optional<PageRole>> roles) {
-        roles.keySet().removeIf(userId -> appliedSeq.getOrDefault(userId, 0L) > seq);
-        roles.keySet().forEach(userId -> appliedSeq.put(userId, seq));
+    private void finishReauthorize() {
+        reauthorizeInFlight--;
+        pruneAppliedSeq();
+    }
+
+    /** 끝나지 않은 다시 계산이 없으면 연결이 하나도 없는 주체의 순번을 지운다. */
+    private void pruneAppliedSeq() {
+        if (reauthorizeInFlight > 0) {
+            return;
+        }
+        Set<Principal> connected = new HashSet<>();
+        members.values().forEach(member -> connected.add(member.connection().principal()));
+        appliedSeq.keySet().retainAll(connected);
+    }
+
+    int appliedSeqSize() {
+        return appliedSeq.size();
+    }
+
+    private void applyRoles(long seq, Map<Principal, Optional<PageRole>> roles) {
+        roles.keySet().removeIf(principal -> appliedSeq.getOrDefault(principal, 0L) > seq);
+        roles.keySet().forEach(principal -> appliedSeq.put(principal, seq));
         for (Member member : List.copyOf(members.values())) {
-            Optional<PageRole> next = roles.get(member.connection().userId());
+            Optional<PageRole> next = roles.get(member.connection().principal());
             if (next == null) {
                 continue;
             }
@@ -292,6 +323,7 @@ public final class DocumentSession {
                 member.connection().send(new ServerMessage.Role(role));
             }
         }
+        finishReauthorize();
     }
 
     /** 연결이 끊겼다. 다른 연결에 퇴장을 알린다. 마지막 연결이었으면 일정 시간 뒤 세션을 내린다. */
@@ -306,6 +338,7 @@ public final class DocumentSession {
 
     private void removeMember(Member member) {
         members.remove(member.connection().id());
+        pruneAppliedSeq();
         tellOthers(member, new ServerMessage.Presence(member.peer(), true));
         scheduleUnloadIfEmpty();
     }

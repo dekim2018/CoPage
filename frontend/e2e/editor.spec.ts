@@ -412,3 +412,32 @@ test('초대 링크를 받은 사람은 그 이메일로 가입하고 돌아와 
   await expect(owner.locator(`[data-testid=members] tr[data-email="${email}"]`)).toContainText('MEMBER')
   await expect(owner.locator(`[data-testid=pending-invites] li`)).toHaveCount(0)
 })
+
+test('공유 링크로 로그인하지 않은 사람이 페이지를 보고, 등급을 올리면 편집하고, 링크를 끄면 1초 안에 닫힌다', async ({ browser }) => {
+  const owner = await newUser(browser, 'owner')
+  const pageId = await sharedPage(owner)
+  await open(owner, pageId)
+  await prepare(owner, owner, '공개 문서', ['본문'])
+  await owner.getByRole('button', { name: '공유' }).click()
+  const dialog = owner.getByTestId('share-dialog')
+  await dialog.getByLabel('링크 등급').selectOption('VIEW')
+  await dialog.getByRole('button', { name: '링크 만들기' }).click()
+  const url = await dialog.getByTestId('share-link-url').inputValue()
+
+  const visitor = await (await browser.newContext()).newPage()
+  await visitor.goto(new URL(url).pathname)
+  await expect(visitor.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+  await expect.poll(async () => blocks(visitor)).toEqual(['공개 문서', '본문'])
+  await expect(visitor.getByTestId('readonly')).toBeVisible()
+  await expect(visitor.getByTestId('sidebar')).toHaveCount(0)
+
+  await dialog.getByLabel('링크 등급').selectOption('EDIT')
+  await dialog.getByRole('button', { name: '저장' }).click()
+  await expect(visitor.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'true', { timeout: 1_000 })
+  await caretAtEnd(visitor, 1)
+  await visitor.keyboard.type('!')
+  expect(await converged(owner, visitor)).toEqual(['공개 문서', '본문!'])
+
+  await dialog.getByRole('button', { name: '링크 끄기' }).click()
+  await expect(visitor.getByTestId('status')).toHaveAttribute('data-status', 'error', { timeout: 1_000 })
+})

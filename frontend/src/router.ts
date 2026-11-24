@@ -13,6 +13,8 @@ export const router = createRouter({
     { path: '/', component: () => import('./views/HomeView.vue') },
     { path: '/p/:pageId', component: () => import('./views/PageRedirectView.vue'), props: true },
     { path: '/invite/:token', component: () => import('./views/InviteView.vue'), props: true },
+    // 공유 링크(D-41). 로그인하지 않아도 연다. 로그인했으면 그 사용자로 연다.
+    { path: '/s/:token', component: () => import('./views/SharedPageView.vue'), props: true, meta: { public: true } },
     {
       path: '/w/:workspaceId',
       component: () => import('./views/WorkspaceView.vue'),
@@ -30,7 +32,7 @@ export const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuth()
   await auth.restore()
-  if (!to.meta.guest && auth.user === null) {
+  if (!to.meta.guest && !to.meta.public && auth.user === null) {
     return { path: '/login', query: { next: to.fullPath } }
   }
   return true

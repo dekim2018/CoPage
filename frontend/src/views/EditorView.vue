@@ -18,7 +18,8 @@ import { workspaceApi } from '../api/workspace'
 import type { PageDetail } from '../api/workspace'
 import { useWorkspace } from '../stores/workspace'
 
-const props = defineProps<{ workspaceId: string; pageId: string }>()
+/** shareToken 이 있으면 공유 링크로 연 화면이다(D-41). 사이드바, 경로, 공유 단추 없이 그 페이지만 연다. */
+const props = defineProps<{ workspaceId: string; pageId: string; shareToken?: string }>()
 const router = useRouter()
 const workspace = useWorkspace()
 // 경로(볼 수 있는 조상)와 제한 여부. 연결과 따로 읽는다. 읽지 못해도 편집은 된다.
@@ -55,11 +56,14 @@ const sharing = ref(false)
  * 로그인 화면으로 보낸다. 그 밖의 실패(서버에 닿지 못함 등)는 연결이 재접속을 이어 간다.
  */
 async function ticket(): Promise<string> {
+  const path = props.shareToken
+    ? `/api/share/${encodeURIComponent(props.shareToken)}/ws-ticket`
+    : `/api/docs/${props.pageId}/ws-ticket`
   try {
-    return (await api<{ ticket: string }>(`/api/docs/${props.pageId}/ws-ticket`, { method: 'POST' })).ticket
+    return (await api<{ ticket: string }>(path, { method: 'POST' })).ticket
   } catch (e) {
     if (e instanceof ApiError && [401, 403, 404].includes(e.status)) {
-      if (e.status === 401) {
+      if (e.status === 401 && !props.shareToken) {
         void router.push({ path: '/login', query: { next: `/w/${props.workspaceId}/p/${props.pageId}` } })
       }
       throw new FatalConnectionError(`${e.status} ${e.detail}`)
@@ -105,13 +109,15 @@ onMounted(() => {
   })
   editor.value = instance
   // 제목 줄을 고치면 사이드바에도 바로 보인다. 서버는 커밋 뒤 따로 저장한다(D-21).
-  instance.on('update', () => {
-    workspace.setTitle(props.pageId, instance.state.doc.firstChild?.textContent.trim() ?? '')
-  })
-  workspaceApi.page(props.pageId).then(
-    (page) => (pageInfo.value = page),
-    () => (pageInfo.value = null),
-  )
+  if (!props.shareToken) {
+    instance.on('update', () => {
+      workspace.setTitle(props.pageId, instance.state.doc.firstChild?.textContent.trim() ?? '')
+    })
+    workspaceApi.page(props.pageId).then(
+      (page) => (pageInfo.value = page),
+      () => (pageInfo.value = null),
+    )
+  }
   client = new CollabClient(
     props.pageId,
     ticket,
@@ -171,7 +177,9 @@ onBeforeUnmount(() => {
   <div class="editor-head">
     <p class="status" data-testid="status" :data-status="status">{{ label }}</p>
     <p v-if="role !== null && !canEdit(role)" class="readonly" data-testid="readonly">읽기 전용</p>
-    <button v-if="role === 'FULL'" type="button" class="share-button" @click="sharing = !sharing">공유</button>
+    <button v-if="role === 'FULL' && !shareToken" type="button" class="share-button" @click="sharing = !sharing">
+      공유
+    </button>
     <ul class="peers" data-testid="peers">
       <li v-for="peer in peers" :key="peer.clientId" :style="{ backgroundColor: peer.color }" :title="peer.name">
         {{ peer.name }}
