@@ -89,6 +89,11 @@ public final class DocumentSessions {
     }
 
     /** 지금 메모리에 올라와 있는 세션 수. */
+    /** 시험이 세션 안을 들여다볼 때 쓴다. */
+    DocumentSession session(UUID docId) {
+        return sessions.get(docId);
+    }
+
     public int size() {
         return sessions.size();
     }

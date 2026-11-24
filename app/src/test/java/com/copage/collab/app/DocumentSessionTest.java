@@ -540,6 +540,50 @@ class DocumentSessionTest {
     }
 
     @Test
+    void 다시_계산한_순번은_계산이_끝났고_연결이_없는_주체만_지운다() {
+        List<Runnable> background = new ArrayList<>();
+        DocumentSessions held = new DocumentSessions(
+                store,
+                new ChangePolicy(20, 100),
+                new DocumentSession.Settings(2, 3, Duration.ofDays(7), Duration.ofSeconds(60), 3, 3),
+                tasks::add,
+                background::add,
+                (task, delay) -> scheduled.add(task),
+                Clock.systemUTC(),
+                titles,
+                metrics);
+        FakeConnection a = new FakeConnection("A");
+        FakeConnection b = new FakeConnection("B");
+        held.join(DOC, a, new Hello("client-A", 0, false), PageRole.EDIT, "이름");
+        held.join(DOC, b, new Hello("client-B", 0, false), PageRole.EDIT, "이름");
+        runAll();
+        background.forEach(Runnable::run);
+        background.clear();
+        DocumentSession session = held.session(DOC);
+
+        held.reauthorize(doc -> true, user -> true, (principal, docId) -> Optional.of(PageRole.EDIT));
+        runAll();
+        background.forEach(Runnable::run);
+        background.clear();
+        runAll();
+        assertEquals(2, session.appliedSeqSize());
+
+        // 계산이 끝나지 않은 동안에는 나간 주체의 순번을 지우지 않는다.
+        held.reauthorize(doc -> true, user -> true, (principal, docId) -> Optional.of(PageRole.EDIT));
+        runAll();
+        held.leave(DOC, a);
+        runAll();
+        assertEquals(2, session.appliedSeqSize());
+        background.forEach(Runnable::run);
+        runAll();
+        assertEquals(1, session.appliedSeqSize(), "계산이 끝나면 나간 A 의 순번을 지운다");
+
+        held.leave(DOC, b);
+        runAll();
+        assertEquals(0, session.appliedSeqSize());
+    }
+
+    @Test
     void 연결_한도로_읽기로_받은_연결은_다시_계산해도_읽기_위로_올리지_않는다() {
         join("A");
         join("B");
