@@ -16,7 +16,7 @@
 | 캐시와 조정 | Redis 7 | 문서 소유 리스, 1회용 티켓, Refresh 토큰, 노드 간 알림 전달(pub/sub) |
 | 스키마 관리 | Flyway | 팬파라이브와 같은 방식 |
 | 빌드 | Gradle 멀티 모듈 (`ot-core`, `app`, `loadgen`) | `ot-core`는 Spring 의존성이 없는 순수 Java 라이브러리로 둔다 |
-| 모듈 경계 검사 | Spring Modulith | 모듈 간 금지된 참조를 테스트에서 잡는다 |
+| 모듈 경계 검사 | ArchUnit (`ModuleBoundaryTest`) | 모듈 간 금지된 참조를 테스트에서 잡는다. Spring Modulith 는 모듈의 하위 패키지를 모두 내부로 보아 지금 구조(app 의 포트를 다른 모듈이 씀)와 맞지 않아 바꿨다 (D-32) |
 | 테스트 | JUnit, 시드를 고정한 자체 무작위 생성기, Testcontainers | 속성 기반 테스트에 jqwik을 쓰려 했으나, 외부 라이브러리 없이 시드만 있으면 실패 사례를 그대로 다시 돌릴 수 있어서 직접 만들었다 (`ot-core` 의 `RandomOps`) |
 | 관측 | Micrometer + Prometheus 형식 노출 | ack 지연, 변환 횟수, 거부율을 지표로 남긴다. 에러 수집은 3번 프로젝트(에러 모니터링 서비스)의 SDK를 붙인다 |
 
