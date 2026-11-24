@@ -58,6 +58,9 @@ public final class WorkspaceService {
     public record SearchResult(Page page, String snippet) {
     }
 
+    /** 페이지를 중첩할 수 있는 단계 수 (W-2). 최상위가 1 단계다. */
+    static final int MAX_DEPTH = 10;
+
     /** 검색어 길이. 더 길면 자른다. */
     static final int MAX_QUERY = 100;
     /** 권한으로 거르기 전에 읽는 후보 수와 돌려주는 결과 수. */
@@ -321,6 +324,9 @@ public final class WorkspaceService {
                     ? "이 워크스페이스의 최상위에 페이지를 만들 수 없다"
                     : "부모 페이지에 편집 권한이 없다");
         }
+        if (parentId != null && repository.depthOf(parentId) >= MAX_DEPTH) {
+            throw new WorkspaceException(Kind.BAD_REQUEST, "페이지는 " + MAX_DEPTH + " 단계까지 중첩한다");
+        }
         Page page = repository.createPage(workspaceId, UUID.randomUUID(), parentId, afterId, userId, now());
         treeChanged(workspaceId, parentId);
         return page;
@@ -342,6 +348,10 @@ public final class WorkspaceService {
         }
         if (target == null || !target.atLeast(PageLevel.EDIT)) {
             throw new WorkspaceException(Kind.FORBIDDEN, "새 부모 페이지에 편집 권한이 없다");
+        }
+        // 동시에 옮기는 두 요청이 함께 통과하면 한 단계 넘을 수 있다. 고리(cycle)와 달리 깨지는 것이 없어 잠그지 않는다.
+        if (newParentId != null && repository.depthOf(newParentId) + repository.heightOf(pageId) > MAX_DEPTH) {
+            throw new WorkspaceException(Kind.BAD_REQUEST, "페이지는 " + MAX_DEPTH + " 단계까지 중첩한다");
         }
         UUID oldParent = repository.findPage(granted.workspaceId(), pageId).map(Page::parentId).orElse(null);
         Page moved = repository.movePage(granted.workspaceId(), pageId, newParentId, afterId);

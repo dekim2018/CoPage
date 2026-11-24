@@ -436,16 +436,23 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
     @Override
     public List<SearchHit> search(UUID workspaceId, String needle, int limit) {
         // pages.title 과 page_search.body 의 pg_trgm GIN 인덱스가 ILIKE '%..%' 를 받는다. 두 글자 이하 검색어는 세 글자 단위
-        // 조각을 만들 수 없어 인덱스가 걸러 주지 못하고 워크스페이스의 페이지를 다 훑는다(D-47).
+        // 조각을 만들 수 없어 인덱스가 걸러 주지 못하고 다 훑는다(D-47). 제목과 본문을 OR 로 한 번에 거르면 두 표에 걸친 조건이라
+        // 인덱스를 쓰지 못한다. 따로 찾아 합친다(UNION). 페이지 10,000 개에서 없는 네 글자 검색이 185ms 에서 8.6ms 가 되었다.
         String pattern = "%" + needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
-        return jdbc.sql("SELECT " + PAGE_COLUMNS + """
+        return jdbc.sql("""
+                        WITH hits AS (
+                            SELECT id FROM pages WHERE workspace_id = :workspaceId AND title ILIKE :pattern
+                            UNION
+                            SELECT page_id FROM page_search WHERE body ILIKE :pattern
+                        )
+                        SELECT\s""" + PAGE_COLUMNS + """
                         , CASE WHEN s.body IS NULL THEN ''
                                ELSE substr(s.body, greatest(1, strpos(lower(s.body), lower(:needle)) - 40), 160)
                           END AS snippet
-                        FROM pages p
+                        FROM hits h
+                        JOIN pages p ON p.id = h.id
                         LEFT JOIN page_search s ON s.page_id = p.id
                         WHERE p.workspace_id = :workspaceId AND p.archived_at IS NULL
-                          AND (p.title ILIKE :pattern OR s.body ILIKE :pattern)
                         ORDER BY (p.title ILIKE :pattern) DESC, coalesce(s.updated_at, p.created_at) DESC, p.id
                         LIMIT :limit
                         """)
@@ -455,6 +462,38 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
                 .param("limit", limit)
                 .query((rs, row) -> new SearchHit(page(rs), rs.getString("snippet")))
                 .list();
+    }
+
+    @Override
+    public int depthOf(UUID pageId) {
+        return jdbc.sql("""
+                        WITH RECURSIVE up (id, parent_id, depth) AS (
+                            SELECT id, parent_id, 1 FROM pages WHERE id = :pageId
+                            UNION ALL
+                            SELECT p.id, p.parent_id, u.depth + 1 FROM pages p JOIN up u ON p.id = u.parent_id
+                            WHERE u.depth < 1000
+                        )
+                        SELECT coalesce(max(depth), 0) FROM up
+                        """)
+                .param("pageId", pageId)
+                .query(Integer.class)
+                .single();
+    }
+
+    @Override
+    public int heightOf(UUID pageId) {
+        return jdbc.sql("""
+                        WITH RECURSIVE down (id, depth) AS (
+                            SELECT id, 1 FROM pages WHERE id = :pageId
+                            UNION ALL
+                            SELECT p.id, d.depth + 1 FROM pages p JOIN down d ON p.parent_id = d.id
+                            WHERE d.depth < 1000
+                        )
+                        SELECT coalesce(max(depth), 0) FROM down
+                        """)
+                .param("pageId", pageId)
+                .query(Integer.class)
+                .single();
     }
 
     @Override

@@ -10,6 +10,7 @@ import Text from '@tiptap/extension-text'
 import Underline from '@tiptap/extension-underline'
 import type { Attrs as PmAttrs, NodeType } from '@tiptap/pm/model'
 import { TextSelection } from '@tiptap/pm/state'
+import { MarkdownPaste } from './markdownPaste'
 
 /*
  * 편집기 스키마. 블록 10종과 서식 6종 (docs/01-PLAN.md E-1, E-2).
@@ -394,4 +395,5 @@ export const schemaExtensions: AnyExtension[] = [
   }),
   CommentMark,
   MentionMark,
+  MarkdownPaste,
 ]

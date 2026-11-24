@@ -153,6 +153,26 @@ class PageTreeFlowTest extends TestInfra {
     }
 
     @Test
+    void 페이지는_10단계까지_중첩하고_옮겨서도_넘을_수_없다() throws Exception {
+        Team team = new Team();
+        String parent = null;
+        List<String> chain = new ArrayList<>();
+        for (int depth = 1; depth <= 10; depth++) {
+            parent = team.page(parent);
+            chain.add(parent);
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("parentId", parent);
+        assertEquals(400, send("POST", "/api/workspaces/" + team.id + "/pages", body, team.owner).status(), "11단계");
+
+        // 두 단계짜리 가지는 9단계 아래로 옮길 수 없고(11), 8단계 아래로는 옮길 수 있다(10).
+        String branch = team.page(null);
+        team.page(branch);
+        assertEquals(400, move(branch, chain.get(8), null, team.owner).status());
+        assertEquals(200, move(branch, chain.get(7), null, team.owner).status());
+    }
+
+    @Test
     void 옮기기는_그_페이지의_FULL_과_새_부모의_EDIT_가_필요하다() throws Exception {
         Team team = new Team();
         String a = team.page(null);
