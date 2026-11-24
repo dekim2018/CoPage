@@ -75,7 +75,7 @@ ack는 DB 커밋 뒤에만 보낸다. 다른 사람에게 보내는 `remote` 도
 | `users` | id, email(유일), password_hash, name, created_at | 이메일은 앞뒤 공백을 빼고 소문자로 저장 | V2 |
 | `workspaces` | id, name, owner_id(users), created_at | owner_id 는 만든 사람이다. 권한 판단에는 쓰지 않고 `workspace_members.role` 만 본다 | V3 |
 | `workspace_members` | workspace_id(workspaces, 지우면 함께), user_id(users), role(OWNER, MEMBER, GUEST), created_at | 기본 키 (workspace_id, user_id). 색인 (user_id) | V3 |
-| `workspace_invites` | id, workspace_id, email, role, token_hash, expires_at, accepted_at | 토큰은 해시로 저장 | 계획 (W-1). 지금은 가입한 사용자를 이메일로 바로 넣는다(D-22) |
+| `workspace_invites` | id, workspace_id, email, role, token_hash(유일), created_by, created_at, expires_at, accepted_at, accepted_by | 토큰은 SHA-256 해시로 저장. 7일 뒤 만료 | 구현 (V6, D-40). 가입한 사용자를 바로 넣는 경로(D-22)도 남아 있다 |
 | `pages` | id, workspace_id(workspaces, 지우면 함께), parent_id(pages), pos(`COLLATE "C"`), title(기본 ''), title_rev(기본 0), restricted(기본 false), created_by(users), created_at, archived_at | id가 곧 문서 ID. title은 루트 블록에서 파생. 색인 (workspace_id, parent_id, pos), (parent_id) WHERE parent_id IS NOT NULL | V3, title_rev 는 V5 |
 | `page_grants` | page_id(pages, 지우면 함께), user_id(users), level(VIEW, COMMENT, EDIT, FULL), granted_by(users), created_at | 기본 키 (page_id, user_id). 색인 (user_id) | V4 |
 | `share_links` | id, page_id(유일), token_hash, level, expires_at, revoked_at |  | 계획 (S-4) |

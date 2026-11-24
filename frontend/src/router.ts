@@ -12,6 +12,7 @@ export const router = createRouter({
     { path: '/signup', component: () => import('./views/SignupView.vue'), meta: { guest: true } },
     { path: '/', component: () => import('./views/HomeView.vue') },
     { path: '/p/:pageId', component: () => import('./views/PageRedirectView.vue'), props: true },
+    { path: '/invite/:token', component: () => import('./views/InviteView.vue'), props: true },
     {
       path: '/w/:workspaceId',
       component: () => import('./views/WorkspaceView.vue'),

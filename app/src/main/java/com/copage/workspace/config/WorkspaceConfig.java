@@ -4,8 +4,10 @@ import com.copage.identity.app.UserDirectory;
 import com.copage.permission.app.PageGrants;
 import com.copage.permission.app.PagePermissions;
 import com.copage.permission.app.WorkspaceMembership;
+import com.copage.workspace.app.InviteService;
 import com.copage.workspace.app.WorkspaceService;
 import com.copage.workspace.domain.WorkspaceRole;
+import com.copage.workspace.out.JdbcInviteRepository;
 import com.copage.workspace.out.JdbcWorkspaceRepository;
 import java.time.Clock;
 import org.springframework.context.annotation.Bean;
@@ -25,6 +27,27 @@ public class WorkspaceConfig {
     @Bean
     WorkspaceMembership workspaceMembership(JdbcWorkspaceRepository workspaceRepository) {
         return (workspaceId, userId) -> workspaceRepository.addMember(workspaceId, userId, WorkspaceRole.GUEST);
+    }
+
+    @Bean
+    JdbcInviteRepository inviteRepository(JdbcClient jdbcClient) {
+        return new JdbcInviteRepository(jdbcClient);
+    }
+
+    @Bean
+    InviteService inviteService(
+            JdbcInviteRepository inviteRepository,
+            JdbcWorkspaceRepository workspaceRepository,
+            UserDirectory userDirectory,
+            PageGrants pageGrants,
+            TransactionTemplate transactionTemplate) {
+        return new InviteService(
+                inviteRepository,
+                workspaceRepository,
+                userDirectory,
+                pageGrants,
+                work -> transactionTemplate.executeWithoutResult(status -> work.run()),
+                Clock.systemUTC());
     }
 
     @Bean
