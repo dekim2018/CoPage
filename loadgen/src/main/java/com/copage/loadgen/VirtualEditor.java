@@ -86,6 +86,8 @@ final class VirtualEditor implements WebSocket.Listener {
     /** 지금 연결이 welcome 을 받아 보낼 수 있는 상태인지. */
     private boolean live;
     private boolean closing;
+    /** 재접속 흐름이 돌고 있으면 true. 시도 중 실패한 소켓의 오류가 흐름을 하나 더 띄우지 않게 한다. */
+    private boolean reconnecting;
     /** 끊긴 시각. 다시 붙어 첫 ack 를 받으면 재개 시간을 적고 0 으로 돌린다. */
     private long downAtNanos;
     private ClientSession session;
@@ -156,6 +158,10 @@ final class VirtualEditor implements WebSocket.Listener {
             if (downAtNanos == 0) {
                 downAtNanos = System.nanoTime();
             }
+            if (reconnecting) {
+                return;
+            }
+            reconnecting = true;
         }
         Thread.ofVirtual().start(this::reconnectLoop);
     }
@@ -166,6 +172,9 @@ final class VirtualEditor implements WebSocket.Listener {
             try {
                 Thread.sleep(250 + random.nextInt(500));
                 open(tickets.get());
+                synchronized (this) {
+                    reconnecting = false;
+                }
                 return;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -173,6 +182,9 @@ final class VirtualEditor implements WebSocket.Listener {
             } catch (Exception e) {
                 // 서버가 아직 뜨지 않았다. 다시 시도한다.
             }
+        }
+        synchronized (this) {
+            reconnecting = false;
         }
         System.err.println(clientId + " 가 3분 안에 다시 붙지 못했다");
     }
