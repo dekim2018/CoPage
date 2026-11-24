@@ -1,6 +1,6 @@
 # 11. REST API 목록
 
-REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 21개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
+REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 25개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
 
 오류 응답은 RFC 9457 형식(`application/problem+json`)으로 통일한다. Spring의 `ProblemDetail` 을 쓴다.
 
@@ -30,9 +30,13 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | POST | `/api/pages/{pageId}/grants` | FULL | 200, 준 권한. 본문 `{email, level}` | 404 그 이메일로 가입한 사용자가 없음. 그 밖은 위와 같음 |
 | DELETE | `/api/pages/{pageId}/grants/{userId}` | FULL | 204 | 404 이 페이지에 그 사용자에게 준 권한이 없음. 그 밖은 위와 같음 |
 | PUT | `/api/pages/{pageId}/restricted` | FULL | 200, `{restricted}`. 켜는 사람이 OWNER 가 아니면 그 페이지에 자신의 FULL 을 남긴다 | 위와 같음 |
+| POST | `/api/pages/{pageId}/move` | 그 페이지의 FULL + 새 부모의 EDIT(최상위면 역할의 기본 권한) | 200, 옮긴 페이지(GET 과 같은 모양). 본문 `{parentId, afterId}`, 둘 다 생략하면 최상위 맨 뒤 | 400 자기 자신이나 하위 아래로, afterId 가 새 부모의 하위가 아님. 404 없거나 휴지통이거나 새 부모를 볼 수 없음. 403 등급이 모자람 |
+| DELETE | `/api/pages/{pageId}` | FULL | 204, 휴지통으로. 하위는 부모를 따라 보이지 않는다 | 404 없거나 이미 휴지통. 403 FULL 이 아님 |
+| POST | `/api/pages/{pageId}/restore` | 휴지통에 가기 전 FULL | 200, 꺼낸 페이지. 부모가 아직 휴지통에 있으면 최상위 맨 뒤 | 404 휴지통에 없거나 속하지 않음. 403 등급이 모자람 |
+| GET | `/api/workspaces/{wsId}/trash` | 워크스페이스의 모든 역할 | 200, 휴지통의 페이지(id, parentId, title, archivedAt, canRestore). 보내기 전에 볼 수 있던 페이지만 | 404 속하지 않은 워크스페이스 |
 | POST | `/api/docs/{docId}/ws-ticket` | VIEW | 200, `{ticket, role}`. 티켓은 30초 1회용 | 404 페이지가 없거나 속하지 않음. 403 등급이 없음 |
 
-권한을 바꾸는 요청(멤버 역할, 내보내기, 페이지 권한, restricted)은 커밋한 뒤 열린 편집 연결에 1초 안에 적용된다(9.4).
+권한을 바꾸는 요청(멤버 역할, 내보내기, 페이지 권한, restricted, 페이지 옮기기, 휴지통으로 보내기와 꺼내기)은 커밋한 뒤 열린 편집 연결에 1초 안에 적용된다(9.4). 옮기면 새 부모의 권한을 물려받으므로, 제한된 페이지 밖으로 옮기면 더 넓게 보일 수 있다(D-39).
 
 API 포트에는 `/actuator` 가 없다. 지표와 상태 확인은 관리 포트(기본 8081)의 `/actuator/prometheus`, `/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness` 다(13.4).
 
@@ -62,10 +66,10 @@ API 포트에는 `/actuator` 가 없다. 지표와 상태 확인은 관리 포�
 | GET | `/api/workspaces/{wsId}/pages?parentId=` | 한 단계 하위 페이지 목록. 권한 없는 페이지는 빼고 준다 | MEMBER 또는 GUEST | 구현 |
 | POST | `/api/workspaces/{wsId}/pages` | 페이지 생성 (부모, 위치 지정) | 부모의 EDIT | 구현 |
 | GET | `/api/pages/{pageId}` | 제목, restricted, 경로(볼 수 있는 조상만), 내 권한 등급 | VIEW | 구현 |
-| POST | `/api/pages/{pageId}/move` | 부모와 순서 변경 | FULL + 새 부모의 EDIT | 계획 |
-| DELETE | `/api/pages/{pageId}` | 휴지통으로 | FULL | 계획 |
-| POST | `/api/pages/{pageId}/restore` | 휴지통에서 복구 | FULL | 계획 |
-| GET | `/api/workspaces/{wsId}/trash` | 휴지통 목록 | MEMBER | 계획 |
+| POST | `/api/pages/{pageId}/move` | 부모와 순서 변경 | FULL + 새 부모의 EDIT | 구현(#80) |
+| DELETE | `/api/pages/{pageId}` | 휴지통으로 | FULL | 구현(#80) |
+| POST | `/api/pages/{pageId}/restore` | 휴지통에서 복구 | FULL | 구현(#80) |
+| GET | `/api/workspaces/{wsId}/trash` | 휴지통 목록 | 워크스페이스의 모든 역할, 보내기 전에 볼 수 있던 페이지만 | 구현(#80) |
 | GET | `/api/workspaces/{wsId}/events?ticket=` | 사이드바용 SSE (트리 변경) | MEMBER 또는 GUEST | 계획 |
 
 워크스페이스에 속하지 않은 사용자에게는 워크스페이스가 있는지도 알리지 않는다. 없는 워크스페이스와 같은 404 를 준다. 페이지 접근은 9.4 의 등급으로 판단한다. 목록은 내가 VIEW 이상인 페이지만 주고 각 페이지에 내 등급(`level`)을 붙인다. 볼 수 없는 페이지는 없는 페이지와 같은 404 다. 페이지를 만들려면 부모의 EDIT(최상위면 역할의 기본 권한)가 필요하다. 목록의 `hasChildren` 은 권한을 보지 않고 센다. 볼 수 없는 하위 페이지만 있어도 `true` 이고, 펼치면 빈 목록이 올 수 있다. 페이지의 `title` 은 루트 블록(제목 줄)의 글이다. 편집이 커밋된 뒤 따로 쓰므로 목록에는 아주 조금 늦게 보인다. 제목을 동기화하기 전에 만들고 그 뒤 한 번도 열지 않은 페이지는 빈 문자열이다.

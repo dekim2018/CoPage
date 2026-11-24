@@ -105,8 +105,8 @@ public final class JdbcDocumentStore implements DocumentStore {
 
     /**
      * 여러 행을 INSERT 문 하나로 넣는다 (8.2 의 묶음 커밋). 문장 하나는 그 자체로 원자적이라 제약 위반이면 하나도 남지 않고,
-     * 묶음 크기와 상관없이 DB 왕복은 한 번이다(PERF-2). 행마다 INSERT 를 보내면 묶음 N 개에 왕복 N+1 번(BEGIN 과 첫 INSERT,
-     * 나머지 INSERT, COMMIT)이었다.
+     * {@link #ROWS_PER_INSERT} 행까지는 DB 왕복이 한 번이다(PERF-2). 행마다 INSERT 를 보내면 묶음 N 개에 왕복 N+1 번(BEGIN 과
+     * 첫 INSERT, 나머지 INSERT, COMMIT)이었다.
      *
      * <p>문장 하나의 매개변수는 65,535 개까지라(PostgreSQL 규약의 2바이트 개수) {@link #ROWS_PER_INSERT} 행씩 나눈다.
      * 나뉘면 한 트랜잭션 안에서 넣어 원자성을 지킨다. DB 가 멈췄다 돌아온 직후처럼 묶음이 아주 클 때만 그렇다.

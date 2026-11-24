@@ -37,7 +37,7 @@ flowchart TB
 | --- | --- | --- |
 | `ot-core` (별도 Gradle 모듈) | 문서 모델, 연산 타입, 적용, 변환, 합성, 역연산 | 아무것도 참조하지 않는다. Spring도 모른다 |
 | `identity` | 가입, 로그인, 토큰 발급과 회전, 프로필 | 모든 모듈이 사용자 ID를 받아 쓴다. 이메일로 사용자를 찾는 `UserDirectory` 를 workspace 와 permission 이 쓴다 |
-| `workspace` | 워크스페이스, 멤버, 페이지 트리, 페이지 제목. 휴지통은 아직 없다 | 페이지 접근은 `permission` 에 묻는다. 멤버를 바꾸면 `permission` 의 변경 알림을 부른다. 트리 변경 이벤트(W-5)는 아직 없다 |
+| `workspace` | 워크스페이스, 멤버, 페이지 트리(만들기, 옮기기, 휴지통), 페이지 제목 | 페이지 접근은 `permission` 에 묻는다. 멤버를 바꾸면 `permission` 의 변경 알림을 부른다. 트리 변경 이벤트(W-5)는 아직 없다 |
 | `permission` | 페이지 권한 계산, 페이지 권한 부여와 회수, restricted. 공유 링크는 아직 없다 | `workspace` 의 테이블(pages, workspace_members)을 SQL 로 직접 읽고 자바 코드는 참조하지 않는다. 권한이 바뀌면 `PermissionChangeListener` 포트로 알린다 (9.4, D-17) |
 | `collab` | 문서 세션, WebSocket 규약, 연산 로그와 스냅샷, 프레즌스, 지표. 소유 리스는 아직 없다 | `ot-core`를 쓴다. 티켓을 줄 때 `permission` 에 권한을 묻고, 권한 변경 알림을 받아 열린 연결에 적용한다. 루트 블록 글이 바뀌면 `TitleSink` 포트로 `workspace` 의 제목을 고친다(D-21). 사용자 이름은 `identity` 에 묻는다 |
 | `history` | 버전 목록, 시점 복원 | `collab`의 로그와 스냅샷을 읽고, 복원 연산을 `collab`에 제출한다 |
