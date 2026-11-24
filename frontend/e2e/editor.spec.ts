@@ -10,6 +10,7 @@ import {
   newWorkspaceWith,
   open,
   prepare,
+  selectText,
   shapes,
   sharedPage,
 } from './helpers'
@@ -624,4 +625,75 @@ test('이름 붙인 시점으로 복원하면 상대 화면도 바뀌고, 되돌
   await a.locator('.ProseMirror').click()
   await a.keyboard.press('ControlOrMeta+z')
   expect(await converged(a, b)).toEqual(['제목', '첫 판 고침', '새 문단'])
+})
+
+test('고른 글에 댓글을 달고 멘션하면 상대 알림이 늘고, 답글과 해결이 오간다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
+  await Promise.all([open(a, docId), open(b, docId)])
+  await prepare(a, b, '제목', ['검토할 본문'])
+  await b.getByTestId('comments-button').click()
+
+  await a.getByTestId('comments-button').click()
+  // 사람은 마우스로 글자를 골라 편집기에 초점이 간다. 스크립트로 고를 때는 먼저 초점을 둔다.
+  await a.locator('.ProseMirror').focus()
+  await selectText(a, 1, 0, 2)
+  await a.getByTestId('comment-start').click()
+  await a.getByTestId('comment-body').fill('@b 확인 부탁')
+  await a.getByRole('button', { name: '달기' }).click()
+  await expect(a.getByTestId('comment-thread')).toContainText('확인 부탁')
+
+  // 상대 편집기에도 댓글 표시가 생기고, 댓글 창이 다시 읽고, 알림이 바로 온다.
+  await expect(b.locator('.ProseMirror .comment-mark')).toHaveText('검토')
+  await expect(b.getByTestId('comment-thread')).toContainText('확인 부탁')
+  await expect(b.getByTestId('bell-count')).toHaveText('1')
+
+  await b.getByTestId('comment-reply').fill('봤어요')
+  await b.getByTestId('comment-reply').press('Enter')
+  await expect(a.getByTestId('comment-thread')).toContainText('봤어요')
+  await expect(a.getByTestId('bell-count')).toHaveText('1')
+
+  await a.getByTestId('comment-thread').getByRole('button', { name: '해결' }).click()
+  await expect(b.getByTestId('comment-thread')).toHaveCount(0)
+})
+
+test('본문에서 @ 로 멘션하면 상대에게 알림이 가고 누르면 그 페이지로 간다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
+  await open(a, docId)
+  await b.goto('/')
+  await expect(b.getByTestId('bell')).toBeVisible()
+  await caretAtEnd(a, 0)
+  await a.keyboard.type('회의')
+  await a.keyboard.press('Enter')
+  await a.keyboard.type('담당 @b')
+  await expect(a.getByTestId('mention-menu')).toContainText('b')
+  await a.keyboard.press('Enter')
+  await expect(a.locator('.ProseMirror .mention-mark')).toHaveText('@b')
+  await expect(a.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+
+  await expect(b.getByTestId('bell-count')).toHaveText('1')
+  await b.getByTestId('bell').click()
+  await b.getByTestId('inbox-item').first().click()
+  await b.waitForURL(new RegExp(`/p/${docId}$`))
+})
+
+test('다른 사람이 페이지를 만들면 내 사이드바에 바로 보인다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const workspaceId = await newWorkspaceWith(a, b, 'MEMBER')
+  await b.goto(`/w/${workspaceId}`)
+  await expect(b.getByTestId('sidebar')).toBeVisible()
+  await expect(b.getByTestId('tree-item')).toHaveCount(0)
+  await expect(b.getByTestId('bell')).toBeVisible()
+
+  await a.goto(`/w/${workspaceId}`)
+  await a.getByRole('button', { name: '새 페이지' }).click()
+  await a.waitForURL(/\/p\/[0-9a-f-]{36}$/)
+  await expect(a.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+  await expect(a.locator('.ProseMirror[contenteditable=true]')).toBeVisible()
+  await caretAtEnd(a, 0)
+  await a.keyboard.type('새 회의록')
+
+  await expect(b.getByTestId('tree-item')).toHaveCount(1)
+  await expect(b.getByTestId('tree-item')).toContainText('새 회의록')
 })

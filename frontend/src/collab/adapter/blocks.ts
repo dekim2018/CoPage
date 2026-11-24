@@ -1,4 +1,4 @@
-import type { Mark, Node as PmNode, Schema } from '@tiptap/pm/model'
+import type { Mark, MarkType, Node as PmNode, Schema } from '@tiptap/pm/model'
 import * as A from '../ot/attrs'
 import type { Attrs, AttrValue } from '../ot/attrs'
 import { RichText, RichTextBuilder } from '../ot/richText'
@@ -63,7 +63,21 @@ export function typeAfterSplit(type: string): BlockType {
 }
 
 /** 글자 서식 6종. 문서의 서식 이름과 편집기 마크 이름이 같다. 링크만 값이 주소이고 나머지는 true 다. */
-export const MARKS = ['bold', 'italic', 'underline', 'strike', 'code', 'link'] as const
+export const MARKS = ['bold', 'italic', 'underline', 'strike', 'code', 'link', 'comment', 'mention'] as const
+
+/**
+ * 값을 가진 서식. link 는 주소, comment 는 스레드 ID, mention 은 "멘션ID:사용자ID" 다 (docs/08-FEATURES.md 10.2, 10.3, D-46).
+ * 나머지 서식은 켜고 끄기만 한다.
+ */
+export function markOf(type: MarkType, key: string, value: AttrValue): Mark {
+  if (key === 'link') {
+    return type.create({ href: value })
+  }
+  if (key === 'comment' || key === 'mention') {
+    return type.create({ value })
+  }
+  return type.create()
+}
 
 /** 편집기 마크를 문서 서식으로. 모르는 마크는 버린다. */
 export function attrsOfMarks(marks: readonly Mark[]): Attrs {
@@ -71,6 +85,8 @@ export function attrsOfMarks(marks: readonly Mark[]): Attrs {
   for (const mark of marks) {
     if (mark.type.name === 'link') {
       out.link = (mark.attrs.href as string | null) ?? null
+    } else if (mark.type.name === 'comment' || mark.type.name === 'mention') {
+      out[mark.type.name] = (mark.attrs.value as string | null) ?? null
     } else if ((MARKS as readonly string[]).includes(mark.type.name)) {
       out[mark.type.name] = true
     }
@@ -86,8 +102,7 @@ export function marksOfAttrs(schema: Schema, attrs: Attrs): Mark[] {
     if (type === undefined || value === null || value === false) {
       continue
     }
-    const mark = key === 'link' ? type.create({ href: value }) : type.create()
-    marks = mark.addToSet(marks)
+    marks = markOf(type, key, value).addToSet(marks)
   }
   return [...marks]
 }

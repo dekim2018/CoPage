@@ -3,10 +3,10 @@ package com.copage.collab.domain;
 import com.copage.ot.model.Document;
 import java.util.List;
 
-/** 서버가 보내는 메시지 (docs/05-PROTOCOL.md 7.3). 댓글 알림은 아직 없다. */
+/** 서버가 보내는 메시지 (docs/05-PROTOCOL.md 7.3). */
 public sealed interface ServerMessage
         permits ServerMessage.Welcome, ServerMessage.Ack, ServerMessage.Nack, ServerMessage.Remote, ServerMessage.Presence,
-                ServerMessage.Role {
+                ServerMessage.Role, ServerMessage.CommentChanged {
 
     /**
      * hello 의 답. snapshot 과 ops 중 하나만 있다.
@@ -44,5 +44,9 @@ public sealed interface ServerMessage
 
     /** 내 권한이 바뀌었다. 읽기 이하로 내려가면 클라이언트는 편집기를 읽기 전용으로 바꾼다. 권한을 잃으면 대신 4003 으로 닫는다. */
     record Role(PageRole role) implements ServerMessage {
+    }
+
+    /** 이 문서의 댓글 스레드가 생기거나 바뀌었다(답글, 해결). 클라이언트는 목록을 다시 읽는다 (docs/08-FEATURES.md 10.2, D-46). */
+    record CommentChanged(String threadId) implements ServerMessage {
     }
 }

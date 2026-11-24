@@ -44,11 +44,20 @@ export const useWorkspace = defineStore('workspace', () => {
     }
   }
 
+  /** 같은 부모를 잇달아 다시 읽으면 응답이 순서를 바꿔 올 수 있다. 마지막 요청의 응답만 쓴다. */
+  const loading = new Map<string, number>()
+
   async function loadChildren(parentId: string | null): Promise<void> {
     if (current.value === null) {
       return
     }
-    children.set(parentId ?? ROOT, await workspaceApi.children(current.value.id, parentId))
+    const key = parentId ?? ROOT
+    const ticket = (loading.get(key) ?? 0) + 1
+    loading.set(key, ticket)
+    const list = await workspaceApi.children(current.value.id, parentId)
+    if (loading.get(key) === ticket) {
+      children.set(key, list)
+    }
   }
 
   function childrenOf(parentId: string | null): PageNode[] | undefined {
@@ -116,6 +125,17 @@ export const useWorkspace = defineStore('workspace', () => {
     return page
   }
 
+  /** 읽어 둔 목록에서 페이지 하나를 찾는다. */
+  function findNode(pageId: string): PageNode | undefined {
+    for (const list of children.values()) {
+      const node = list.find((page) => page.id === pageId)
+      if (node !== undefined) {
+        return node
+      }
+    }
+    return undefined
+  }
+
   /** 이 탭의 편집기에서 고친 제목. 서버에 저장되기 전에도 가장 새로운 값이다. */
   const editedTitles = new Map<string, string>()
 
@@ -157,6 +177,7 @@ export const useWorkspace = defineStore('workspace', () => {
     open,
     loadChildren,
     childrenOf,
+    findNode,
     toggle,
     createPage,
     trashed,

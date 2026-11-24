@@ -41,6 +41,11 @@ export function setAccessToken(token: string | null): void {
   accessToken = token
 }
 
+/** 지금 Access 토큰. fetch 로 직접 여는 스트림(알림 연결)이 헤더에 싣는다. */
+export function currentAccessToken(): string | null {
+  return accessToken
+}
+
 async function errorOf(response: Response): Promise<ApiError> {
   let detail = response.statusText
   try {

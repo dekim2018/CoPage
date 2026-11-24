@@ -15,7 +15,8 @@ import org.junit.jupiter.api.Test;
  */
 class ModuleBoundaryTest {
 
-    private static final List<String> MODULES = List.of("identity", "workspace", "permission", "collab");
+    private static final List<String> MODULES =
+            List.of("identity", "workspace", "permission", "collab", "comment", "notification");
 
     private static final JavaClasses CLASSES = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)

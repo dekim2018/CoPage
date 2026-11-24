@@ -278,3 +278,14 @@ form {
   white-space: pre-wrap;
   margin: 4px 0;
 }
+
+/* 댓글이 달린 글자와 멘션 (C-1, C-4, D-46) */
+.comment-mark {
+  background: #fff3c4;
+  border-bottom: 2px solid #f5c518;
+}
+
+.mention-mark {
+  color: #3451b2;
+  font-weight: 500;
+}

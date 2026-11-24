@@ -16,6 +16,7 @@ import {
   blockTypeOf,
   contentOf,
   isBlockType,
+  markOf,
   marksOfAttrs,
   nodeName,
   richOf,
@@ -583,7 +584,7 @@ function applyComponent(tr: Transaction, pos: number, component: Component, targ
         }
         tr.removeMark(pos, end, type)
         if (value !== null && value !== false) {
-          tr.addMark(pos, end, key === 'link' ? type.create({ href: value }) : type.create())
+          tr.addMark(pos, end, markOf(type, key, value))
         }
       }
       return end

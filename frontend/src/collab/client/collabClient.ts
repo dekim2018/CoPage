@@ -33,6 +33,8 @@ export interface CollabListener {
   onRole(role: PageRole): void
   /** 거부되거나 버려진 내 편집 가운데 살리지 못한 것 (DC-3). 화면이 보관함에 보여 준다. */
   onLost(lost: LostEdits): void
+  /** 이 문서의 댓글 스레드가 생기거나 바뀌었다 (D-46). 댓글 창이 다시 읽는다. */
+  onComment?(threadId: string): void
 }
 
 /** 살리지 못한 편집. */
@@ -369,6 +371,9 @@ export class CollabClient {
       }
       case 'presence':
         this.presence(message)
+        break
+      case 'comment':
+        this.listener.onComment?.(message.threadId as string)
         break
       case 'role':
         this.role = parseRole(message.role)

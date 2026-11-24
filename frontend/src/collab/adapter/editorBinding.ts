@@ -6,6 +6,7 @@ import type { Document } from '../ot/document'
 import type { Op } from '../ot/op'
 import { PROP_DEFAULTS, SYNCED_PROPS, nodeName } from './blocks'
 import type { BlockType } from './blocks'
+import { uuidv7 } from '../client/ids'
 import type { Cursor, Peer } from '../client/presence'
 import { remoteCursorsKey } from './remoteCursors'
 import {
@@ -293,6 +294,56 @@ export class EditorBinding {
   /** 마우스로 커서를 옮기면 되돌리기 묶음을 닫는다. 다른 곳을 고치는 것은 따로 되돌린다. */
   private readonly onPointer = (): void => {
     this.target.closeUndoGroup()
+  }
+
+  /**
+   * 댓글을 달 고른 글자 (C-1). 제목 줄도 된다. 글자를 고르지 않았거나 여러 블록에 걸치면 null 이다(한 블록 안만 단다).
+   */
+  selectionForComment(): { from: number; to: number; quote: string } | null {
+    const { selection, doc } = this.editor.state
+    if (selection.empty || selection.$from.parent !== selection.$to.parent || !selection.$from.parent.isTextblock) {
+      return null
+    }
+    return { from: selection.from, to: selection.to, quote: doc.textBetween(selection.from, selection.to) }
+  }
+
+  /** 고른 글자에 댓글 서식을 붙인다. 편집기 변화라 보통 길로 연산(comment 서식의 retain)이 된다. */
+  addCommentMark(from: number, to: number, threadId: string): void {
+    const type = this.editor.state.schema.marks.comment
+    if (type === undefined) {
+      return
+    }
+    this.editor.view.dispatch(this.editor.state.tr.addMark(from, to, type.create({ value: threadId })))
+  }
+
+  /** 커서 앞의 "@찾는말"(멘션 메뉴, C-4). 없으면 null. */
+  mentionQuery(): { query: string; from: number; to: number; left: number; bottom: number } | null {
+    const { selection } = this.editor.state
+    if (!selection.empty || !selection.$from.parent.isTextblock) {
+      return null
+    }
+    const before = selection.$from.parent.textBetween(0, selection.$from.parentOffset)
+    const match = /(?:^|\s)@([^\s@]{0,20})$/.exec(before)
+    if (match === null) {
+      return null
+    }
+    const length = (match[1] as string).length + 1
+    const coords = this.editor.view.coordsAtPos(selection.from)
+    return { query: match[1] as string, from: selection.from - length, to: selection.from, left: coords.left, bottom: coords.bottom }
+  }
+
+  /** "@찾는말" 을 멘션으로 바꾼다. 글은 "@이름", 서식 값은 "멘션ID:사용자ID" 다. 뒤에 빈칸을 하나 둔다. */
+  insertMention(from: number, to: number, userId: string, name: string): void {
+    const { state } = this.editor
+    const type = state.schema.marks.mention
+    if (type === undefined) {
+      return
+    }
+    const mark = type.create({ value: `${uuidv7()}:${userId}` })
+    const tr = state.tr.replaceWith(from, to, state.schema.text(`@${name}`, [mark]))
+    tr.insertText(' ', from + name.length + 1)
+    this.editor.view.dispatch(tr)
+    this.editor.view.focus()
   }
 
   /** 끌어 놓은 블록을 옮긴다 (E-5). 옮길 수 없으면(자기 하위, 이미 그 자리) false. */

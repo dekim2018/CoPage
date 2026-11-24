@@ -82,9 +82,9 @@ ack는 DB 커밋 뒤에만 보낸다. 다른 사람에게 보내는 `remote` 도
 | `doc_ops` | 8.1 참고 | doc_id 는 페이지 ID 지만 외래 키를 걸지 않는다(V3 이전 문서가 남아 있다) | V1 |
 | `doc_snapshots` | 8.1 참고 |  | V1 |
 | `doc_versions` | id, doc_id, rev, kind(AUTO, NAMED, RESTORE), name, created_by, created_at. (doc_id, rev, kind) 유일 | 버전 기록 목록. 과거 시점은 그 리비전 이하의 스냅샷과 로그로 만든다 | 구현 (V8, D-44) |
-| `comment_threads` | id, doc_id, created_by, status(OPEN, RESOLVED), quote, orphaned | quote는 댓글을 달 당시의 원문 | 계획 (5단계) |
-| `comments` | id, thread_id, author_id, body, created_at, edited_at, deleted_at |  | 계획 (5단계) |
-| `notifications` | id, user_id, type, page_id, ref_id, dedupe_key, read_at | 유일 (user_id, dedupe_key) | 계획 (5단계) |
+| `comment_threads` | id, doc_id(pages 외래 키), quote, created_by, created_at, resolved_at, resolved_by | quote는 댓글을 달 당시의 원문. 해결은 시각과 사람으로 둔다(status 칸 대신). orphaned 는 아직 없다 | 구현 (V9, D-46) |
+| `comments` | id, thread_id, author_id, body, created_at | 수정과 삭제는 아직 없다 | 구현 (V9, D-46) |
+| `notifications` | id, user_id, kind(MENTION, COMMENT_MENTION, REPLY), doc_id, actor_id, preview, dedupe_key, created_at, read_at | dedupe_key 유일(값에 받는 사람이 들어간다). (user_id, created_at DESC) 색인 | 구현 (V9, D-46) |
 | `page_search` | page_id, workspace_id, title, body, rev | pg_bigm GIN 인덱스 | 계획 (5단계) |
 
 Redis 에는 Refresh 토큰, Access 토큰 차단 목록(로그아웃한 jti, 모든 세션을 끊은 사용자의 시각), 로그인 실패 횟수, 1회용 티켓을 둔다. 소유 리스는 다중 노드(4단계)에서 더한다. 권한 캐시는 두지 않는다(D-11, 9.4).
