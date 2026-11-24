@@ -72,6 +72,8 @@ export class CollabClient {
   /** 마지막으로 받은 내 등급. 브라우저에 함께 남겨 연결 전에도 편집할 수 있게 한다. */
   private role: PageRole | null = null
   private saveTimer: ReturnType<typeof setTimeout> | null = null
+  /** 권한을 잃어 기록을 지웠다. 그 뒤로는 남기지 않는다. */
+  private forgotten = false
   private session: ClientSession | null = null
   /** 살려서 다시 넣은 편집이 다음에 보낼 묶음에 들어 있다. 그 묶음이 다시 거부되면 또 살리지 않는다(되풀이 막기). */
   private salvagePending = false
@@ -108,6 +110,9 @@ export class CollabClient {
           this.connectionState = state
           if (state !== 'open') {
             this.welcomed = false
+          }
+          if (state === 'fatal' && !(detail ?? '').startsWith('401')) {
+            this.forget()
           }
           this.reportStatus(detail)
         },
@@ -463,7 +468,7 @@ export class CollabClient {
 
   /** 상태가 바뀔 때마다 부른다. 200ms 안의 변경은 한 번에 남긴다. */
   private persistSoon(): void {
-    if (this.store === null || !this.store.owned || this.saveTimer !== null) {
+    if (this.store === null || !this.store.owned || this.saveTimer !== null || this.forgotten) {
       return
     }
     this.saveTimer = setTimeout(() => {
@@ -472,8 +477,21 @@ export class CollabClient {
     }, PERSIST_INTERVAL_MS)
   }
 
+  /**
+   * 다시 붙어도 소용없는 이유(권한 없음, 페이지 없음, 규약 위반)로 연결이 끝났다. 보내지 못한 편집은 확정될 수 없고, 권한을 잃은
+   * 문서가 이 브라우저에 계속 남지 않게 기록을 지운다. 로그인이 끝난 것(401)은 다시 로그인하면 이어 갈 수 있어 남긴다.
+   */
+  private forget(): void {
+    this.forgotten = true
+    if (this.saveTimer !== null) {
+      clearTimeout(this.saveTimer)
+      this.saveTimer = null
+    }
+    void this.store?.remove()
+  }
+
   private async persist(): Promise<void> {
-    if (this.store === null || !this.store.owned || this.session === null) {
+    if (this.store === null || !this.store.owned || this.session === null || this.forgotten) {
       return
     }
     await this.store.save({ session: this.session.export(), role: this.role, savedAt: Date.now() })

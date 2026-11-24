@@ -19,6 +19,8 @@ export interface OfflineRecord {
 export interface OfflineStore {
   load(): Promise<OfflineRecord | null>
   save(record: OfflineRecord): Promise<void>
+  /** 이 문서의 기록을 지운다. 권한을 잃어 더 쓸 데가 없을 때 쓴다. */
+  remove(): Promise<void>
   /** 이 탭이 이 문서를 남기기로 했는지. 잠금을 잡지 못했으면 false 이고 load 와 save 는 아무것도 하지 않는다. */
   readonly owned: boolean
   release(): void
@@ -65,6 +67,7 @@ export async function openOfflineStore(userId: string, docId: string): Promise<O
     owned: false,
     load: async () => null,
     save: async () => undefined,
+    remove: async () => undefined,
     release: () => undefined,
   }
   if (typeof indexedDB === 'undefined' || typeof navigator === 'undefined' || navigator.locks === undefined) {
@@ -102,6 +105,13 @@ export async function openOfflineStore(userId: string, docId: string): Promise<O
         await run('readwrite', (store) => store.put(record, key))
       } catch (e) {
         console.warn('편집을 브라우저에 남기지 못했다', e)
+      }
+    },
+    remove: async () => {
+      try {
+        await run('readwrite', (store) => store.delete(key))
+      } catch (e) {
+        console.warn('브라우저에 남긴 편집을 지우지 못했다', e)
       }
     },
     release: () => release(),

@@ -489,3 +489,27 @@ test('보내지 못한 편집은 탭을 닫았다 열어도 남아 있다가 연
   await expect(again.getByTestId('status')).toHaveAttribute('data-status', 'saved')
   expect(await converged(again, b)).toEqual(['제목', '본문 오프라인'])
 })
+
+test('권한을 잃으면 브라우저에 남긴 그 문서의 기록을 지운다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
+  await Promise.all([open(a, docId), open(b, docId)])
+  await prepare(a, b, '제목', ['본문'])
+  const records = () =>
+    b.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          const request = indexedDB.open('copage', 1)
+          request.onsuccess = () => {
+            const count = request.result.transaction('docs').objectStore('docs').count()
+            count.onsuccess = () => resolve(count.result)
+          }
+        }),
+    )
+  await expect.poll(records).toBe(1)
+
+  await apiAs(a, 'DELETE', `/api/pages/${docId}`)
+
+  await expect(b.getByTestId('status')).toHaveAttribute('data-status', 'error', { timeout: 1_000 })
+  await expect.poll(records).toBe(0)
+})
