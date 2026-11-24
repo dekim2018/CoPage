@@ -21,14 +21,16 @@ import org.springframework.test.context.TestPropertySource;
  * 받는 쪽이 느린 클라이언트 (docs/11-TEST-PLAN.md 13.2, docs/CHAOS.md). 한 연결이 읽기를 멈춰도 같은 문서의 다른 사람은
  * ack 와 남의 편집을 늦지 않게 받고, 멈춘 연결만 서버가 버린다(4011).
  *
- * <p>멈춘 연결의 TCP 버퍼가 차도록 큰 편집(60KB)을 넣고 지우기를 되풀이해 수 MB 를 흘린다. 서버의 보낼 대기열 한도는
- * 시험에서 256KB, 쓰기 시간 한도는 2초로 줄였다.
+ * <p>멈춘 연결의 TCP 버퍼가 차도록 큰 편집(60KB)을 넣고 지우기를 서버가 그 연결을 버릴 때까지 되풀이한다(macOS 는 수 MB,
+ * Linux 는 버퍼를 크게 늘려 더 걸린다). 서버의 보낼 대기열 한도는 시험에서 256KB, 쓰기 시간 한도는 2초로 줄였다.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {"copage.collab.send-buffer-bytes=262144", "copage.collab.send-time-limit=2s"})
 class SlowClientTest extends TestInfra {
 
-    private static final int ROUNDS = 40;
+    /** 넣기와 지우기 한 쌍이 한 번이다. 운영체제의 TCP 버퍼 크기가 달라(Linux 는 수 MB 까지 늘린다) 버려질 때까지 보낸다. */
+    private static final int MIN_ROUNDS = 40;
+    private static final int MAX_ROUNDS = 1_000;
     private static final String BIG = "a".repeat(60_000);
 
     @LocalServerPort
@@ -58,7 +60,8 @@ class SlowClientTest extends TestInfra {
         long ackMax = 0;
         long remoteMax = 0;
         int seq = 0;
-        for (int round = 0; round < ROUNDS * 2; round++) {
+        int round = 0;
+        for (; round < MIN_ROUNDS * 2 || (handler.connectionCount() > 2 && round < MAX_ROUNDS * 2); round++) {
             // 넣고 지우기를 되풀이해 문서는 커지지 않고 흐르는 양만 늘린다.
             String delta = round % 2 == 0 ? "[{\"insert\":\"" + BIG + "\"}]" : "[{\"delete\":" + BIG.length() + "}]";
             long sentAt = System.nanoTime();
@@ -91,8 +94,8 @@ class SlowClientTest extends TestInfra {
         int code = slow.closed.get(15, TimeUnit.SECONDS);
         assertTrue(code == CloseCodes.SLOW || code == 1006, "닫힌 코드: " + code);
         long slowRemotes = slow.inbox.stream().filter(r -> "remote".equals(r.message().get("t").stringValue())).count();
-        assertTrue(slowRemotes < ROUNDS * 2, "멈춘 연결이 모두 받았다면 끊긴 것이 아니다: " + slowRemotes);
+        assertTrue(slowRemotes < round, "멈춘 연결이 모두 받았다면 끊긴 것이 아니다: " + slowRemotes);
         System.out.printf("느린 클라이언트 실험: ack 최대 %dms, 반영 최대 %dms, 멈춘 연결이 받은 remote %d/%d, 닫힌 코드 %d%n",
-                ackMax, remoteMax, slowRemotes, ROUNDS * 2, code);
+                ackMax, remoteMax, slowRemotes, round, code);
     }
 }
