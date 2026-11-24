@@ -14,9 +14,11 @@ import java.sql.Types;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -232,22 +234,7 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
             if (parentId != null && findPage(workspaceId, parentId).isEmpty()) {
                 throw new WorkspaceException(Kind.NOT_FOUND, "부모 페이지가 없다");
             }
-            // 보관된 형제도 자리를 차지한다. 나중에 복원해도 순서 키가 겹치지 않는다.
-            String before;
-            String after;
-            if (afterId == null) {
-                before = siblingValue("max(p.pos)", workspaceId, parentId, "TRUE", Map.of());
-                after = null;
-            } else {
-                before = siblingValue("p.pos", workspaceId, parentId, "p.id = :afterId AND p.archived_at IS NULL",
-                        Map.of("afterId", afterId));
-                if (before == null) {
-                    throw new WorkspaceException(Kind.BAD_REQUEST, "afterId 가 그 부모의 하위 페이지가 아니다");
-                }
-                after = siblingValue("min(p.pos)", workspaceId, parentId, "p.pos > :afterPos",
-                        Map.of("afterPos", before));
-            }
-            String pos = FractionalIndex.between(before, after);
+            String pos = positionAfter(workspaceId, parentId, afterId);
             jdbc.sql("""
                             INSERT INTO pages (id, workspace_id, parent_id, pos, created_by, created_at)
                             VALUES (:id, :workspaceId, :parentId, :pos, :createdBy, :createdAt)
@@ -261,6 +248,169 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
                     .update();
             return new Page(pageId, workspaceId, parentId, pos, "", false, createdBy, createdAt);
         });
+    }
+
+    /**
+     * parentId 아래 afterId 바로 뒤(null 이면 맨 뒤)의 순서 키. 워크스페이스 잠금 안에서 부른다. 보관된 형제도 자리를 차지한다.
+     * 나중에 복원해도 순서 키가 겹치지 않는다.
+     */
+    private String positionAfter(UUID workspaceId, UUID parentId, UUID afterId) {
+        String before;
+        String after;
+        if (afterId == null) {
+            before = siblingValue("max(p.pos)", workspaceId, parentId, "TRUE", Map.of());
+            after = null;
+        } else {
+            before = siblingValue("p.pos", workspaceId, parentId, "p.id = :afterId AND p.archived_at IS NULL",
+                    Map.of("afterId", afterId));
+            if (before == null) {
+                throw new WorkspaceException(Kind.BAD_REQUEST, "afterId 가 그 부모의 하위 페이지가 아니다");
+            }
+            after = siblingValue("min(p.pos)", workspaceId, parentId, "p.pos > :afterPos", Map.of("afterPos", before));
+        }
+        return FractionalIndex.between(before, after);
+    }
+
+    @Override
+    public Page movePage(UUID workspaceId, UUID pageId, UUID newParentId, UUID afterId) {
+        return tx.execute(status -> {
+            lockWorkspace(workspaceId);
+            Page page = findPage(workspaceId, pageId)
+                    .orElseThrow(() -> new WorkspaceException(Kind.NOT_FOUND, "페이지가 없다"));
+            if (newParentId != null) {
+                if (findPage(workspaceId, newParentId).isEmpty()) {
+                    throw new WorkspaceException(Kind.NOT_FOUND, "새 부모 페이지가 없다");
+                }
+                if (isSelfOrDescendant(newParentId, pageId)) {
+                    throw new WorkspaceException(Kind.BAD_REQUEST, "페이지를 자기 자신이나 하위 페이지 아래로 옮길 수 없다");
+                }
+            }
+            if (pageId.equals(afterId)) {
+                throw new WorkspaceException(Kind.BAD_REQUEST, "afterId 가 옮기는 페이지 자신이다");
+            }
+            String pos = positionAfter(workspaceId, newParentId, afterId);
+            jdbc.sql("UPDATE pages SET parent_id = :parentId, pos = :pos WHERE id = :pageId")
+                    .param("pageId", pageId)
+                    .param("parentId", newParentId, Types.OTHER)
+                    .param("pos", pos)
+                    .update();
+            return new Page(pageId, workspaceId, newParentId, pos, page.title(), page.restricted(), page.createdBy(),
+                    page.createdAt());
+        });
+    }
+
+    /** candidate 가 ancestorId 자신이거나 그 하위인지. candidate 에서 위로 거슬러 올라간다(기본 키로 찾는다). */
+    private boolean isSelfOrDescendant(UUID candidate, UUID ancestorId) {
+        return Boolean.TRUE.equals(jdbc.sql("""
+                        WITH RECURSIVE up (id, parent_id, depth) AS (
+                            SELECT id, parent_id, 0 FROM pages WHERE id = :candidate
+                            UNION ALL
+                            SELECT p.id, p.parent_id, u.depth + 1 FROM pages p JOIN up u ON p.id = u.parent_id
+                            WHERE u.depth < 1000
+                        )
+                        SELECT EXISTS (SELECT 1 FROM up WHERE id = :ancestorId)
+                        """)
+                .param("candidate", candidate)
+                .param("ancestorId", ancestorId)
+                .query(Boolean.class)
+                .single());
+    }
+
+    @Override
+    public boolean archive(UUID workspaceId, UUID pageId, Instant archivedAt) {
+        return jdbc.sql("""
+                        UPDATE pages SET archived_at = :archivedAt
+                        WHERE id = :pageId AND workspace_id = :workspaceId AND archived_at IS NULL
+                        """)
+                .param("pageId", pageId)
+                .param("workspaceId", workspaceId)
+                .param("archivedAt", Timestamp.from(archivedAt))
+                .update() == 1;
+    }
+
+    @Override
+    public Optional<TrashedPage> findTrashed(UUID workspaceId, UUID pageId) {
+        return jdbc.sql("SELECT " + PAGE_COLUMNS + """
+                        , p.archived_at
+                        FROM pages p
+                        WHERE p.id = :pageId AND p.workspace_id = :workspaceId AND p.archived_at IS NOT NULL
+                        """)
+                .param("pageId", pageId)
+                .param("workspaceId", workspaceId)
+                .query((rs, row) -> new TrashedPage(page(rs), rs.getTimestamp("archived_at").toInstant()))
+                .optional();
+    }
+
+    @Override
+    public Optional<Page> restore(UUID workspaceId, UUID pageId) {
+        return tx.execute(status -> {
+            lockWorkspace(workspaceId);
+            Optional<TrashedPage> trashed = findTrashed(workspaceId, pageId);
+            if (trashed.isEmpty()) {
+                return Optional.<Page>empty();
+            }
+            Page page = trashed.get().page();
+            UUID parentId = page.parentId();
+            String pos = page.pos();
+            if (parentId != null && hasArchivedAncestor(parentId)) {
+                parentId = null;
+                pos = positionAfter(workspaceId, null, null);
+            }
+            jdbc.sql("UPDATE pages SET archived_at = NULL, parent_id = :parentId, pos = :pos WHERE id = :pageId")
+                    .param("pageId", pageId)
+                    .param("parentId", parentId, Types.OTHER)
+                    .param("pos", pos)
+                    .update();
+            return Optional.of(new Page(pageId, workspaceId, parentId, pos, page.title(), page.restricted(),
+                    page.createdBy(), page.createdAt()));
+        });
+    }
+
+    /** pageId 자신이나 그 조상 중 휴지통에 있는 것이 있는지. */
+    private boolean hasArchivedAncestor(UUID pageId) {
+        return Boolean.TRUE.equals(jdbc.sql("""
+                        WITH RECURSIVE up (id, parent_id, archived, depth) AS (
+                            SELECT id, parent_id, archived_at IS NOT NULL, 0 FROM pages WHERE id = :pageId
+                            UNION ALL
+                            SELECT p.id, p.parent_id, p.archived_at IS NOT NULL, u.depth + 1
+                            FROM pages p JOIN up u ON p.id = u.parent_id
+                            WHERE u.depth < 1000
+                        )
+                        SELECT EXISTS (SELECT 1 FROM up WHERE archived)
+                        """)
+                .param("pageId", pageId)
+                .query(Boolean.class)
+                .single());
+    }
+
+    @Override
+    public List<TrashedPage> trash(UUID workspaceId) {
+        return jdbc.sql("SELECT " + PAGE_COLUMNS + """
+                        , p.archived_at
+                        FROM pages p
+                        WHERE p.workspace_id = :workspaceId AND p.archived_at IS NOT NULL
+                        ORDER BY p.archived_at DESC, p.id
+                        """)
+                .param("workspaceId", workspaceId)
+                .query((rs, row) -> new TrashedPage(page(rs), rs.getTimestamp("archived_at").toInstant()))
+                .list();
+    }
+
+    @Override
+    public Set<UUID> subtree(UUID pageId) {
+        // 하위로 내려가는 재귀는 pages_parent 인덱스를 쓴다.
+        return new HashSet<>(jdbc.sql("""
+                        WITH RECURSIVE tree (id, depth) AS (
+                            SELECT id, 0 FROM pages WHERE id = :pageId
+                            UNION ALL
+                            SELECT p.id, t.depth + 1 FROM pages p JOIN tree t ON p.parent_id = t.id
+                            WHERE t.depth < 1000
+                        )
+                        SELECT id FROM tree
+                        """)
+                .param("pageId", pageId)
+                .query(UUID.class)
+                .list());
     }
 
     /** parentId 의 하위 페이지들(보관된 것 포함)에서 condition 에 맞는 expression 값을 하나 읽는다. 없으면 null. */

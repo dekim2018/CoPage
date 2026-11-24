@@ -44,8 +44,21 @@ public final class PagePermissions {
     }
 
     public Access access(UUID userId, UUID pageId) {
+        return access(userId, pageId, false);
+    }
+
+    /**
+     * 휴지통 여부를 보지 않은 접근. 휴지통의 페이지를 꺼내거나 휴지통 목록에 보일지 정할 때 쓴다. 휴지통에 가기 전과 같은 규칙으로
+     * 계산하므로, 휴지통에 보내기 전에 볼 수 없던 사람은 휴지통에서도 볼 수 없다.
+     */
+    public Access accessIgnoringTrash(UUID userId, UUID pageId) {
+        return access(userId, pageId, true);
+    }
+
+    private Access access(UUID userId, UUID pageId, boolean ignoreTrash) {
         Chain chain = repository.chain(userId, pageId);
-        if (chain == null || chain.role() == null || chain.rows().stream().anyMatch(ChainRow::archived)) {
+        if (chain == null || chain.role() == null
+                || (!ignoreTrash && chain.rows().stream().anyMatch(ChainRow::archived))) {
             return new Access.NotFound();
         }
         List<Link> links = chain.rows().stream().map(ChainRow::link).toList();

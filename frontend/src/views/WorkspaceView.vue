@@ -43,6 +43,7 @@ function switchTo(event: Event) {
         <button v-if="canCreate" type="button" class="new-page" @click="createRoot">새 페이지</button>
         <PageTree :workspace-id="workspaceId" :parent-id="null" />
         <RouterLink v-if="canCreate" :to="`/w/${workspaceId}/members`" class="members-link">멤버</RouterLink>
+        <RouterLink v-if="canCreate" :to="`/w/${workspaceId}/trash`" class="members-link">휴지통</RouterLink>
         <!-- create 가 없으면 첫 화면이 곧바로 내 워크스페이스로 되돌려 보낸다 -->
         <RouterLink :to="{ path: '/', query: { create: '1' } }" class="members-link">워크스페이스 만들기</RouterLink>
       </template>

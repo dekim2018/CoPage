@@ -48,6 +48,15 @@ export interface Grant {
   inheritedFrom: string | null
 }
 
+/** 휴지통의 페이지. canRestore 는 휴지통에 가기 전 FULL 이었는지다. */
+export interface TrashedPage {
+  id: string
+  parentId: string | null
+  title: string
+  archivedAt: string
+  canRestore: boolean
+}
+
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) })
 
 export const workspaceApi = {
@@ -67,6 +76,11 @@ export const workspaceApi = {
   createPage: (workspaceId: string, parentId: string | null) =>
     api<PageNode>(`/api/workspaces/${workspaceId}/pages`, { method: 'POST', ...json({ parentId }) }),
   page: (pageId: string) => api<PageDetail>(`/api/pages/${pageId}`),
+  movePage: (pageId: string, parentId: string | null, afterId: string | null) =>
+    api<PageDetail>(`/api/pages/${pageId}/move`, { method: 'POST', ...json({ parentId, afterId }) }),
+  trashPage: (pageId: string) => api<void>(`/api/pages/${pageId}`, { method: 'DELETE' }),
+  restorePage: (pageId: string) => api<PageDetail>(`/api/pages/${pageId}/restore`, { method: 'POST' }),
+  trash: (workspaceId: string) => api<TrashedPage[]>(`/api/workspaces/${workspaceId}/trash`),
   grants: (pageId: string) => api<Grant[]>(`/api/pages/${pageId}/grants`),
   grantByEmail: (pageId: string, email: string, level: PageRole) =>
     api<Grant>(`/api/pages/${pageId}/grants`, { method: 'POST', ...json({ email, level }) }),
