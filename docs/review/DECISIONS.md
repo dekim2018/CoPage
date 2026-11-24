@@ -202,3 +202,11 @@ W-5(P1, SSE)는 별도 작업으로 둔다. 화면을 다시 열거나 펼치면
 - 생성기를 Gradle test fixtures 로 옮겨 app 의 시험도 쓴다
 - 스냅샷과 그 뒤 로그로 연 문서가 처음부터 다시 적용한 문서와 같은지, 무작위 리비전에 스냅샷을 남기며 실제 PostgreSQL 로 확인한다
 - 생성기가 바뀌어 적합성 벡터도 다시 만들어진다. 새 벡터에는 이모지 수만~수백만 글자와 긴 글 수백~수만 개가 들어 있고 TS 가 모두 같다
+
+### D-32 모듈 경계는 ArchUnit 으로, CI 에 비밀키와 의존성 검사 (추천 채택, ARCH-1, OPS-2)
+
+- 모듈 경계 검사는 ArchUnit 시험(`ModuleBoundaryTest`)으로 한다. 규칙: 모듈 사이 순환 없음, 다른 모듈은 app 과 domain 으로만 쓴다(in, out, config 는 그 모듈 안의 것), domain 과 app 은 in, out, config 를 모른다, domain 은 스프링을 모른다
+- 버린 안: Spring Modulith(02-TECH-STACK 에 적었던 것). Modulith 는 모듈의 하위 패키지를 모두 내부로 보아, 지금 구조(app 의 포트와 서비스를 다른 모듈이 씀)에서는 패키지마다 NamedInterface 를 달아야 한다. 같은 규칙을 ArchUnit 은 그대로 적을 수 있고 Spring Boot 판과도 엮이지 않는다
+- 규칙이 실제로 잡는지: workspace.app 에서 collab.out 을 쓰는 임시 클래스를 넣으면 넷 중 셋이 실패한다
+- CI: 커밋 이력 전체의 비밀키 검사(gitleaks, 판 고정), 화면 의존성의 high 이상 취약점(npm audit), 의존성 갱신 PR(Dependabot: gradle, npm, actions). 지금 결과: 비밀키 없음(커밋 72개), 취약점 0
+- 하지 않은 것: 형식 검사와 정적 분석. 형식 도구를 들이면 코드 전체가 바뀐다. 사용자가 나중에 몰아서 할 리팩터링 때 함께 정한다

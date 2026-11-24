@@ -25,6 +25,17 @@ jobs:
       - name: 무작위 테스트 10배
         run: ./gradlew :ot-core:test --rerun-tasks -Dcopage.ot.scale=10
 
+  # 커밋 이력 전체에서 비밀키가 새어 나갔는지 본다 (진단 OPS-2). 버전을 고정해 같은 규칙으로 돈다.
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 비밀키 검사
+        run: docker run --rm -v "$PWD":/repo zricethezav/gitleaks:v8.24.2 detect --source=/repo --redact --no-banner
+
   # TypeScript OT 구현이 Java 구현과 같은 결과를 내는지 적합성 벡터로 확인한다.
   frontend:
     runs-on: ubuntu-latest
@@ -50,6 +61,11 @@ jobs:
       - name: 의존성 설치
         working-directory: frontend
         run: npm ci
+
+      # 알려진 취약점이 high 이상인 의존성이 있으면 실패한다 (진단 OPS-2).
+      - name: 의존성 취약점
+        working-directory: frontend
+        run: npm audit --audit-level=high
 
       - name: 타입 검사와 빌드
         working-directory: frontend
