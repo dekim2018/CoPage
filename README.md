@@ -2,37 +2,101 @@
 
 여러 사람이 한 페이지를 동시에 고쳐도 모두 같은 결과를 보게 되는 블록 기반 문서 서비스다. 동시 편집 충돌은 서버 주도 OT(Operational Transformation)를 Java로 직접 구현해서 푼다.
 
-Java 25, Spring Boot 4.1, Spring Security 7.1, Vue 3을 쓴다.
+Java 25, Spring Boot 4.2, Spring Security 7.2, PostgreSQL 17, Redis 7, Vue 3, Tiptap 3을 쓴다.
 
 ## 지금 상태
 
-1단계(OT 코어)와 2단계(협업 서버)를 구현했다. Java 구현과 TypeScript 구현이 적합성 벡터 11,000건에서 같은 결과를 낸다. 노드 1대에서 여러 명이 로그인해 블록 10종 편집기로 한 페이지를 같이 고치고, 서로의 커서와 접속자를 본다. 서버를 다시 띄워도 문서가 남는다. 전체 계획은 [docs/12-ROADMAP.md](docs/12-ROADMAP.md)에 있다.
+1단계(OT 코어)와 2단계(협업 서버)를 마쳤고, 3단계(워크스페이스와 권한)의 대부분과 4, 6단계의 일부(노드 1대의 장애 실험과 부하 측정)를 했다. 지금은 노드 1대 기준이다. 전체 계획과 단계별 상태는 [docs/12-ROADMAP.md](docs/12-ROADMAP.md)에 있다.
+
+만든 것:
+
+- 블록 10종(문단, 제목 1~3, 글머리 기호, 번호, 할 일, 토글, 인용, 콜아웃, 코드, 구분선)과 글자 서식 6종, Tab 들여쓰기, 마크다운 단축 입력을 쓰는 편집기
+- 여러 명이 한 페이지를 동시에 고치는 서버 주도 OT. Java 와 TypeScript 두 구현이 적합성 벡터 14,600건에서 같은 결과를 낸다
+- 남의 커서와 접속자 목록
+- 끊겼다 다시 붙을 때 보내지 못한 편집을 한 번만 확정(메모리에서. 브라우저를 닫으면 사라진다)
+- 거부된 편집을 블록 단위로 살리고, 못 살린 글은 편집기 위 보관함에 보인다
+- 가입, 로그인, JWT 와 Refresh 토큰 회전, 로그아웃
+- 워크스페이스, 멤버(가입한 사용자를 이메일로 바로 넣기), 역할(OWNER, MEMBER, GUEST), 페이지 트리, 제목 줄에서 채우는 페이지 제목
+- 페이지 권한(VIEW, COMMENT, EDIT, FULL), 상속과 restricted, 공유 창. 권한을 바꾸면 열린 편집기에 1초 안에 적용된다
+- Redis 장애 때 503 으로 막고 열린 편집은 계속(fail-closed), 관리 포트의 Prometheus 지표, 부하 도구 `loadgen`
+
+아직 없는 것: 이메일 초대, 공유 링크, 페이지를 끌어 옮기는 화면(옮기기 API 는 있다), 사이드바 실시간 반영, 오프라인 저장(IndexedDB), 다중 노드(소유 리스, 양도, 프록시), 버전 기록, 댓글, 멘션, 검색, 되돌리기, 슬래시 메뉴, 블록 끌어 옮기기, 배포.
 
 | 단계 | 내용 | 상태 |
 | --- | --- | --- |
-| 0 | 검증 실험 (편집기 어댑터 시제품) | 편집기 어댑터 완료(문단 블록, 브라우저 두 개의 동시 편집, 한글 조합). pg_bigm 확인은 아직 |
+| 0 | 검증 실험 (편집기 어댑터 시제품) | 편집기 어댑터 완료. pg_bigm 확인은 아직 |
 | 1 | OT 코어 (Java, TypeScript, 적합성 벡터) | 완료 |
-| 2 | 협업 서버 | 완료. 문서 세션, WebSocket 규약, 연산 로그와 스냅샷(PostgreSQL), 로그인과 토큰, 블록 10종 편집기, 프레즌스 |
-| 3~7 | 워크스페이스와 권한, 오프라인과 다중 노드, 부가 기능, 측정, 배포 | 아직 |
+| 2 | 협업 서버 | 완료 |
+| 3 | 워크스페이스와 권한 | 일부. 초대, 공유 링크, 이동, 휴지통이 남았다 |
+| 4 | 오프라인과 다중 노드 | 일부. 노드 1대의 장애 실험([docs/CHAOS.md](docs/CHAOS.md))만 했다 |
+| 5 | 부가 기능 | 아직 |
+| 6 | 측정과 개선 | 일부. 노트북 한 대의 측정값을 [docs/01-PLAN.md](docs/01-PLAN.md) 1.4 에 적었다 |
+| 7 | 배포 | 아직. CI 는 있다 |
 
 ## 모듈
 
 | 모듈 | 내용 |
 | --- | --- |
-| `ot-core` | 문서 모델, 연산 7종, 적용, 변환, 합성, 역연산, 서버와 클라이언트의 동기화 규칙. 외부 의존성이 없다 (테스트의 벡터 생성기만 Jackson을 쓴다) |
-| `app` | 협업 서버. 협업 모듈(`com.copage.collab`): 문서 세션, WebSocket 규약, 1회용 티켓, PostgreSQL 연산 로그와 스냅샷. 계정 모듈(`com.copage.identity`): 가입, 로그인, JWT와 Refresh 토큰 회전. 토큰과 티켓은 Redis에 둔다 |
-| `loadgen` | 부하 도구. 지금은 비어 있다 |
-| `frontend` | 프론트엔드 (Vue 3, Vite, Pinia, Tiptap 3). 로그인과 가입, 편집기 화면. `src/collab/` 아래에 OT 코어(`ot`), 상태 기계와 협업 클라이언트(`client`), WebSocket 연결(`transport`), 편집기 어댑터(`adapter`)가 있다. 편집기는 블록 10종, 서식 6종, Tab 들여쓰기, 마크다운 단축 입력을 다룬다 |
+| `ot-core` | 문서 모델, 연산 7종, 적용, 변환, 합성, 역연산, 서버와 클라이언트의 동기화 규칙. 외부 의존성이 없다 (테스트의 벡터 생성기만 Jackson을 쓴다). 무작위 연산 생성기는 test fixtures 로 `app` 도 쓴다 |
+| `app` | 서버. 계정(`com.copage.identity`), 워크스페이스와 페이지 트리(`workspace`), 페이지 권한(`permission`), 협업(`collab`: 문서 세션, WebSocket 규약, 연산 로그와 스냅샷, 티켓, 지표) 모듈. 모듈 경계는 ArchUnit 으로 검사한다. 데이터는 PostgreSQL(Flyway V1~V5), 토큰과 티켓은 Redis |
+| `loadgen` | 부하 도구. `ot-core` 의 클라이언트 상태 기계를 그대로 쓰는 가상 편집자를 실제 서버에 붙인다 |
+| `frontend` | 프론트엔드 (Vue 3, Vite, Pinia, Tiptap 3). 로그인과 가입, 워크스페이스와 페이지 트리, 편집기, 공유 창, 멤버 화면. `src/collab/` 아래에 OT 코어(`ot`), 상태 기계와 협업 클라이언트(`client`), WebSocket 연결(`transport`), 편집기 어댑터(`adapter`)가 있다 |
+
+## 빠르게 띄워 보기
+
+JDK 25, Docker, Node.js 22.12 이상이 필요하다.
+
+```bash
+docker compose up -d                                   # PostgreSQL 17(5432), Redis 7(6379)
+./gradlew :app:bootRun --args='--spring.profiles.active=dev'   # API 와 WebSocket 8080, 관리 포트 127.0.0.1:8081
+
+# 다른 터미널에서
+cd frontend
+npm ci
+npm run dev
+# http://localhost:5173 에서 가입한다. 워크스페이스를 만들고 사이드바에서 페이지를 만든다.
+# 다른 브라우저(다른 사용자)로 가입한 뒤, 첫 사용자가 멤버 화면에서 넣거나 공유 창에서 권한을 주면 같이 편집된다.
+```
+
+| 환경 변수 | 기본값 | 뜻 |
+| --- | --- | --- |
+| `COPAGE_DB_PORT`, `COPAGE_REDIS_PORT` | 5432, 6379 | `compose.yaml` 과 서버가 함께 쓴다. 포트를 다른 것이 쓰고 있으면 두 명령 모두에 같은 값을 준다 |
+| `COPAGE_JWT_SECRET` | dev 프로필만 개발용 키 | 32바이트 이상. dev 가 아닌 프로필에서 없으면 서버가 뜨지 않는다 |
+| `COPAGE_MANAGEMENT_PORT`, `COPAGE_MANAGEMENT_ADDRESS` | 8081, 127.0.0.1 | 지표(`/actuator/prometheus`)와 상태 확인(`/actuator/health/liveness` 등) |
+| `COPAGE_DB_SOCKET_TIMEOUT_SECONDS`, `COPAGE_DB_CONNECT_TIMEOUT_MS` | 10, 3000 | DB 가 답하지 않을 때의 한도 |
+| `COPAGE_REDIS_TIMEOUT`, `COPAGE_REDIS_CONNECT_TIMEOUT` | 2s, 2s | Redis 가 답하지 않을 때의 한도. 넘으면 503 |
+| `COPAGE_BACKEND` | `http://localhost:8080` | Vite 개발 서버가 `/api`, `/ws` 를 넘길 곳 |
+
+API 를 직접 불러 보려면 이렇게 한다(docs/09-API.md).
+
+```bash
+curl -X POST localhost:8080/api/auth/signup -H 'Content-Type: application/json' \
+  -d '{"email":"me@example.com","password":"correct horse 1","name":"김코"}'
+curl -X POST localhost:8080/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"me@example.com","password":"correct horse 1"}'
+# {"accessToken":"...","tokenType":"Bearer","expiresIn":900,"user":{...}}  Refresh 토큰은 쿠키로 온다
+
+curl -X POST localhost:8080/api/workspaces -H 'Authorization: Bearer ...' -H 'Content-Type: application/json' -d '{"name":"내 공간"}'
+# {"id":"<wsId>","name":"내 공간","role":"OWNER"}
+curl -X POST localhost:8080/api/workspaces/<wsId>/pages -H 'Authorization: Bearer ...'
+# {"id":"<pageId>",...,"level":"FULL"}   페이지 ID 가 곧 문서 ID 다
+curl -X POST localhost:8080/api/docs/<pageId>/ws-ticket -H 'Authorization: Bearer ...'
+# {"ticket":"...","role":"FULL"}
+
+# 30초 안에 연결하고 hello 를 보낸다 (docs/05-PROTOCOL.md)
+# ws://localhost:8080/ws/docs/<pageId>?ticket=...&v=1
+# {"t":"hello","clientId":"tab-1","lastRev":0,"resume":false}
+```
 
 ## 빌드와 테스트
 
-JDK 25와 Docker가 필요하다. `app` 의 테스트는 Testcontainers로 PostgreSQL 17과 Redis 7을 띄운다.
+JDK 25와 Docker가 필요하다. `app` 의 테스트는 Testcontainers로 PostgreSQL 17, Redis 7, Toxiproxy를 띄운다. 시험 목록 전체와 돌리는 법은 [docs/11-TEST-PLAN.md](docs/11-TEST-PLAN.md) 13.1.1 에 있다.
 
 ```bash
 ./gradlew build
 ```
 
-`ot-core` 의 무작위 테스트는 기본 횟수가 적다. 오래 돌리려면 배수를 준다.
+`ot-core` 의 무작위 테스트는 기본 횟수가 적다. 오래 돌리려면 배수를 준다. CI 는 10배로 돌린다.
 
 ```bash
 ./gradlew :ot-core:test --rerun-tasks -Dcopage.ot.scale=100
@@ -52,44 +116,9 @@ JDK 25와 Docker가 필요하다. `app` 의 테스트는 Testcontainers로 Postg
 
 무작위 테스트는 실패하면 시드를 출력한다. 같은 시드로 다시 돌리면 같은 사례가 나온다.
 
-## 협업 서버 띄워 보기
-
-PostgreSQL과 Redis를 먼저 띄운다. 5432나 6379 포트를 다른 것이 쓰고 있으면 모든 명령 앞에 `COPAGE_DB_PORT=55432 COPAGE_REDIS_PORT=56379` 처럼 다른 포트를 준다. dev 프로필은 개발용 JWT 키를 쓴다. 그 밖의 환경에서는 `COPAGE_JWT_SECRET` 에 32바이트 이상의 키를 주지 않으면 서버가 뜨지 않는다.
-
-```bash
-docker compose up -d
-./gradlew :app:bootRun --args='--spring.profiles.active=dev'
-
-# 다른 터미널에서
-curl -X POST localhost:8080/api/auth/signup -H 'Content-Type: application/json' \
-  -d '{"email":"me@example.com","password":"correct horse 1","name":"김코"}'
-curl -X POST localhost:8080/api/auth/login -H 'Content-Type: application/json' \
-  -d '{"email":"me@example.com","password":"correct horse 1"}'
-# {"accessToken":"...","tokenType":"Bearer","expiresIn":900,"user":{...}}  Refresh 토큰은 쿠키로 온다
-
-# 문서 ID 는 아무 UUID 나 쓴다. 권한 계산(3단계) 전까지는 로그인한 사용자가 어느 문서든 편집할 수 있다.
-curl -X POST localhost:8080/api/docs/3f0c6a8e-0000-4000-8000-000000000001/ws-ticket -H 'Authorization: Bearer ...'
-# {"ticket":"...","role":"EDIT"}
-
-# 30초 안에 연결하고 hello 를 보낸다 (docs/05-PROTOCOL.md)
-# ws://localhost:8080/ws/docs/3f0c6a8e-0000-4000-8000-000000000001?ticket=...&v=1
-# {"t":"hello","clientId":"tab-1","lastRev":0,"resume":false}
-```
-
-## 편집기 띄워 보기
-
-백엔드를 위처럼 띄운 뒤 Vite 개발 서버를 띄운다. 개발 서버는 `/api` 와 `/ws` 를 백엔드(기본 `http://localhost:8080`, `COPAGE_BACKEND` 로 바꿈)로 넘긴다.
-
-```bash
-cd frontend
-npm ci
-npm run dev
-# http://localhost:5173 에서 가입하고 "새 문서" 를 누른다. 주소를 다른 브라우저(다른 사용자)에서 열면 같이 편집된다.
-```
-
 ## 화면 테스트
 
-Playwright가 백엔드 jar와 Vite 개발 서버를 띄우고 브라우저 두 개로 같은 문서를 편집한다. PostgreSQL과 Redis가 떠 있어야 한다.
+Playwright가 백엔드 jar와 Vite 개발 서버를 띄우고 브라우저 두 개로 같은 문서를 편집한다. PostgreSQL과 Redis가 떠 있어야 한다. 시험은 24개다.
 
 ```bash
 docker compose up -d
@@ -98,6 +127,8 @@ cd frontend
 npx playwright install chromium
 npm run e2e
 ```
+
+백엔드는 18081, 화면은 5174 포트에 뜬다. 다른 것이 쓰고 있으면 `COPAGE_E2E_BACKEND_PORT`, `COPAGE_E2E_WEB_PORT` 로 바꾼다. DB 와 Redis 포트를 바꿨으면 `COPAGE_DB_PORT`, `COPAGE_REDIS_PORT` 도 같이 준다.
 
 | 테스트 | 확인하는 것 |
 | --- | --- |
@@ -112,6 +143,11 @@ npm run e2e
 | 토글 접기 | 접으면 내 화면에서만 자식이 숨는다 |
 | 접속자 목록 | 같은 문서를 연 사람의 이름이 보이고 나가면 사라진다 |
 | 남의 커서 | 이름표와 함께 같은 자리에 보이고, 내가 앞에 글자를 치면 따라 밀린다 |
+| 큰 붙여넣기 | 64KB 를 넘는 붙여넣기를 여러 묶음으로 나눠 보내 끊기지 않는다 |
+| 빠른 타이핑 | 초당 50타로 쳐도 서버 한도에 걸려 끊기지 않는다 |
+| 워크스페이스와 트리 | 워크스페이스와 페이지를 만들면 제목이 트리와 경로에 보이고, 남은 열지 못한다. 게스트만인 사용자의 첫 화면 |
+| 공유와 회수 | 공유 창과 멤버 화면으로 권한을 주고 내리면 상대 편집기에 1초 안에 적용된다. 회수하면 닫힌다 |
+| 보관함 | 구조 충돌로 묶음이 거부되어도 다른 블록의 글은 남고, 못 살린 편집은 보관함에 보인다 |
 
 겹치는 편집이 정말 겹치도록, 한쪽 브라우저로 가는 WebSocket 메시지를 잠시 붙잡은 채 양쪽이 편집하게 한다.
 
@@ -119,14 +155,19 @@ npm run e2e
 
 | 테스트 | 확인하는 것 |
 | --- | --- |
-| `DocumentSessionTest` | 문서 세션의 규칙을 네트워크 없이. 동시 편집의 변환, 묶음 커밋, 커밋 실패 시 세션 버리기, 재접속과 중복 순번, 오래된 연결의 `rebase: false`, 연결 한도, 거부 |
-| `ChangePolicyTest` | 권한 등급별로 허용하는 연산, 블록 종류와 서식 이름, 링크 주소, 문서 크기 한도 |
-| `ProtocolCodecTest`, `OpJsonVectorTest` | 메시지 형식. 적합성 벡터의 연산과 문서를 읽었다 다시 쓰면 원래 JSON과 같은지 (TypeScript 구현과 같은 형식인지) |
-| `JdbcDocumentStoreTest` | PostgreSQL 저장소. 묶음 쓰기와 읽기, 제약 위반이면 한 행도 남지 않는지, 스냅샷에 그 뒤 연산을 적용해 여는지, 스냅샷을 세 개만 남기는지 |
-| `RestartTest` | 서버를 띄워 편집하고 완전히 내린 뒤 새로 띄운 서버에서 같은 문서를 받는지 (2단계 완료 기준) |
-| `WebSocketConnectionTest` | 받는 쪽이 느린 연결이 보내는 쪽을 막지 않고, 대기열이나 시간 한도를 넘으면 4011로 끊기는지 |
-| `CollabWebSocketIntegrationTest` | 서버를 띄우고 실제 WebSocket으로. 클라이언트 3개가 무작위로 편집하고 끊겼다 붙은 뒤 모두 서버와 같은 문서가 되는지, 종료 코드 4001, 4008, 4010 |
-| `AuthFlowTest` | 가입부터 티켓을 받아 WebSocket에 붙기까지. Refresh 토큰 회전과 재사용 시 모든 세션 끊기, 로그아웃, 5회 실패 잠금, 허용하지 않은 Origin, 위조 토큰 |
+| `DocumentSessionTest` | 문서 세션의 규칙을 네트워크 없이. 동시 편집의 변환, 묶음 커밋, 커밋 실패 시 세션 버리기, 재접속과 중복 순번, 연결별 순번 규칙, 기록 창, 오래된 연결의 `rebase: false`, 연결 한도, 거부, 제목 알림 |
+| `ChangePolicyTest` | 권한 등급별로 허용하는 연산, 블록 종류와 서식 이름, 블록 속성 값, 순서 키, 링크 주소, 문서 크기 한도 |
+| `ProtocolCodecTest`, `OpJsonVectorTest` | 메시지 형식. 적합성 벡터의 연산과 문서를 읽었다 다시 쓰면 원래 JSON과 같은지 |
+| `JdbcDocumentStoreTest`, `SnapshotReplayPropertyTest` | PostgreSQL 저장소. 묶음 쓰기와 읽기, 제약 위반이면 한 행도 남지 않는지, 스냅샷과 그 뒤 로그로 연 문서가 처음부터 재생한 문서와 같은지(무작위) |
+| `RestartTest` | 서버를 완전히 내린 뒤 새로 띄운 서버에서 같은 문서를 받는지 |
+| `WebSocketConnectionTest`, `CollabWebSocketHandlerTest` | 받는 쪽이 느린 연결이 보내는 쪽을 막지 않고 4011로 끊기는지. change 와 presence 의 빈도 한도 |
+| `CollabWebSocketIntegrationTest` | 실제 WebSocket으로 클라이언트 3개가 무작위로 편집하고 끊겼다 붙은 뒤 모두 서버와 같은 문서가 되는지, 종료 코드 |
+| `AuthFlowTest`, `OriginCheckTest`, `RedisRefreshTokenStoreTest` | 가입부터 WebSocket까지. Refresh 토큰 회전과 재사용 시 모든 세션 끊기, 로그아웃, 잠금, Origin, 위조 토큰, iss와 aud |
+| `WorkspaceFlowTest`, `JdbcWorkspaceRepositoryTest`, `RemoveMemberAtomicityTest`, `V3MigrationTest`, `TitleNormalizationTest`, `PageTitleTest` | 워크스페이스, 멤버, 페이지 트리, 마지막 OWNER, 기존 문서 옮기기, 제목 동기화 |
+| `PermissionRulesTest`, `PagePermissionsTest`, `PermissionFlowTest`, `GrantFlowTest`, `LiveRevocationTest` | 권한 계산 규칙, 티켓의 404와 403, restricted, GUEST, 부여와 회수, 열린 연결에 1초 안에 적용 |
+| `RedisOutageTest`, `PostgresOutageTest`, `SlowClientTest`, `DbLatencyTest` | 장애 실험 ([docs/CHAOS.md](docs/CHAOS.md)) |
+| `StoreUnavailableFilterTest`, `MetricsTest` | 저장소에 닿지 못한 요청의 503 변환. 지표가 관리 포트에만 열리는지 |
+| `ModuleBoundaryTest` | 모듈 경계 (ArchUnit) |
 
 `app` 의 테스트는 적합성 벡터를 쓰므로 `./gradlew :app:test` 가 `:ot-core:exportVectors` 를 먼저 돌린다.
 
@@ -150,14 +191,32 @@ npm test
 | `apply.json` | 1,000 | 문서에 묶음을 적용한 결과와 화면 순서. 적용할 수 없는 묶음이 섞여 있다 |
 | `transform.json` | 4,000 | 묶음 두 개의 변환 결과, 변환 충돌 여부, 두 순서로 적용한 문서 |
 | `invert.json` | 2,000 | 묶음의 역연산과 역연산을 적용한 문서 |
-| `fractional-index.json` | 500 | 순서 키 만들기. 잘못된 입력도 섞었다 |
+| `fractional-index.json` | 4,100 | 순서 키 만들기. 잘못된 입력과, 맨 뒤와 맨 앞 추가를 길게 이어 가는 사례(D-24)를 섞었다 |
 | `client.json` | 500 | 수렴 시뮬레이션에서 클라이언트가 받은 호출(edit, poll, change, ack, nack, resync)을 차례로 재생하며 호출마다 상태 비교 |
 
 벡터는 시드가 고정되어 있어 같은 코드에서는 같은 파일이 나온다. 어긋나면 Vitest가 시드와 함께 기대값과 실제값을 보여 준다. 생성기는 `ot-core/src/test/java/com/copage/ot/vectors/` 에 있다.
 
+## 부하 도구
+
+`loadgen` 은 실제 서버에 가상 편집자를 붙여 ack 지연, 남의 화면 반영 지연, 거부와 끊김, 수렴을 잰다. 서버를 먼저 띄운다.
+
+```bash
+docker compose up -d && ./gradlew :app:bootJar
+java -Xmx1g -jar app/build/libs/app-0.1.0-SNAPSHOT.jar --spring.profiles.active=dev &
+./gradlew :loadgen:run --args="scenario=one-doc editors=50 seconds=60"
+./gradlew :loadgen:run --args="scenario=many-docs docs=500 editors=4 seconds=60 rate=1"
+./gradlew :loadgen:run --args="scenario=open-doc blocks=2000 opens=20 cold=true"
+```
+
+시나리오와 인자는 [docs/11-TEST-PLAN.md](docs/11-TEST-PLAN.md) 13.3, 노드 강제 종료 실험은 [docs/CHAOS.md](docs/CHAOS.md) 에 있다.
+
 ## 문서
 
-[docs/README.md](docs/README.md)에서 시작한다. 변환 규칙은 [docs/04-OT-DESIGN.md](docs/04-OT-DESIGN.md), 결정과 버린 대안은 [docs/adr/](docs/adr/README.md)에 있다.
+[docs/README.md](docs/README.md)에서 시작한다.
+
+- 설계: 변환 규칙 [docs/04-OT-DESIGN.md](docs/04-OT-DESIGN.md), 규약 [docs/05-PROTOCOL.md](docs/05-PROTOCOL.md), API [docs/09-API.md](docs/09-API.md), 결정과 버린 대안 [docs/adr/](docs/adr/README.md)
+- 장애 실험 결과: [docs/CHAOS.md](docs/CHAOS.md)
+- 아키텍처 진단과 개선 기록: [ARCHITECTURE-REVIEW](docs/review/ARCHITECTURE-REVIEW.md), [SECURITY-REVIEW](docs/review/SECURITY-REVIEW.md), [DATA-CONSISTENCY-REVIEW](docs/review/DATA-CONSISTENCY-REVIEW.md), [PERFORMANCE-REVIEW](docs/review/PERFORMANCE-REVIEW.md), [IMPLEMENTATION-REPORT](docs/review/IMPLEMENTATION-REPORT.md), [IMPROVEMENT-ROADMAP](docs/review/IMPROVEMENT-ROADMAP.md), 결정 기록 [DECISIONS](docs/review/DECISIONS.md)
 
 ## 작업 방식
 
