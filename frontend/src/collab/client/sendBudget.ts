@@ -8,6 +8,9 @@ import { RichText } from '../ot/richText'
 /**
  * 묶음 하나에 실을 연산의 JSON 크기 한도(바이트). 서버는 change 메시지가 64KB(65,536 바이트)를 넘으면 4008 로 끊는다
  * (docs/05-PROTOCOL.md 7.7). 메시지 겉(t, clientSeq, baseRev)이 들어갈 자리를 남긴다.
+ *
+ * 서버 한도는 설정(copage.collab.max-message-bytes)이지만 클라이언트는 이 값을 모른다. 서버 한도를 이보다 작게 줄이지 않는다.
+ * welcome 에 한도를 실어 보내는 것은 규약 변경이라 IMPROVEMENT-ROADMAP 에 남긴다.
  */
 export const MAX_CHANGE_BYTES = 60_000
 
@@ -47,7 +50,12 @@ export function takeWithin(ops: readonly Op[], budget: number = MAX_CHANGE_BYTES
   return [head, queue]
 }
 
-/** 한도를 넘는 연산을 나눈다. 나눌 수 없는 연산은 그대로 하나를 돌려준다. */
+/**
+ * 한도를 넘는 연산을 나눈다. 나눌 수 없는 연산은 그대로 하나를 돌려준다.
+ *
+ * 나눌 수 없는 것은 속성 값(setProps, 블록 props)이 한도를 넘는 경우다. 지금 편집기가 만드는 속성은 짧은 값(링크, 체크, 제목
+ * 단계)뿐이라 생기지 않는다. 생기면 서버가 4008 로 끊는다. 속성 값 길이를 서버 검사에서 막는 것은 IMPROVEMENT-ROADMAP 에 있다.
+ */
 function splitOp(op: Op, budget: number): Op[] {
   switch (op.op) {
     case 'text':
