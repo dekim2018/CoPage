@@ -19,6 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * 협업 서버가 묶음을 받을 때 거는 규칙. 어기면 묶음을 거부(nack)한다.
@@ -36,6 +37,18 @@ import java.util.Set;
  * <p>없는 블록이나 길이를 넘는 위치는 여기서 보지 않는다. 적용할 때 ot-core 가 거부한다.
  */
 public final class ChangePolicy {
+
+    /**
+     * 블록 속성의 키와 값의 규칙 (진단 DC-6, docs/06-DATA-MODEL.md 불변식 7). 키마다 값을 검사하고, 블록 종류마다 허용 키를
+     * 나누지는 않는다. 종류를 바꾸기 전의 속성(제목에서 문단으로 바꾼 뒤의 level)이 남은 문서가 이미 있어서다. null 은 속성을
+     * 지운다는 뜻이라 어느 키에나 받는다. 종류(type)는 BLOCK_TYPES 로 따로 본다.
+     */
+    private static final Map<String, Predicate<Object>> PROP_RULES = Map.of(
+            "level", value -> value == null || (value instanceof Number n && (n instanceof Integer || n instanceof Long)
+                    && n.longValue() >= 1 && n.longValue() <= 3),
+            "checked", value -> value == null || value instanceof Boolean,
+            "language", value -> value == null || (value instanceof String s && s.length() <= 32
+                    && s.chars().allMatch(c -> Character.isLetterOrDigit(c) || "+#._-".indexOf(c) >= 0)));
 
     /** 순서 키의 최대 길이. 같은 두 키 사이에 1,271~1,525번 거듭 끼워 넣으면 닿는다(2026-11-24 측정). */
     static final int MAX_POS_LENGTH = 256;
@@ -97,6 +110,10 @@ public final class ChangePolicy {
         long length = 0;
         for (Block block : document.blocks()) {
             length += block.text().length();
+            // 구분선은 글을 담지 않는다 (DC-6). 블록 종류는 결과 문서에서만 알 수 있어 여기서 본다.
+            if ("divider".equals(block.type()) && !block.deleted() && block.text().length() > 0) {
+                throw new InvalidOperationException("구분선에는 글을 넣을 수 없다");
+            }
         }
         if (length > maxTextLength) {
             throw new InvalidOperationException("문서의 글자 수가 한도 " + maxTextLength + " 를 넘는다");
@@ -141,10 +158,11 @@ public final class ChangePolicy {
                 }
                 yield Optional.empty();
             }
-            case SplitBlock split -> checkPos(split.pos()).or(() -> checkType(split.type()));
+            case SplitBlock split -> checkPos(split.pos()).or(() -> checkType(split.type())).or(() -> checkProps(split.props()));
             case Op.MoveBlock move -> checkPos(move.pos());
             case InsertBlock insert -> {
-                Optional<String> reason = checkPos(insert.pos()).or(() -> checkType(insert.type()));
+                Optional<String> reason = checkPos(insert.pos()).or(() -> checkType(insert.type()))
+                        .or(() -> checkProps(insert.props()));
                 for (Segment segment : insert.text().segments()) {
                     reason = reason.or(() -> checkMarks(segment.attrs()));
                 }
@@ -152,6 +170,7 @@ public final class ChangePolicy {
             }
             case SetProps setProps when Op.TYPE_KEY.equals(setProps.key()) ->
                     setProps.value() instanceof String type ? checkType(type) : Optional.of("블록 종류가 문자열이 아니다");
+            case SetProps setProps -> checkProp(setProps.key(), setProps.value());
             default -> Optional.empty();
         };
     }
@@ -262,6 +281,24 @@ public final class ChangePolicy {
             }
             default -> Optional.of("값은 문자열, 참거짓, 정수만 쓸 수 있다");
         };
+    }
+
+    private static Optional<String> checkProps(Map<String, Object> props) {
+        for (Map.Entry<String, Object> entry : props.entrySet()) {
+            Optional<String> reason = checkProp(entry.getKey(), entry.getValue());
+            if (reason.isPresent()) {
+                return reason;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<String> checkProp(String key, Object value) {
+        Predicate<Object> rule = PROP_RULES.get(key);
+        if (rule == null) {
+            return Optional.of("허용하지 않는 블록 속성: " + key);
+        }
+        return rule.test(value) ? Optional.empty() : Optional.of("블록 속성 " + key + " 의 값이 올바르지 않다");
     }
 
     private static Optional<String> checkType(String type) {
