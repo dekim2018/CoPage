@@ -189,6 +189,11 @@ public final class DocumentSessions {
         sessions.values().forEach(DocumentSession::handOff);
     }
 
+    /** 다시 연결을 받는다. 멈췄던 컨텍스트가 다시 시작할 때 부른다(스프링의 Lifecycle.start). */
+    public void acceptJoins() {
+        draining = false;
+    }
+
     /** 시험이 세션 안을 들여다볼 때 쓴다. */
     DocumentSession session(UUID docId) {
         return sessions.get(docId);

@@ -204,8 +204,10 @@ public class CollabConfig {
         return new SmartLifecycle() {
             private volatile boolean running;
 
+            // 스프링은 내리지 않고 멈췄다 다시 시작할 수도 있다(시험 컨텍스트를 쉬게 할 때). 다시 시작하면 연결을 받는다.
             @Override
             public void start() {
+                documentSessions.acceptJoins();
                 running = true;
             }
 

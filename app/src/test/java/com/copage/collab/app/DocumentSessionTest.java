@@ -598,6 +598,12 @@ class DocumentSessionTest {
         assertEquals(CloseCodes.MOVED, late.closedWith);
         assertEquals(0, sessions.size(), "내려가는 노드는 세션을 다시 열지 않는다");
         assertEquals(1, store.load(DOC).rev(), "넘기기 전에 확정한 묶음은 남는다");
+
+        // 멈췄다 다시 시작하면 다시 받는다.
+        sessions.acceptJoins();
+        FakeConnection again = join("C");
+        assertEquals(null, again.closedWith);
+        assertEquals(1, sessions.size());
     }
 
     @Test
