@@ -70,4 +70,13 @@ describe('문서의 자식 목록', () => {
     expect(ids(doc.children('root'))).toEqual(['a', 'b'])
     expect(doc.children('없는 블록')).toEqual([])
   })
+
+  it('색인은 문서의 값이 아니라서 한쪽만 만들어도 두 문서는 같다', () => {
+    const a = Document.create('root')
+    const b = Document.create('root')
+    a.children('root')
+
+    expect(a).toEqual(b)
+    expect(JSON.stringify(a)).toEqual(JSON.stringify(b))
+  })
 })

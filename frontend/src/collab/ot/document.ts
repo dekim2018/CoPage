@@ -69,8 +69,10 @@ export class Document {
    * 부모 ID 별 자식(삭제 표시 포함, 화면 순서). 처음 children 을 부를 때 한 번 만든다. 문서는 바뀌지 않으므로(apply 는 새 문서를
    * 돌려준다) 만든 뒤에는 그대로 쓴다. 전에는 children 을 부를 때마다 블록 전체를 훑어서, 화면을 그리는 flatten 이 블록 수의
    * 제곱만큼 걸렸다(진단 PERF-1).
+   *
+   * ECMAScript 비공개 필드라 구조 비교(toEqual)와 직렬화에 나타나지 않는다. 캐시는 문서의 내용이 아니다.
    */
-  private childIndex: Map<string, readonly Block[]> | null = null
+  #childIndex: Map<string, readonly Block[]> | null = null
 
   private constructor(
     readonly rootId: string,
@@ -120,7 +122,7 @@ export class Document {
   }
 
   private index(): Map<string, readonly Block[]> {
-    if (this.childIndex === null) {
+    if (this.#childIndex === null) {
       const index = new Map<string, Block[]>()
       for (const b of this.blockMap.values()) {
         if (b.parentId !== null) {
@@ -135,9 +137,9 @@ export class Document {
       for (const siblings of index.values()) {
         siblings.sort(siblingOrder)
       }
-      this.childIndex = index
+      this.#childIndex = index
     }
-    return this.childIndex
+    return this.#childIndex
   }
 
   /** 블록 자신과 모든 조상에 삭제 표시가 없으면 true. */
