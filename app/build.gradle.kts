@@ -1,7 +1,7 @@
 // 협업 서버. 지금은 협업 모듈(collab)과 계정 모듈(identity)이 있다. 연산 로그와 사용자는 PostgreSQL, 토큰과 티켓은 Redis 에 둔다.
 plugins {
     java
-    id("org.springframework.boot") version "4.1.1"
+    id("org.springframework.boot") version "4.2.0"
     id("io.spring.dependency-management") version "1.1.7"
 }
 
