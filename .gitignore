@@ -27,3 +27,6 @@ playwright-report/
 .env
 .env.*
 !.env.example
+
+# 값을 채우기 전의 본보기는 올린다
+!deploy/prod/.env.example

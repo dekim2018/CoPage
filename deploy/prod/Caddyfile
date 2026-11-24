@@ -1,0 +1,46 @@
+# 운영 프록시 (docs/DEPLOY.md, D-48). TLS 를 끝내고(인증서는 Caddy 가 자동으로 받는다) 화면 파일을 내주고, API 와 WebSocket 은
+# 서버로 넘긴다. 서버는 내부 주소에서 온 X-Forwarded-* 만 믿는다(application.yml 의 forward-headers-strategy, D-28).
+{$COPAGE_DOMAIN} {
+	encode zstd gzip
+
+	# API 와 알림 연결(SSE). SSE 는 모으지 않고 바로 흘려보낸다.
+	handle /api/* {
+		reverse_proxy app:8080 {
+			flush_interval -1
+		}
+	}
+
+	# 문서 편집 WebSocket
+	handle /ws/* {
+		reverse_proxy app:8080
+	}
+
+	# 화면(빌드한 정적 파일). 화면 주소는 모두 index.html 로 연다.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	# 접근 로그. 주소에 실리는 비밀(WebSocket 티켓, 공유 링크와 초대 토큰)과 인증 헤더, 쿠키는 남기지 않는다 (SEC-7, D-28).
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "(/(?:s|api/share|invite|api/invites)/)[^/?]+|([?&]ticket=)[^&]*" "${1}${2}REDACTED"
+				request>headers>Authorization delete
+				request>headers>Cookie delete
+				resp_headers>Set-Cookie delete
+			}
+		}
+	}
+}

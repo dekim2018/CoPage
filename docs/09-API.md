@@ -4,6 +4,8 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 
 오류 응답은 RFC 9457 형식(`application/problem+json`)으로 통일한다. Spring의 `ProblemDetail` 을 쓴다.
 
+로그인 없이 부를 수 있는 경로는 IP 마다 빈도를 제한한다(D-48): `POST /api/auth/signup` 시간당 10번, `POST /api/auth/login` 분당 30번, `GET /api/share/{token}` 과 `POST /api/share/{token}/ws-ticket` 분당 60번, `GET /api/invites/{token}` 분당 60번. 넘으면 429 와 `Retry-After`(초). 개발 프로필과 시험에서는 끈다(`COPAGE_RATE_LIMIT`).
+
 ## 11.0 지금 있는 엔드포인트
 
 "인증" 의 "토큰" 은 `Authorization: Bearer` 의 Access 토큰이다. 토큰이 없거나 틀리면 401 이다. 모든 경로는 저장소(Redis, PostgreSQL)에 닿지 못하면 503 과 `Retry-After: 5` 를 준다(9.7). 입력 검증 실패는 400 이다.
@@ -23,14 +25,14 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | PATCH | `/api/workspaces/{wsId}/members/{userId}` | OWNER | 204 | 403 OWNER 가 아님. 404 멤버가 아님. 409 마지막 OWNER 를 내림 |
 | DELETE | `/api/workspaces/{wsId}/members/{userId}` | OWNER | 204. 그 워크스페이스에서 받은 페이지 권한도 지운다 | 403, 404, 409 위와 같음 |
 | GET | `/api/workspaces/{wsId}/pages?parentId=` | 워크스페이스의 모든 역할. 목록은 내가 VIEW 이상인 페이지만 | 200, 한 단계 하위 페이지(id, parentId, title, hasChildren, level) | 404 속하지 않은 워크스페이스, 없거나 볼 수 없는 부모 |
-| POST | `/api/workspaces/{wsId}/pages` | 부모의 EDIT. 최상위면 역할의 기본 권한이 EDIT 이상(OWNER, MEMBER) | 201, 만든 페이지. 본문 `{parentId, afterId}` 는 생략할 수 있다 | 404 속하지 않은 워크스페이스나 없는 부모. 403 등급이 모자람 |
+| POST | `/api/workspaces/{wsId}/pages` | 부모의 EDIT. 최상위면 역할의 기본 권한이 EDIT 이상(OWNER, MEMBER) | 201, 만든 페이지. 본문 `{parentId, afterId}` 는 생략할 수 있다 | 400 11단계가 됨(W-2, 10단계까지). 404 속하지 않은 워크스페이스나 없는 부모. 403 등급이 모자람 |
 | GET | `/api/pages/{pageId}` | VIEW | 200, 제목, restricted, 내 등급, 경로(볼 수 있는 조상만) | 404 없거나 휴지통이거나 속하지 않음. 403 속하지만 등급이 없음 |
 | GET | `/api/pages/{pageId}/grants` | FULL | 200, 이 페이지에 준 권한과 물려받는 권한(`inheritedFrom`) | 404 없거나 볼 수 없는 페이지. 403 FULL 이 아님 |
 | PUT | `/api/pages/{pageId}/grants/{userId}` | FULL | 200, 준 권한. 멤버가 아니면 GUEST 로 넣는다 | 404 없는 사용자. 그 밖은 위와 같음 |
 | POST | `/api/pages/{pageId}/grants` | FULL | 200, 준 권한. 본문 `{email, level}` | 404 그 이메일로 가입한 사용자가 없음. 그 밖은 위와 같음 |
 | DELETE | `/api/pages/{pageId}/grants/{userId}` | FULL | 204 | 404 이 페이지에 그 사용자에게 준 권한이 없음. 그 밖은 위와 같음 |
 | PUT | `/api/pages/{pageId}/restricted` | FULL | 200, `{restricted}`. 켜는 사람이 OWNER 가 아니면 그 페이지에 자신의 FULL 을 남긴다 | 위와 같음 |
-| POST | `/api/pages/{pageId}/move` | 그 페이지의 FULL + 새 부모의 EDIT(최상위면 역할의 기본 권한) | 200, 옮긴 페이지(GET 과 같은 모양). 본문 `{parentId, afterId}`, 둘 다 생략하면 최상위 맨 뒤 | 400 자기 자신이나 하위 아래로, afterId 가 새 부모의 하위가 아님. 404 없거나 휴지통이거나 새 부모를 볼 수 없음. 403 등급이 모자람 |
+| POST | `/api/pages/{pageId}/move` | 그 페이지의 FULL + 새 부모의 EDIT(최상위면 역할의 기본 권한) | 200, 옮긴 페이지(GET 과 같은 모양). 본문 `{parentId, afterId}`, 둘 다 생략하면 최상위 맨 뒤 | 400 자기 자신이나 하위 아래로, afterId 가 새 부모의 하위가 아님, 옮기면 11단계 이상이 됨(W-2). 404 없거나 휴지통이거나 새 부모를 볼 수 없음. 403 등급이 모자람 |
 | DELETE | `/api/pages/{pageId}` | FULL | 204, 휴지통으로. 하위는 부모를 따라 보이지 않는다 | 404 없거나 이미 휴지통. 403 FULL 이 아님 |
 | POST | `/api/pages/{pageId}/restore` | 휴지통에 가기 전 FULL | 200, 꺼낸 페이지. 부모가 아직 휴지통에 있으면 최상위 맨 뒤 | 404 휴지통에 없거나 속하지 않음. 403 등급이 모자람 |
 | GET | `/api/workspaces/{wsId}/trash` | 워크스페이스의 모든 역할 | 200, 휴지통의 페이지(id, parentId, title, archivedAt, canRestore). 보내기 전에 볼 수 있던 페이지만 | 404 속하지 않은 워크스페이스 |

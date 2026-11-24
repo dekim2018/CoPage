@@ -47,6 +47,8 @@ public abstract class TestInfra {
         properties.put("spring.data.redis.host", REDIS.getHost());
         properties.put("spring.data.redis.port", REDIS.getMappedPort(6379));
         properties.put("copage.auth.jwt-secret", JWT_SECRET);
+        // 시험은 한 주소에서 사용자를 많이 만든다. 빈도 제한은 RateLimitTest 가 따로 켜서 본다.
+        properties.put("copage.web.rate-limit", false);
         return properties;
     }
 

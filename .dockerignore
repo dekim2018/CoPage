@@ -1,0 +1,11 @@
+# 이미지 빌드 맥락에서 뺀다. 서버 이미지는 app/build/libs 의 jar 만, 화면 이미지는 frontend 의 소스만 쓴다.
+.git
+.gradle
+.idea
+**/node_modules
+frontend/dist
+frontend/test-results
+frontend/playwright-report
+**/build/*
+!app/build/libs
+deploy/prod/.env

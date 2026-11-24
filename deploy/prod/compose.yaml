@@ -1,0 +1,67 @@
+# 서버 한 대짜리 운영 구성 (docs/DEPLOY.md, D-48). 4GB 서버를 기준으로 했다.
+#
+#   ./gradlew :app:bootJar
+#   cp deploy/prod/.env.example deploy/prod/.env   # 값을 채운다. .env 는 저장소에 올리지 않는다
+#   docker compose -f deploy/prod/compose.yaml --env-file deploy/prod/.env up -d --build
+#
+# 밖으로 여는 것은 web(Caddy)의 80, 443 뿐이다. PostgreSQL, Redis, 서버의 관리 포트는 이 기기 안의 네트워크에만 있다.
+# Redis 는 영속 저장소로 쓰지 않는다(토큰, 티켓, 리스, 빈도 제한 같은 짧은 상태뿐). 그래서 디스크에 남기지 않는다.
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: copage
+      POSTGRES_USER: copage
+      POSTGRES_PASSWORD: ${COPAGE_DB_PASSWORD:?COPAGE_DB_PASSWORD 를 .env 에 적는다}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U copage -d copage"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+  app:
+    build:
+      context: ../..
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/copage
+      SPRING_DATASOURCE_PASSWORD: ${COPAGE_DB_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      COPAGE_JWT_SECRET: ${COPAGE_JWT_SECRET:?COPAGE_JWT_SECRET 를 .env 에 적는다(32바이트 이상)}
+      COPAGE_WEB_ALLOWED_ORIGINS: https://${COPAGE_DOMAIN}
+      COPAGE_NODE_ID: node1
+      # 4GB 서버에서 PostgreSQL 과 Redis, Caddy 에 남겨 둔다 (01-PLAN 1.4 의 노드 1대 수용량 조건).
+      JAVA_TOOL_OPTIONS: ${COPAGE_JAVA_OPTIONS:--Xmx1g}
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/prod/web.Dockerfile
+    restart: unless-stopped
+    depends_on: [app]
+    environment:
+      COPAGE_DOMAIN: ${COPAGE_DOMAIN:?COPAGE_DOMAIN 을 .env 에 적는다}
+    ports:
+      - "${COPAGE_HTTP_PORT:-80}:80"
+      - "${COPAGE_HTTPS_PORT:-443}:443"
+      - "${COPAGE_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:

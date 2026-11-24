@@ -20,7 +20,7 @@ Java 25, Spring Boot 4.2, Spring Security 7.2, PostgreSQL 17, Redis 7, Vue 3, Ti
 - 페이지 권한(VIEW, COMMENT, EDIT, FULL), 상속과 restricted, 공유 창. 권한을 바꾸면 열린 편집기에 1초 안에 적용된다
 - Redis 장애 때 503 으로 막고 열린 편집은 계속(fail-closed), 관리 포트의 Prometheus 지표, 부하 도구 `loadgen`
 
-아직 없는 것: 초대 메일 발송(초대 링크는 있다), 댓글 수정과 삭제, 배포.
+아직 없는 것: 초대 메일 발송(초대 링크는 있다), 댓글 수정과 삭제, 실제 서버에 올린 배포(구성과 문서는 있다).
 
 | 단계 | 내용 | 상태 |
 | --- | --- | --- |
@@ -30,8 +30,8 @@ Java 25, Spring Boot 4.2, Spring Security 7.2, PostgreSQL 17, Redis 7, Vue 3, Ti
 | 3 | 워크스페이스와 권한 | 대부분. 초대 링크, 공유 링크, 옮기기와 사이드바 끌기, 휴지통과 30일 뒤 비우기, 사이드바 실시간 반영(D-46, D-47). 초대 메일과 페이지 깊이 제한은 없다 |
 | 4 | 오프라인과 다중 노드 | 완료. 브라우저 보관(D-42), 소유 리스와 양도, 노드 사이 권한 전달, 프록시 해시(D-43), 노드 두세 대의 장애 실험([docs/CHAOS.md](docs/CHAOS.md)). 여러 노드로 띄우기: `deploy/cluster/compose.yaml` |
 | 5 | 부가 기능 | 완료. 버전 기록과 복원(D-44), 되돌리기, 슬래시 메뉴, 블록 끌기(D-45), 댓글, 멘션과 알림(D-46), 검색과 프로필(D-47) |
-| 6 | 측정과 개선 | 일부. 노트북 한 대의 측정값을 [docs/01-PLAN.md](docs/01-PLAN.md) 1.4 에 적었다 |
-| 7 | 배포 | 아직. CI 는 있다 |
+| 6 | 측정과 개선 | 일부. 노트북 한 대의 측정값을 [docs/01-PLAN.md](docs/01-PLAN.md) 1.4 와 [PERFORMANCE-REVIEW](docs/review/PERFORMANCE-REVIEW.md) 에 적었다(검색, 연산 로그 크기 포함). 4GB 서버와 다중 노드에서는 아직 재지 않았다 |
+| 7 | 배포 | 준비 완료. 서버 한 대 운영 구성([deploy/prod](deploy/prod), [docs/DEPLOY.md](docs/DEPLOY.md))을 로컬에서 띄워 확인했다. 실제 AWS 서버와 도메인은 직접 만든다 |
 
 ## 모듈
 

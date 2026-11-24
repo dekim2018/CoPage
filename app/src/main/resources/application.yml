@@ -59,6 +59,8 @@ copage:
     allowed-origins: []
     # 노드 이름(문서 소유 리스의 값). 비우면 시작할 때 무작위로 만든다. 노드마다 달라야 한다.
     node-id: ${COPAGE_NODE_ID:}
+    # 로그인 없이 부를 수 있는 경로(가입, 로그인, 공유 링크, 초대 보기)의 IP 별 빈도 제한 (D-48).
+    rate-limit: ${COPAGE_RATE_LIMIT:true}
   auth:
     # 32 바이트 이상. 저장소에 두지 않는다. 없으면 서버가 뜨지 않는다.
     jwt-secret: ${COPAGE_JWT_SECRET:}
@@ -74,6 +76,8 @@ copage:
     # Vite 개발 서버
     allowed-origins:
       - http://localhost:5173
+    # 화면 시험(e2e)이 한 주소에서 사용자를 많이 만든다.
+    rate-limit: ${COPAGE_RATE_LIMIT:false}
   auth:
     # 개발용 키. dev 프로필에서만 쓴다.
     jwt-secret: ${COPAGE_JWT_SECRET:dev-only-secret-do-not-use-in-production-0123456789}

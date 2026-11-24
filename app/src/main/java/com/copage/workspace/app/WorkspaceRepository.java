@@ -119,6 +119,12 @@ public interface WorkspaceRepository {
 
     List<SearchHit> search(UUID workspaceId, String needle, int limit);
 
+    /** 이 페이지의 깊이. 최상위가 1 이다 (W-2). */
+    int depthOf(UUID pageId);
+
+    /** 이 페이지 아래로 가장 깊은 하위까지의 단계 수. 하위가 없으면 1 이다(보관된 하위 포함). */
+    int heightOf(UUID pageId);
+
     /** 검색에 쓸 본문을 쓴다. 이미 같거나 더 큰 리비전의 본문이 있으면 그대로 둔다. 페이지가 없으면 아무것도 하지 않는다. */
     void updateBody(UUID pageId, String body, long rev, Instant now);
 
