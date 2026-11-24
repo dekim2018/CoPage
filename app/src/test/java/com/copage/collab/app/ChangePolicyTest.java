@@ -50,6 +50,37 @@ class ChangePolicyTest {
     }
 
     @Test
+    void 블록_속성은_정해진_키와_값만_받는다() {
+        assertEquals(Optional.empty(), check(PageRole.EDIT, new SetProps("X", "level", 2)));
+        assertEquals(Optional.empty(), check(PageRole.EDIT, new SetProps("X", "level", 3L)));
+        assertEquals(Optional.empty(), check(PageRole.EDIT, new SetProps("X", "checked", true)));
+        assertEquals(Optional.empty(), check(PageRole.EDIT, new SetProps("X", "language", "c++")));
+        assertEquals(Optional.empty(), check(PageRole.EDIT, new SetProps("X", "language", null)), "null 은 지우기다");
+        for (Object[] bad : new Object[][] {
+            {"level", 0}, {"level", 4}, {"level", "2"}, {"checked", "true"}, {"language", "<script>"},
+            {"language", "a".repeat(33)}, {"onclick", "x"}, {"color", "red"}}) {
+            assertTrue(check(PageRole.EDIT, new SetProps("X", (String) bad[0], bad[1])).isPresent(), bad[0] + "=" + bad[1]);
+        }
+        assertTrue(check(PageRole.EDIT, new InsertBlock("N", "r", "a", "heading", Attrs.of("level", 9), RichText.EMPTY))
+                .isPresent());
+        assertTrue(check(PageRole.EDIT, new SplitBlock("X", 0, "N", "r", "a", "todo", Attrs.of("checked", 1))).isPresent());
+        assertEquals(Optional.empty(), check(PageRole.EDIT,
+                new InsertBlock("N", "r", "a", "heading", Attrs.of("level", 2), RichText.EMPTY)));
+    }
+
+    @Test
+    void 구분선에는_글을_넣을_수_없다() {
+        Document withDivider = Document.create("r").apply(List.of(
+                new InsertBlock("D", "r", "a", "divider", Attrs.NONE, RichText.EMPTY)));
+        policy.checkSize(withDivider);
+
+        Document withText = withDivider.apply(List.of(new TextOp("D", Delta.builder().insert("글").build())));
+        assertThrows(InvalidOperationException.class, () -> policy.checkSize(withText));
+        // 지운 구분선은 보지 않는다.
+        policy.checkSize(withText.apply(List.of(new Op.DeleteBlock("D", true))));
+    }
+
+    @Test
     void 순서_키는_모양이_맞고_256_글자_이하여야_한다() {
         String longest = "a".repeat(ChangePolicy.MAX_POS_LENGTH);
         assertEquals(Optional.empty(), check(PageRole.EDIT, new InsertBlock("N", "r", longest, "paragraph", Attrs.NONE, RichText.EMPTY)));
@@ -121,7 +152,9 @@ class ChangePolicyTest {
     @Test
     void 이모지와_long_범위_정수는_저장할_수_있다() {
         assertEquals(Optional.empty(), check(PageRole.EDIT, text(Delta.builder().insert("가😀").build())));
-        assertEquals(Optional.empty(), check(PageRole.EDIT, new SetProps("X", "level", Long.MAX_VALUE)));
+        // 저장할 수 있는지는 값의 종류만 본다. level 의 범위(1~3)는 속성 규칙이 따로 본다(블록_속성은_정해진_키와_값만_받는다).
+        assertEquals(Optional.empty(), ChangePolicy.checkValue(Long.MAX_VALUE));
+        assertTrue(check(PageRole.EDIT, new SetProps("X", "level", Long.MAX_VALUE)).isPresent());
         assertEquals(Optional.empty(), check(PageRole.EDIT, new SetProps("X", "level", 2)));
         assertEquals(Optional.empty(), check(PageRole.EDIT, new SetProps("X", "checked", null)));
     }
