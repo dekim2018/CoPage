@@ -81,9 +81,13 @@ export const useWorkspace = defineStore('workspace', () => {
     return page
   }
 
+  /** 이 탭에서 휴지통으로 보낸 페이지. 그 하위를 열어 둔 편집기가 첫 화면으로 돌아가는 데 쓴다. */
+  const trashed = reactive(new Set<string>())
+
   /** 휴지통으로 보내고 부모의 목록을 다시 읽는다. 부모에 남은 하위가 없으면 펼침 단추를 지운다. */
   async function trashPage(pageId: string, parentId: string | null): Promise<void> {
     await workspaceApi.trashPage(pageId)
+    trashed.add(pageId)
     expanded.delete(pageId)
     await loadChildren(parentId)
     if (parentId !== null && (childrenOf(parentId) ?? []).length === 0) {
@@ -99,6 +103,7 @@ export const useWorkspace = defineStore('workspace', () => {
   /** 휴지통에서 꺼내고 돌아간 자리의 목록을 다시 읽는다. 부모가 아직 휴지통에 있으면 최상위로 간다(서버가 정한다). */
   async function restorePage(pageId: string): Promise<PageDetail> {
     const page = await workspaceApi.restorePage(pageId)
+    trashed.delete(pageId)
     await loadChildren(page.parentId)
     if (page.parentId !== null) {
       for (const list of children.values()) {
@@ -140,6 +145,7 @@ export const useWorkspace = defineStore('workspace', () => {
     children.clear()
     expanded.clear()
     editedTitles.clear()
+    trashed.clear()
   }
 
   return {
@@ -153,6 +159,7 @@ export const useWorkspace = defineStore('workspace', () => {
     childrenOf,
     toggle,
     createPage,
+    trashed,
     trashPage,
     restorePage,
     setTitle,

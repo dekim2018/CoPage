@@ -359,3 +359,20 @@ test('사이드바에서 휴지통으로 보내면 열어 둔 상대 편집기�
   await expect(owner.getByTestId('status')).toHaveAttribute('data-status', 'saved')
   await expect.poll(async () => (await blocks(owner))[0]).toBe('버릴 페이지')
 })
+
+test('열어 둔 하위 페이지의 조상을 휴지통으로 보내면 첫 화면으로 간다', async ({ browser }) => {
+  const [owner, member] = await Promise.all([newUser(browser, 'owner'), newUser(browser, 'member')])
+  const workspaceId = await newWorkspaceWith(owner, member, 'MEMBER')
+  await owner.goto(`/w/${workspaceId}`)
+  await owner.getByRole('button', { name: '새 페이지' }).click()
+  await owner.waitForURL(/\/p\/[0-9a-f-]{36}$/)
+  const parentId = owner.url().split('/p/')[1] as string
+  const parent = owner.locator(`[data-testid=tree-item][data-page-id="${parentId}"]`)
+  await parent.getByTitle('하위 페이지 만들기').click()
+  await owner.waitForURL((url) => !url.pathname.endsWith(parentId))
+  await expect(owner.getByTestId('crumbs')).toBeVisible()
+
+  await parent.getByTitle('휴지통으로 보내기').first().click()
+
+  await owner.waitForURL(new RegExp(`/w/${workspaceId}$`))
+})
