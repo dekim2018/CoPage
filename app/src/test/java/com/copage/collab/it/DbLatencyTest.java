@@ -138,7 +138,9 @@ class DbLatencyTest {
                         remotesSeen++;
                     }
                 }
-                if (done) {
+                // 내 묶음이 다 확정된 뒤에도 남의 마지막 묶음이 아직 오는 중일 수 있다. 모두 마지막 리비전에 이르면 끝낸다.
+                if (done && remotesSeen == WRITERS * EDITS_EACH
+                        && writers.stream().allMatch(w -> w.session.confirmedRev() == writers.get(0).session.confirmedRev())) {
                     break;
                 }
                 assertTrue(System.currentTimeMillis() - startedAt < 60_000, "60초 안에 끝나지 않았다");
