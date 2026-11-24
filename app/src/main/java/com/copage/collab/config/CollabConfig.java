@@ -177,11 +177,18 @@ public class CollabConfig {
         return new MicrometerCollabMetrics(meterRegistry);
     }
 
-    /** 크기 한도를 넘는 메시지도 일단 받아서 4008 로 끊는다. 컨테이너 버퍼가 작으면 컨테이너가 1009 로 먼저 끊어 버린다. */
+    /**
+     * 컨테이너의 글 메시지 버퍼. 한도는 바이트로 재는데 버퍼는 글자(char) 수다. UTF-8 에서 글자 하나는 1 바이트 이상이므로
+     * 한도 안의 메시지는 언제나 한도 글자 수의 버퍼에 들어가고, 바이트가 한도를 넘는 메시지(예: 한글 3만 자)는 처리기까지 와서
+     * 4008 로 끊긴다. 글자 수까지 한도를 넘는 메시지는 컨테이너가 1009 로 끊고, 클라이언트는 1009 도 재접속하지 않는다.
+     *
+     * <p>컨테이너는 이 버퍼를 연결마다 미리 잡는다(char 2 바이트). 한도의 4배(256K 글자, 연결당 약 512KB)로 두었을 때 힙 1GB
+     * 에서 연결 약 930개에 메모리가 넘쳤다(부하 시험, docs/PERFORMANCE-REVIEW.md). 한도와 같게 두면 연결당 약 128KB 다.
+     */
     @Bean
     ServletServerContainerFactoryBean webSocketContainer() {
         ServletServerContainerFactoryBean container = new ServletServerContainerFactoryBean();
-        container.setMaxTextMessageBufferSize(properties.maxMessageBytes() * 4);
+        container.setMaxTextMessageBufferSize(properties.maxMessageBytes());
         return container;
     }
 }
