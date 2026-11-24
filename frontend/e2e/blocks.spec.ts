@@ -253,3 +253,28 @@ test('편집기 안에서 복사한 블록을 붙여넣어도 제목 단계와 �
     ['todo', '끝낸 일', 'true'],
   ])
 })
+
+test('다른 곳에서 복사한 마크다운을 붙여넣으면 블록과 서식으로 바뀌어 두 화면에 같게 보인다', async ({ browser }) => {
+  const { a, b, docId } = await pair(browser)
+  await Promise.all([open(a, docId), open(b, docId)])
+  await caretAtEnd(a, 0)
+  await a.keyboard.type('제목')
+  await a.keyboard.press('Enter')
+
+  await a.locator('.ProseMirror').evaluate((editor) => {
+    const data = new DataTransfer()
+    data.setData('text/plain', '## 회의 안건\n- [x] **배포** 확인\n- 검색 손보기\n1. 첫째\n---\n```\nconst a = 1\n```')
+    editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  })
+
+  const result = await sameShapes(a, b)
+  expect(result.filter(([kind]) => kind !== 'title' && kind !== 'paragraph').map(([kind, , text, extra]) => [kind, text, extra])).toEqual([
+    ['heading', '회의 안건', '2'],
+    ['todo', '배포 확인', 'true'],
+    ['bulleted', '검색 손보기', ''],
+    ['numbered', '첫째', '1.'],
+    ['divider', '', ''],
+    ['code', 'const a = 1', ''],
+  ])
+  await expect(b.locator('.todo strong')).toHaveText('배포')
+})

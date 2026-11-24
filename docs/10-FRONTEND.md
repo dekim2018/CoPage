@@ -6,7 +6,7 @@
 
 | 층 | 위치 | 책임 |
 | --- | --- | --- |
-| 편집기 | `src/collab/adapter/` (`schema.ts`, `blocks.ts`, `remoteCursors.ts`), `src/components/EditorToolbar.vue` | Tiptap 스키마(블록 10종, 서식), 키 입력, 도구 막대, 남의 커서 그리기, 슬래시 메뉴(`SlashMenu.vue`, `blockChoices.ts`), 블록 끌기 손잡이(`BlockDragHandle.vue`, `moveBeside`). 처음에는 `src/editor/` 로 나누려 했으나 어댑터와 붙어 있어 한 폴더에 두었다 |
+| 편집기 | `src/collab/adapter/` (`schema.ts`, `blocks.ts`, `remoteCursors.ts`), `src/components/EditorToolbar.vue` | Tiptap 스키마(블록 10종, 서식), 키 입력, 도구 막대, 남의 커서 그리기, 슬래시 메뉴(`SlashMenu.vue`, `blockChoices.ts`), 블록 끌기 손잡이(`BlockDragHandle.vue`, `moveBeside`), 마크다운 붙여넣기(`markdownPaste.ts`, E-9). 처음에는 `src/editor/` 로 나누려 했으나 어댑터와 붙어 있어 한 폴더에 두었다 |
 | 어댑터 | `src/collab/adapter/` | 편집기에서 일어난 변화를 연산 묶음으로, 받은 연산을 편집기 변경으로 바꾼다 |
 | 협업 클라이언트 | `src/collab/client/` | 확정 문서, inflight, buffer를 관리하는 상태 기계(`clientSession.ts`). 보내기 간격과 묶음 크기(`collabClient.ts`, `sendBudget.ts`), 거부된 편집 살리기(`salvage.ts`), 남의 커서(`presence.ts`), 내 등급(`role.ts`), 브라우저 보관(`offlineStore.ts`, 12.4), 내 편집만 되돌리기(`undo.ts`, D-45), 과거 시점으로 복원하는 연산(`restore.ts`, D-44) |
 | OT 코어 | `src/collab/ot/` | `ot-core` 의 TypeScript 구현. 적용, 변환, 합성, 역연산 |
