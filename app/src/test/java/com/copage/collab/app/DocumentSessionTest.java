@@ -96,6 +96,7 @@ class DocumentSessionTest {
         final List<Integer> appendSizes = new ArrayList<>();
         boolean fail;
         boolean failLoad;
+        boolean failRead;
 
         @Override
         public Snapshot load(UUID docId) {
@@ -112,6 +113,9 @@ class DocumentSessionTest {
 
         @Override
         public OptionalLong committedRev(UUID docId, String clientId, long clientSeq) {
+            if (failRead) {
+                throw new IllegalStateException("저장소가 답하지 않는다");
+            }
             return delegate.committedRev(docId, clientId, clientSeq);
         }
 
@@ -226,6 +230,21 @@ class DocumentSessionTest {
         store.fail = false;
         FakeConnection again = join("A2");
         assertEquals(0, again.last(Welcome.class).rev());
+    }
+
+    @Test
+    void 묶음을_처리하다_저장소를_읽지_못하면_세션을_버리고_연결을_4009_로_닫는다() {
+        FakeConnection a = join("A");
+        FakeConnection b = join("B");
+        store.failRead = true;
+        submit(a, 1, 0, paragraph("X", "가"));
+        runAll();
+
+        // 말없이 사라지지 않는다. 클라이언트는 재접속해 같은 순번으로 다시 보낸다.
+        assertEquals(CloseCodes.MOVED, a.closedWith);
+        assertEquals(CloseCodes.MOVED, b.closedWith);
+        assertEquals(0, sessions.size());
+        assertEquals(0, store.load(DOC).rev());
     }
 
     @Test
