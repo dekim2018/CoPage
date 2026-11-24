@@ -24,8 +24,18 @@ public interface DocumentStore {
     /** fromRev 다음부터 최신까지의 확정 묶음. */
     List<StoredChange> changesSince(UUID docId, long fromRev);
 
-    /** 이 클라이언트의 이 순번이 이미 확정되었으면 그 리비전. */
-    OptionalLong committedRev(UUID docId, String clientId, long clientSeq);
+    /**
+     * 이 클라이언트의 순번 기록. 연결마다 첫 묶음에서 한 번만 읽는다(PERF-2). 그 뒤의 묶음은 순번이 늘기만 해야 하므로 저장소를
+     * 다시 보지 않아도 겹치지 않는다.
+     */
+    ClientSeqs clientSeqs(UUID docId, String clientId, long clientSeq);
+
+    /**
+     * @param committedRev 이 순번이 이미 확정되었으면 그 리비전
+     * @param highestSeq 이 클라이언트가 이 문서에 확정한 가장 큰 순번. 없으면 0
+     */
+    record ClientSeqs(OptionalLong committedRev, long highestSeq) {
+    }
 
     /** 확정 묶음 여러 개를 한 번에 쓴다. 전부 쓰이거나 하나도 쓰이지 않는다. */
     void append(UUID docId, List<StoredChange> changes);

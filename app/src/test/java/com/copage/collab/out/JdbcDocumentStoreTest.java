@@ -21,6 +21,7 @@ import com.copage.support.TestInfra;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.OptionalLong;
 import java.util.UUID;
@@ -76,8 +77,9 @@ class JdbcDocumentStoreTest {
         assertEquals(changes.subList(1, 2), store.changesSince(docId, 1));
         Document expected = Document.create(root).apply(changes.get(0).ops()).apply(changes.get(1).ops());
         assertEquals(new DocumentStore.Snapshot(expected, 2, 0), store.load(docId));
-        assertEquals(OptionalLong.of(2), store.committedRev(docId, "c2", 1));
-        assertEquals(OptionalLong.empty(), store.committedRev(docId, "c2", 2));
+        assertEquals(new DocumentStore.ClientSeqs(OptionalLong.of(2), 1), store.clientSeqs(docId, "c2", 1));
+        assertEquals(new DocumentStore.ClientSeqs(OptionalLong.empty(), 1), store.clientSeqs(docId, "c2", 2));
+        assertEquals(new DocumentStore.ClientSeqs(OptionalLong.empty(), 0), store.clientSeqs(docId, "nobody", 1));
     }
 
     @Test
@@ -91,6 +93,25 @@ class JdbcDocumentStoreTest {
                 change(2, "c1", 1, paragraph("Y", "나")))));
 
         assertEquals(1, store.changesSince(docId, 0).size());
+    }
+
+    @Test
+    void 아주_큰_묶음도_한_번에_쓰고_나뉜_뒤쪽에서_충돌하면_하나도_쓰지_않는다() {
+        // INSERT 문 하나의 매개변수 한도(65,535)를 넘는 크기(7 x 10,000). DB 가 멈췄다 돌아온 직후에 생길 수 있다.
+        int size = JdbcDocumentStore.ROWS_PER_INSERT * 10;
+        List<StoredChange> big = new ArrayList<>();
+        for (int i = 1; i <= size; i++) {
+            big.add(change(i, "c1", i, new TextOp(root, Delta.builder().insert("가").build())));
+        }
+        List<StoredChange> conflicting = new ArrayList<>(big.subList(0, size - 1));
+        conflicting.add(change(size, "c1", 1, new TextOp(root, Delta.builder().insert("가").build())));
+
+        assertThrows(RevisionConflictException.class, () -> store.append(docId, conflicting));
+        assertEquals(0, store.changesSince(docId, 0).size());
+
+        store.append(docId, big);
+        assertEquals(size, store.changesSince(docId, 0).size());
+        assertEquals(size, store.load(docId).rev());
     }
 
     @Test

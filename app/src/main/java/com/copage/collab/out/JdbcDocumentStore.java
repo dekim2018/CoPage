@@ -7,7 +7,9 @@ import com.copage.ot.model.Document;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
@@ -23,6 +25,9 @@ import tools.jackson.databind.json.JsonMapper;
  * JSON 형식({@link OpJson})으로 jsonb 에 넣는다.
  */
 public final class JdbcDocumentStore implements DocumentStore {
+
+    /** INSERT 문 하나에 넣는 행 수. 행마다 매개변수가 7개라 한도(65,535)보다 넉넉히 작다. */
+    static final int ROWS_PER_INSERT = 1_000;
 
     private final JdbcClient jdbc;
     private final TransactionTemplate tx;
@@ -79,44 +84,75 @@ public final class JdbcDocumentStore implements DocumentStore {
     }
 
     @Override
-    public OptionalLong committedRev(UUID docId, String clientId, long clientSeq) {
+    public ClientSeqs clientSeqs(UUID docId, String clientId, long clientSeq) {
+        // 왕복 한 번으로 둘 다 읽는다. 둘 다 (doc_id, client_id, client_seq) 유일 색인으로 찾는다.
         return jdbc.sql("""
-                        SELECT rev FROM doc_ops
-                        WHERE doc_id = :docId AND client_id = :clientId AND client_seq = :clientSeq
+                        SELECT
+                          (SELECT rev FROM doc_ops
+                           WHERE doc_id = :docId AND client_id = :clientId AND client_seq = :clientSeq) AS rev,
+                          (SELECT coalesce(max(client_seq), 0) FROM doc_ops
+                           WHERE doc_id = :docId AND client_id = :clientId) AS highest
                         """)
                 .param("docId", docId)
                 .param("clientId", clientId)
                 .param("clientSeq", clientSeq)
-                .query(Long.class)
-                .optional()
-                .map(OptionalLong::of)
-                .orElse(OptionalLong.empty());
+                .query((rs, row) -> {
+                    long rev = rs.getLong("rev");
+                    return new ClientSeqs(rs.wasNull() ? OptionalLong.empty() : OptionalLong.of(rev), rs.getLong("highest"));
+                })
+                .single();
     }
 
-    /** 한 트랜잭션에 여러 행으로 넣는다 (8.2 의 묶음 커밋). 제약 위반이면 하나도 남지 않는다. */
+    /**
+     * 여러 행을 INSERT 문 하나로 넣는다 (8.2 의 묶음 커밋). 문장 하나는 그 자체로 원자적이라 제약 위반이면 하나도 남지 않고,
+     * 묶음 크기와 상관없이 DB 왕복은 한 번이다(PERF-2). 행마다 INSERT 를 보내면 묶음 N 개에 왕복 N+1 번(BEGIN 과 첫 INSERT,
+     * 나머지 INSERT, COMMIT)이었다.
+     *
+     * <p>문장 하나의 매개변수는 65,535 개까지라(PostgreSQL 규약의 2바이트 개수) {@link #ROWS_PER_INSERT} 행씩 나눈다.
+     * 나뉘면 한 트랜잭션 안에서 넣어 원자성을 지킨다. DB 가 멈췄다 돌아온 직후처럼 묶음이 아주 클 때만 그렇다.
+     */
     @Override
     public void append(UUID docId, List<StoredChange> changes) {
+        if (changes.isEmpty()) {
+            return;
+        }
         try {
-            tx.executeWithoutResult(status -> {
-                for (StoredChange change : changes) {
-                    jdbc.sql("""
-                                    INSERT INTO doc_ops (doc_id, rev, user_id, client_id, client_seq, ops, created_at)
-                                    VALUES (:docId, :rev, :userId, :clientId, :clientSeq, CAST(:ops AS jsonb), :createdAt)
-                                    """)
-                            .param("docId", docId)
-                            .param("rev", change.rev())
-                            .param("userId", change.userId())
-                            .param("clientId", change.clientId())
-                            .param("clientSeq", change.clientSeq())
-                            .param("ops", mapper.writeValueAsString(OpJson.ops(change.ops())))
-                            .param("createdAt", Timestamp.from(change.committedAt()))
-                            .update();
-                }
-            });
+            if (changes.size() <= ROWS_PER_INSERT) {
+                insert(docId, changes);
+            } else {
+                tx.executeWithoutResult(status -> {
+                    for (int from = 0; from < changes.size(); from += ROWS_PER_INSERT) {
+                        insert(docId, changes.subList(from, Math.min(changes.size(), from + ROWS_PER_INSERT)));
+                    }
+                });
+            }
         } catch (DuplicateKeyException e) {
             // (doc_id, rev) 가 겹치면 다른 노드가 이 문서를 쓰고 있다는 뜻이다 (5.3).
             throw new RevisionConflictException("문서 " + docId + " 의 리비전이나 순번이 이미 있다: " + e.getMessage());
         }
+    }
+
+    private void insert(UUID docId, List<StoredChange> changes) {
+        StringBuilder sql = new StringBuilder(
+                "INSERT INTO doc_ops (doc_id, rev, user_id, client_id, client_seq, ops, created_at) VALUES ");
+        Map<String, Object> params = new HashMap<>();
+        params.put("docId", docId);
+        for (int i = 0; i < changes.size(); i++) {
+            StoredChange change = changes.get(i);
+            if (i > 0) {
+                sql.append(", ");
+            }
+            sql.append("(:docId, :rev").append(i).append(", :userId").append(i).append(", :clientId").append(i)
+                    .append(", :clientSeq").append(i).append(", CAST(:ops").append(i).append(" AS jsonb), :createdAt")
+                    .append(i).append(')');
+            params.put("rev" + i, change.rev());
+            params.put("userId" + i, change.userId());
+            params.put("clientId" + i, change.clientId());
+            params.put("clientSeq" + i, change.clientSeq());
+            params.put("ops" + i, mapper.writeValueAsString(OpJson.ops(change.ops())));
+            params.put("createdAt" + i, Timestamp.from(change.committedAt()));
+        }
+        jdbc.sql(sql.toString()).params(params).update();
     }
 
     @Override

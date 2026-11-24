@@ -20,7 +20,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
@@ -81,6 +80,11 @@ public final class DocumentSession {
         final String name;
         PageRole role;
         Cursor cursor;
+        /**
+         * 이 연결에서 다음 묶음의 순번이 넘어야 하는 값. 음수면 아직 저장소의 순번 기록을 읽지 않았다. 한 연결의 순번은 늘기만
+         * 하므로 첫 묶음에서 저장소를 한 번 읽고 나면 그 뒤로는 겹칠 수 없다(PERF-2).
+         */
+        long seqFloor = -1;
 
         Member(Connection connection, String clientId, PageRole role, boolean capped, String name) {
             this.connection = connection;
@@ -424,23 +428,41 @@ public final class DocumentSession {
             // 보낸 뒤 끊긴 연결이다. 처리하지 않으면 재접속한 클라이언트가 같은 순번으로 다시 보낸다.
             return;
         }
+        if (member.seqFloor >= 0 && seq <= member.seqFloor) {
+            // 정상 클라이언트는 한 연결에서 순번을 되돌리지 않는다. 받아들이면 저장소의 유일 제약에 걸려 커밋이 실패하고 문서의
+            // 모든 연결이 끊긴다.
+            violate(member, replies, "순번 " + seq + " 이 이 연결의 앞 순번 " + member.seqFloor + " 보다 크지 않다");
+            return;
+        }
         Optional<ChangePolicy.Refusal> refused = change.ops().isEmpty()
                 ? Optional.of(new ChangePolicy.Refusal("empty", "빈 묶음"))
                 : policy.refuse(change.ops(), member.role());
         if (refused.isPresent()) {
+            if (member.seqFloor >= 0) {
+                member.seqFloor = seq;
+            }
             long rev = server.rev();
             metrics.nack(refused.get().category());
             replies.add(() -> sender.send(
                     new ServerMessage.Nack(seq, refused.get().message(), rev, refused.get().category())));
             return;
         }
-        // 세션이 다시 올라오면 ServerDocument 는 예전 순번을 모른다. 저장소에서 한 번 더 확인한다 (7.5 의 4번).
-        OptionalLong earlier = store.committedRev(docId, member.clientId(), seq);
-        if (earlier.isPresent()) {
-            long rev = earlier.getAsLong();
-            replies.add(() -> ack(sender, seq, rev, item.receivedNanos()));
-            return;
+        // 세션이 다시 올라오면 ServerDocument 는 예전 순번을 모른다. 연결의 첫 묶음에서 저장소를 한 번 확인한다 (7.5 의 4번).
+        // 재접속한 클라이언트가 다시 보내는 것(이미 확정되었을 수 있는 것)은 언제나 그 연결의 첫 묶음이다.
+        if (member.seqFloor < 0) {
+            DocumentStore.ClientSeqs seqs = store.clientSeqs(docId, member.clientId(), seq);
+            if (seqs.committedRev().isPresent()) {
+                long rev = seqs.committedRev().getAsLong();
+                member.seqFloor = Math.max(seq, seqs.highestSeq());
+                replies.add(() -> ack(sender, seq, rev, item.receivedNanos()));
+                return;
+            }
+            if (seq <= seqs.highestSeq()) {
+                violate(member, replies, "순번 " + seq + " 은 확정되지 않았는데 더 큰 순번 " + seqs.highestSeq() + " 이 이미 있다");
+                return;
+            }
         }
+        member.seqFloor = seq;
         metrics.transforms(Math.max(0, server.rev() - change.baseRev()));
         Submission submission = new Submission(member.clientId(), seq, change.baseRev(), change.ops());
         switch (server.submit(submission, policy::checkSize)) {
@@ -468,6 +490,17 @@ public final class DocumentSession {
                 replies.add(() -> sender.close(CloseCodes.SLOW, reason));
             }
         }
+    }
+
+    /**
+     * 규약을 어긴 연결을 닫는다. 같은 차례에 이 연결이 보낸 뒤 묶음은 순번 검사에서 걸러진다. 멤버는 닫힘이 알려질 때 평소처럼
+     * 나간다(남에게 퇴장을 알린다).
+     */
+    private void violate(Member member, List<Runnable> replies, String reason) {
+        member.seqFloor = Long.MAX_VALUE;
+        LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 연결 " + member.connection.id() + " 을 규약 위반으로 닫는다: "
+                + reason);
+        replies.add(() -> member.connection.close(CloseCodes.PROTOCOL, reason));
     }
 
     private void ack(Connection sender, long seq, long rev, long receivedNanos) {

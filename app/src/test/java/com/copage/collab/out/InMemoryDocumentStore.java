@@ -52,11 +52,16 @@ public final class InMemoryDocumentStore implements DocumentStore {
     }
 
     @Override
-    public OptionalLong committedRev(UUID docId, String clientId, long clientSeq) {
+    public ClientSeqs clientSeqs(UUID docId, String clientId, long clientSeq) {
         Log log = log(docId);
         synchronized (log) {
             Long rev = log.revBySeq.get(key(clientId, clientSeq));
-            return rev == null ? OptionalLong.empty() : OptionalLong.of(rev);
+            long highest = log.changes.stream()
+                    .filter(change -> change.clientId().equals(clientId))
+                    .mapToLong(StoredChange::clientSeq)
+                    .max()
+                    .orElse(0);
+            return new ClientSeqs(rev == null ? OptionalLong.empty() : OptionalLong.of(rev), highest);
         }
     }
 
