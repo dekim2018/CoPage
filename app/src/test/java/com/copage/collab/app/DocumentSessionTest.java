@@ -97,6 +97,7 @@ class DocumentSessionTest {
         boolean fail;
         boolean failLoad;
         boolean failRead;
+        int seqReads;
 
         @Override
         public Snapshot load(UUID docId) {
@@ -112,11 +113,12 @@ class DocumentSessionTest {
         }
 
         @Override
-        public OptionalLong committedRev(UUID docId, String clientId, long clientSeq) {
+        public ClientSeqs clientSeqs(UUID docId, String clientId, long clientSeq) {
+            seqReads++;
             if (failRead) {
                 throw new IllegalStateException("저장소가 답하지 않는다");
             }
-            return delegate.committedRev(docId, clientId, clientSeq);
+            return delegate.clientSeqs(docId, clientId, clientSeq);
         }
 
         @Override
@@ -629,12 +631,82 @@ class DocumentSessionTest {
         }
         runAll();
 
-        // 기록 창은 3 이다. 순번 1 은 이미 창 밖이다.
-        submit(a, 1, 4, paragraph("X", "가"));
+        // 기록 창은 3 이다. 순번 1 은 이미 창 밖이다. 다시 보내는 것은 재접속한 새 연결의 첫 묶음이다.
+        FakeConnection again = new FakeConnection("A-again");
+        sessions.join(DOC, again, new Hello("client-A", 5, true), PageRole.EDIT, "이름-" + again.id());
+        runAll();
+        sessions.submit(DOC, again, new Change(1, 4, List.of(paragraph("X", "가"))));
         runAll();
 
-        assertEquals(new Ack(1, 1), a.last());
+        assertEquals(new Ack(1, 1), again.last());
         assertEquals(5, store.load(DOC).rev());
+    }
+
+    @Test
+    void 순번_기록은_연결의_첫_묶음에서만_저장소를_읽는다() {
+        FakeConnection a = join("A");
+        for (int seq = 1; seq <= 5; seq++) {
+            submit(a, seq, seq - 1, seq == 1 ? paragraph("X", "가") : type("X", 0, "나"));
+            runAll();
+        }
+        FakeConnection b = join("B");
+        submit(b, 1, 5, type("X", 0, "다"));
+        runAll();
+        submit(b, 2, 6, type("X", 0, "라"));
+        runAll();
+
+        assertEquals(2, store.seqReads, "연결마다 한 번");
+        assertEquals(7, store.load(DOC).rev());
+    }
+
+    @Test
+    void 한_연결에서_순번이_늘지_않으면_4008_로_닫고_커밋을_깨지_않는다() {
+        FakeConnection a = join("A");
+        FakeConnection b = join("B");
+        submit(a, 1, 0, paragraph("X", "가"));
+        submit(a, 2, 1, type("X", 0, "나"));
+        runAll();
+
+        // 이미 확정된 순번 1 을 같은 연결로 다시 보낸다. 받아들이면 유일 제약에 걸려 커밋이 실패하고 B 도 끊긴다.
+        submit(a, 1, 2, type("X", 0, "다"));
+        submit(b, 1, 2, type("X", 0, "라"));
+        runAll();
+
+        assertEquals(CloseCodes.PROTOCOL, a.closedWith);
+        assertEquals(new Ack(1, 3), b.last());
+        assertEquals("라나가", text("X"));
+    }
+
+    @Test
+    void 새_연결의_첫_묶음이_확정되지_않은_순번인데_더_큰_순번이_저장되어_있으면_4008_로_닫는다() {
+        FakeConnection a = join("A");
+        submit(a, 1, 0, paragraph("X", "가"));
+        submit(a, 2, 1, type("X", 0, "나"));
+        runAll();
+
+        FakeConnection again = new FakeConnection("A-again");
+        sessions.join(DOC, again, new Hello("client-A", 2, true), PageRole.EDIT, "이름-" + again.id());
+        runAll();
+        sessions.submit(DOC, again, new Change(2, 2, List.of(type("X", 0, "다"))));
+        sessions.submit(DOC, again, new Change(1, 2, List.of(type("X", 0, "라"))));
+        runAll();
+
+        // 순번 2 는 확정된 것이라 ack. 그 뒤의 순번 1 은 늘지 않았으므로 닫는다.
+        assertEquals(CloseCodes.PROTOCOL, again.closedWith);
+        assertEquals("나가", text("X"));
+
+        // 문서당 연결 한도(2)에 걸리지 않게 앞 연결들을 내보낸다.
+        sessions.leave(DOC, a);
+        sessions.leave(DOC, again);
+        runAll();
+        FakeConnection third = new FakeConnection("A-third");
+        sessions.join(DOC, third, new Hello("client-A", 2, true), PageRole.EDIT, "이름-" + third.id());
+        runAll();
+        // 확정되지 않은 순번(0)인데 더 큰 순번(2)이 있다. 정상 클라이언트는 이렇게 보내지 않는다.
+        sessions.submit(DOC, third, new Change(0, 2, List.of(type("X", 0, "마"))));
+        runAll();
+        assertEquals(CloseCodes.PROTOCOL, third.closedWith);
+        assertEquals(2, store.load(DOC).rev());
     }
 
     @Test

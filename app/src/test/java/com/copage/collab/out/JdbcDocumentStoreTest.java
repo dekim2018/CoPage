@@ -76,8 +76,9 @@ class JdbcDocumentStoreTest {
         assertEquals(changes.subList(1, 2), store.changesSince(docId, 1));
         Document expected = Document.create(root).apply(changes.get(0).ops()).apply(changes.get(1).ops());
         assertEquals(new DocumentStore.Snapshot(expected, 2, 0), store.load(docId));
-        assertEquals(OptionalLong.of(2), store.committedRev(docId, "c2", 1));
-        assertEquals(OptionalLong.empty(), store.committedRev(docId, "c2", 2));
+        assertEquals(new DocumentStore.ClientSeqs(OptionalLong.of(2), 1), store.clientSeqs(docId, "c2", 1));
+        assertEquals(new DocumentStore.ClientSeqs(OptionalLong.empty(), 1), store.clientSeqs(docId, "c2", 2));
+        assertEquals(new DocumentStore.ClientSeqs(OptionalLong.empty(), 0), store.clientSeqs(docId, "nobody", 1));
     }
 
     @Test

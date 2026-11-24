@@ -7,7 +7,9 @@ import com.copage.ot.model.Document;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
@@ -79,40 +81,56 @@ public final class JdbcDocumentStore implements DocumentStore {
     }
 
     @Override
-    public OptionalLong committedRev(UUID docId, String clientId, long clientSeq) {
+    public ClientSeqs clientSeqs(UUID docId, String clientId, long clientSeq) {
+        // 왕복 한 번으로 둘 다 읽는다. 둘 다 (doc_id, client_id, client_seq) 유일 색인으로 찾는다.
         return jdbc.sql("""
-                        SELECT rev FROM doc_ops
-                        WHERE doc_id = :docId AND client_id = :clientId AND client_seq = :clientSeq
+                        SELECT
+                          (SELECT rev FROM doc_ops
+                           WHERE doc_id = :docId AND client_id = :clientId AND client_seq = :clientSeq) AS rev,
+                          (SELECT coalesce(max(client_seq), 0) FROM doc_ops
+                           WHERE doc_id = :docId AND client_id = :clientId) AS highest
                         """)
                 .param("docId", docId)
                 .param("clientId", clientId)
                 .param("clientSeq", clientSeq)
-                .query(Long.class)
-                .optional()
-                .map(OptionalLong::of)
-                .orElse(OptionalLong.empty());
+                .query((rs, row) -> {
+                    long rev = rs.getLong("rev");
+                    return new ClientSeqs(rs.wasNull() ? OptionalLong.empty() : OptionalLong.of(rev), rs.getLong("highest"));
+                })
+                .single();
     }
 
-    /** 한 트랜잭션에 여러 행으로 넣는다 (8.2 의 묶음 커밋). 제약 위반이면 하나도 남지 않는다. */
+    /**
+     * 여러 행을 INSERT 문 하나로 넣는다 (8.2 의 묶음 커밋). 문장 하나는 그 자체로 원자적이라 제약 위반이면 하나도 남지 않고,
+     * 묶음 크기와 상관없이 DB 왕복은 한 번이다(PERF-2). 행마다 INSERT 를 보내면 묶음 N 개에 왕복 N+1 번(BEGIN 과 첫 INSERT,
+     * 나머지 INSERT, COMMIT)이었다.
+     */
     @Override
     public void append(UUID docId, List<StoredChange> changes) {
+        if (changes.isEmpty()) {
+            return;
+        }
+        StringBuilder sql = new StringBuilder(
+                "INSERT INTO doc_ops (doc_id, rev, user_id, client_id, client_seq, ops, created_at) VALUES ");
+        Map<String, Object> params = new HashMap<>();
+        params.put("docId", docId);
+        for (int i = 0; i < changes.size(); i++) {
+            StoredChange change = changes.get(i);
+            if (i > 0) {
+                sql.append(", ");
+            }
+            sql.append("(:docId, :rev").append(i).append(", :userId").append(i).append(", :clientId").append(i)
+                    .append(", :clientSeq").append(i).append(", CAST(:ops").append(i).append(" AS jsonb), :createdAt")
+                    .append(i).append(')');
+            params.put("rev" + i, change.rev());
+            params.put("userId" + i, change.userId());
+            params.put("clientId" + i, change.clientId());
+            params.put("clientSeq" + i, change.clientSeq());
+            params.put("ops" + i, mapper.writeValueAsString(OpJson.ops(change.ops())));
+            params.put("createdAt" + i, Timestamp.from(change.committedAt()));
+        }
         try {
-            tx.executeWithoutResult(status -> {
-                for (StoredChange change : changes) {
-                    jdbc.sql("""
-                                    INSERT INTO doc_ops (doc_id, rev, user_id, client_id, client_seq, ops, created_at)
-                                    VALUES (:docId, :rev, :userId, :clientId, :clientSeq, CAST(:ops AS jsonb), :createdAt)
-                                    """)
-                            .param("docId", docId)
-                            .param("rev", change.rev())
-                            .param("userId", change.userId())
-                            .param("clientId", change.clientId())
-                            .param("clientSeq", change.clientSeq())
-                            .param("ops", mapper.writeValueAsString(OpJson.ops(change.ops())))
-                            .param("createdAt", Timestamp.from(change.committedAt()))
-                            .update();
-                }
-            });
+            jdbc.sql(sql.toString()).params(params).update();
         } catch (DuplicateKeyException e) {
             // (doc_id, rev) 가 겹치면 다른 노드가 이 문서를 쓰고 있다는 뜻이다 (5.3).
             throw new RevisionConflictException("문서 " + docId + " 의 리비전이나 순번이 이미 있다: " + e.getMessage());
