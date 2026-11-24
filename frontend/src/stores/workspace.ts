@@ -39,7 +39,6 @@ export const useWorkspace = defineStore('workspace', () => {
     current.value = found ?? null
     children.clear()
     expanded.clear()
-    editedTitles.clear()
     if (current.value !== null) {
       await loadChildren(null)
     }
@@ -110,6 +109,7 @@ export const useWorkspace = defineStore('workspace', () => {
     current.value = null
     children.clear()
     expanded.clear()
+    editedTitles.clear()
   }
 
   return {
