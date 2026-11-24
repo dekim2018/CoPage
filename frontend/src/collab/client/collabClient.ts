@@ -310,15 +310,16 @@ export class CollabClient {
     }
     const submission = this.session.poll()
     if (submission !== null) {
+      // 살린 편집은 buffer 에 들어가 이 새 묶음에 실린다. resync 가 다시 보내는 예전 inflight 에는 실리지 않는다.
+      if (this.salvagePending) {
+        this.salvageSeqs.add(submission.clientSeq)
+        this.salvagePending = false
+      }
       this.sendChange(submission)
     }
   }
 
   private sendChange(submission: Submission): void {
-    if (this.salvagePending) {
-      this.salvageSeqs.add(submission.clientSeq)
-      this.salvagePending = false
-    }
     this.connection.send({
       t: 'change',
       clientSeq: submission.clientSeq,
