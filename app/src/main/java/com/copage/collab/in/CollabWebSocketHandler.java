@@ -1,6 +1,7 @@
 package com.copage.collab.in;
 
 import com.copage.collab.app.CloseCodes;
+import com.copage.collab.app.CollabMetrics;
 import com.copage.collab.app.DocumentSessions;
 import com.copage.collab.domain.ClientMessage;
 import com.copage.collab.domain.WsTicket;
@@ -71,16 +72,28 @@ public final class CollabWebSocketHandler extends TextWebSocketHandler {
     private final Limits limits;
     private final Clock clock;
     private final Executor sendExecutor;
+    private final CollabMetrics metrics;
     private final Map<String, State> states = new ConcurrentHashMap<>();
 
     /** @param sendExecutor 연결마다의 전송 작업을 돌리는 곳. 가상 스레드를 쓴다 */
     public CollabWebSocketHandler(
-            DocumentSessions sessions, ProtocolCodec codec, Limits limits, Clock clock, Executor sendExecutor) {
+            DocumentSessions sessions,
+            ProtocolCodec codec,
+            Limits limits,
+            Clock clock,
+            Executor sendExecutor,
+            CollabMetrics metrics) {
         this.sessions = sessions;
         this.codec = codec;
         this.limits = limits;
         this.clock = clock;
         this.sendExecutor = sendExecutor;
+        this.metrics = metrics;
+    }
+
+    /** 열린 WebSocket 연결 수(hello 전 포함). 지표가 읽는다. */
+    public int connectionCount() {
+        return states.size();
     }
 
     @Override
@@ -112,7 +125,11 @@ public final class CollabWebSocketHandler extends TextWebSocketHandler {
             if (message.getPayload().getBytes(StandardCharsets.UTF_8).length > limits.maxMessageBytes()) {
                 throw new ProtocolException("메시지가 " + limits.maxMessageBytes() + " 바이트를 넘는다");
             }
-            handle(state, codec.read(message.getPayload()), now);
+            ClientMessage parsed = codec.read(message.getPayload());
+            if (parsed instanceof ClientMessage.Change) {
+                metrics.changeBytes(message.getPayloadLength());
+            }
+            handle(state, parsed, now);
         } catch (ProtocolException e) {
             state.connection.close(CloseCodes.PROTOCOL, e.getMessage());
         }

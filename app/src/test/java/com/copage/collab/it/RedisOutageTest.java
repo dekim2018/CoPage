@@ -20,6 +20,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalManagementPort;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -53,10 +54,14 @@ class RedisOutageTest {
         registry.add("spring.data.redis.host", REDIS::getHost);
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
         registry.add("spring.data.redis.timeout", () -> "500ms");
+        registry.add("management.server.port", () -> "0");
     }
 
     @LocalServerPort
     int port;
+
+    @LocalManagementPort
+    int managementPort;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private boolean paused;
@@ -157,6 +162,12 @@ class RedisOutageTest {
         TestClient late = new TestClient("late");
         assertThrows(Exception.class, () -> late.connect(
                 URI.create("ws://localhost:" + port + "/ws/docs/" + docId + "?ticket=" + spareTicket + "&v=1")));
+
+        // 생존 검사(liveness)는 Redis 를 보지 않아 재시작을 부르지 않는다. 묶은 health 는 Redis 를 보므로 생존 검사에 쓰면 안 된다(D-25).
+        assertEquals(200, http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + managementPort + "/actuator/health/liveness"))
+                .build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+        assertEquals(503, http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + managementPort + "/actuator/health"))
+                .build(), HttpResponse.BodyHandlers.ofString()).statusCode());
 
         // 열린 편집 연결은 Redis 를 쓰지 않는다.
         client.edit(List.of(new InsertBlock("X", docId.toString(), "a", "paragraph", Attrs.NONE, RichText.of("가"))));

@@ -64,12 +64,26 @@ public final class ChangePolicy {
         this.maxTextLength = maxTextLength;
     }
 
+    /**
+     * 거부 사유와 그 분류.
+     *
+     * @param category 지표에 쓰는 분류(permission, input). 가짓수가 정해져 있다
+     */
+    public record Refusal(String category, String message) {
+    }
+
     /** 변환하기 전, 클라이언트가 보낸 그대로의 묶음을 검사한다. 거부 사유가 있으면 돌려준다. */
     public Optional<String> check(List<Op> ops, PageRole role) {
+        return refuse(ops, role).map(Refusal::message);
+    }
+
+    /** check 와 같고 사유의 분류를 함께 돌려준다. */
+    public Optional<Refusal> refuse(List<Op> ops, PageRole role) {
         for (Op op : ops) {
-            Optional<String> reason = checkRole(op, role).or(() -> checkInput(op)).or(() -> checkStorable(op));
-            if (reason.isPresent()) {
-                return reason;
+            Optional<Refusal> refusal = checkRole(op, role).map(message -> new Refusal("permission", message))
+                    .or(() -> checkInput(op).or(() -> checkStorable(op)).map(message -> new Refusal("input", message)));
+            if (refusal.isPresent()) {
+                return refusal;
             }
         }
         return Optional.empty();

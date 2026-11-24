@@ -1,6 +1,7 @@
 package com.copage.collab.config;
 
 import com.copage.collab.app.ChangePolicy;
+import com.copage.collab.app.CollabMetrics;
 import com.copage.collab.app.DocumentSession;
 import com.copage.collab.app.DocumentSessions;
 import com.copage.collab.app.DocumentStore;
@@ -11,6 +12,7 @@ import com.copage.collab.domain.PageRole;
 import com.copage.collab.in.CollabWebSocketHandler;
 import com.copage.collab.in.ProtocolCodec;
 import com.copage.collab.out.JdbcDocumentStore;
+import com.copage.collab.out.MicrometerCollabMetrics;
 import com.copage.collab.out.RedisTicketStore;
 import com.copage.identity.app.AuthException;
 import com.copage.identity.app.AuthService;
@@ -18,6 +20,8 @@ import com.copage.permission.app.PagePermissions.Access;
 import com.copage.permission.app.PagePermissions;
 import com.copage.permission.app.PermissionChangeListener;
 import com.copage.workspace.app.WorkspaceService;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -113,7 +117,8 @@ public class CollabConfig {
             ExecutorService collabExecutor,
             ScheduledExecutorService collabScheduler,
             Clock collabClock,
-            WorkspaceService workspaceService) {
+            WorkspaceService workspaceService,
+            CollabMetrics collabMetrics) {
         DocumentSession.Settings settings = new DocumentSession.Settings(
                 properties.maxConnectionsPerDocument(),
                 properties.rebaseMaxGap(),
@@ -130,7 +135,8 @@ public class CollabConfig {
                 (task, delay) -> collabScheduler.schedule(task, delay.toMillis(), TimeUnit.MILLISECONDS),
                 collabClock,
                 // 문서 제목은 페이지 목록과 경로가 보인다. 저장은 workspace 모듈이 한다 (D-21).
-                workspaceService::updateTitle);
+                workspaceService::updateTitle,
+                collabMetrics);
     }
 
     @Bean
@@ -139,7 +145,9 @@ public class CollabConfig {
             JsonMapper jsonMapper,
             ScheduledExecutorService collabScheduler,
             ExecutorService collabExecutor,
-            Clock collabClock) {
+            Clock collabClock,
+            CollabMetrics collabMetrics,
+            MeterRegistry meterRegistry) {
         CollabWebSocketHandler handler = new CollabWebSocketHandler(
                 documentSessions,
                 new ProtocolCodec(jsonMapper),
@@ -151,9 +159,22 @@ public class CollabConfig {
                         properties.sendTimeLimit(),
                         properties.sendBufferBytes()),
                 collabClock,
-                collabExecutor);
+                collabExecutor,
+                collabMetrics);
         collabScheduler.scheduleWithFixedDelay(handler::closeIdleConnections, 5, 5, TimeUnit.SECONDS);
+        // 노드 수용량 (13.4). 열린 세션은 문서 수, 연결은 WebSocket 수다.
+        Gauge.builder("collab.sessions", documentSessions, DocumentSessions::size)
+                .description("메모리에 올라온 문서 세션 수")
+                .register(meterRegistry);
+        Gauge.builder("collab.connections", handler, CollabWebSocketHandler::connectionCount)
+                .description("열린 WebSocket 연결 수")
+                .register(meterRegistry);
         return handler;
+    }
+
+    @Bean
+    CollabMetrics collabMetrics(MeterRegistry meterRegistry) {
+        return new MicrometerCollabMetrics(meterRegistry);
     }
 
     /** 크기 한도를 넘는 메시지도 일단 받아서 4008 로 끊는다. 컨테이너 버퍼가 작으면 컨테이너가 1009 로 먼저 끊어 버린다. */

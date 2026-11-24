@@ -24,6 +24,21 @@ spring:
     problemdetails:
       enabled: true
 
+# 지표와 상태 확인 (docs/11-TEST-PLAN.md 13.4, 진단 OPS-1). API 와 다른 포트에, 기본으로는 이 기기에서만 받는다.
+# 수집기(Prometheus)가 다른 기기에 있으면 COPAGE_MANAGEMENT_ADDRESS 로 열 주소를 정한다. API 포트로는 열지 않는다.
+management:
+  server:
+    port: ${COPAGE_MANAGEMENT_PORT:8081}
+    address: ${COPAGE_MANAGEMENT_ADDRESS:127.0.0.1}
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
 copage:
   web:
     # 브라우저에서 API 와 WebSocket 을 부를 수 있는 Origin. 비어 있으면 같은 출처만 받는다.

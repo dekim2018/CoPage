@@ -45,11 +45,15 @@
 
 운영 중에도 같은 지표를 Micrometer로 내보낸다. 목표값은 1.4의 성공 기준과 같다.
 
+내보내는 곳은 관리 포트의 `/actuator/prometheus` 다(기본 8081, 이 기기에서만, `COPAGE_MANAGEMENT_PORT`, `COPAGE_MANAGEMENT_ADDRESS`). API 포트로는 열지 않는다. 분포는 히스토그램으로 내고 백분위는 수집하는 쪽에서 `histogram_quantile` 로 계산한다. 레이블에 문서 ID 와 사용자 ID 를 넣지 않는다(D-25). 리스 충돌은 리스(다중 노드, 4단계)가 생길 때 더한다.
+
+상태 확인은 셋이다. 생존 검사(재시작 판단)에는 `/actuator/health/liveness` 만 쓴다. 이것은 앱 자신만 보고 DB 와 Redis 를 보지 않는다. 트래픽을 보낼지는 `/actuator/health/readiness` 로 본다. 묶은 `/actuator/health` 는 DB 와 Redis 를 함께 보므로 Redis 장애 때 DOWN(503)이다. 이것을 생존 검사로 쓰면 Redis 장애가 모든 노드의 재시작으로 번지고, 열린 편집 연결이 끊긴다(9.7, D-03). 컨테이너에서 수집기가 닿도록 `COPAGE_MANAGEMENT_ADDRESS=0.0.0.0` 으로 열 때는 관리 포트를 공개 네트워크에 내지 않는다(`RedisOutageTest` 가 정지 중 liveness 200, health 503 을 확인한다).
+
 | 지표 | 이름 | 보는 이유 |
 | --- | --- | --- |
 | ack 지연 | `collab.ack.latency` (p50, p95, p99) | 사용자가 느끼는 저장 속도 |
 | 묶음당 변환 횟수 | `collab.transform.count` | 동시 편집이 얼마나 겹치는지. 클수록 클라이언트의 기준 리비전이 뒤처져 있다는 뜻 |
-| 거부율 | `collab.nack.rate` (사유별) | 6.6의 거부 규칙이 실제로 얼마나 자주 사용자 입력을 되돌리는지 |
+| 거부율 | `collab.nack` (사유 분류별: permission, input, empty, rejected. 비율은 ack 횟수와 나눠 본다) | 6.6의 거부 규칙이 실제로 얼마나 자주 사용자 입력을 되돌리는지 |
 | 커밋 묶음 크기 | `collab.commit.batch.size` | 묶음 커밋이 동작하는지 |
 | 열린 세션, 연결 수 | `collab.sessions`, `collab.connections` | 노드 수용량 |
 | 세션 복구 시간 | `collab.session.load` | 스냅샷 간격 조정 근거 |

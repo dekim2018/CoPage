@@ -23,6 +23,7 @@ public final class DocumentSessions {
     private final DocumentSession.Scheduler scheduler;
     private final Clock clock;
     private final TitleSink titles;
+    private final CollabMetrics metrics;
 
     public DocumentSessions(
             DocumentStore store,
@@ -32,7 +33,8 @@ public final class DocumentSessions {
             Executor background,
             DocumentSession.Scheduler scheduler,
             Clock clock,
-            TitleSink titles) {
+            TitleSink titles,
+            CollabMetrics metrics) {
         this.store = store;
         this.policy = policy;
         this.settings = settings;
@@ -41,6 +43,7 @@ public final class DocumentSessions {
         this.scheduler = scheduler;
         this.clock = clock;
         this.titles = titles;
+        this.metrics = metrics;
     }
 
     /** hello 를 받은 연결을 문서 세션에 넣는다. welcome 은 세션이 보낸다. */
@@ -92,7 +95,7 @@ public final class DocumentSessions {
 
     private DocumentSession create(UUID docId) {
         return new DocumentSession(
-                docId, store, policy, settings, executor, background, scheduler, clock, titles,
+                docId, store, policy, settings, executor, background, scheduler, clock, titles, metrics,
                 s -> sessions.remove(s.docId(), s));
     }
 }
