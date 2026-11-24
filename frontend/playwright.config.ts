@@ -6,8 +6,9 @@ import { defineConfig, devices } from '@playwright/test'
  * 먼저 PostgreSQL 과 Redis 를 띄우고(docker compose up -d) 백엔드 jar 를 만든다(./gradlew :app:bootJar). DB 와 Redis 포트는
  * COPAGE_DB_PORT, COPAGE_REDIS_PORT 로 바꿀 수 있다.
  */
-const backendPort = 18081
-const webPort = 5174
+// 이 기기의 다른 프로그램이 포트를 쓰고 있으면 COPAGE_E2E_BACKEND_PORT, COPAGE_E2E_WEB_PORT 로 바꾼다.
+const backendPort = Number(process.env.COPAGE_E2E_BACKEND_PORT ?? 18081)
+const webPort = Number(process.env.COPAGE_E2E_WEB_PORT ?? 5174)
 
 export default defineConfig({
   testDir: 'e2e',

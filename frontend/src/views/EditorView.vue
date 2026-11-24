@@ -152,7 +152,9 @@ onBeforeUnmount(() => {
 <template>
   <nav v-if="pageInfo && pageInfo.path.length > 0" class="crumbs" data-testid="crumbs">
     <template v-for="ancestor in pageInfo.path" :key="ancestor.id">
-      <RouterLink :to="`/w/${workspaceId}/p/${ancestor.id}`">{{ ancestor.title || '제목 없음' }}</RouterLink>
+      <RouterLink :to="`/w/${workspaceId}/p/${ancestor.id}`">{{
+        (workspace.editedTitle(ancestor.id) ?? ancestor.title) || '제목 없음'
+      }}</RouterLink>
       <span> / </span>
     </template>
   </nav>
