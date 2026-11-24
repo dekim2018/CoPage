@@ -384,8 +384,17 @@ public final class DocumentSession {
         List<Runnable> replies = new ArrayList<>();
         List<StoredChange> commits = new ArrayList<>();
         Instant now = clock.instant();
-        for (Pending item : batch) {
-            process(item, now, commits, replies);
+        try {
+            for (Pending item : batch) {
+                process(item, now, commits, replies);
+            }
+        } catch (RuntimeException e) {
+            // 묶음을 처리하다 저장소를 읽지 못했다(중복 확인 등). 메모리의 문서는 이미 이 차례의 앞 묶음들을 적용했을 수
+            // 있어 저장소와 어긋난다. 커밋 실패와 같이 세션을 버린다. 처리하지 못한 묶음은 클라이언트가 재접속해 같은 순번으로
+            // 다시 보낸다. 그냥 두면 예외가 실행기로 새어 묶음이 말없이 사라지고 클라이언트는 답을 영영 받지 못한다.
+            LOG.log(System.Logger.Level.ERROR, "문서 " + docId + " 의 묶음을 처리하다 저장소를 읽지 못했다. 세션을 버린다", e);
+            discard();
+            return;
         }
         if (!commits.isEmpty()) {
             metrics.commitBatch(commits.size());
