@@ -11,6 +11,9 @@ public interface NotificationRepository {
     /** 넣는다. dedupeKey 가 이미 있으면 넣지 않고 비어 있다. */
     Optional<Notification> insert(Notification notification, String dedupeKey);
 
+    /** dedupeKey 가 prefix 로 시작하는 알림을 지운다. 지운 댓글을 담은 알림을 없앨 때 쓴다 (D-49). */
+    int deleteByDedupePrefix(String prefix);
+
     /** 최근부터. */
     List<Notification> recent(UUID userId, int limit);
 

@@ -9,7 +9,9 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -21,10 +23,20 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 class CommentController {
 
-    record CommentView(UUID id, UUID authorId, String authorName, String body, Instant createdAt) {
+    /** @param deleted 지운 댓글. 글은 비어 있다 */
+    record CommentView(UUID id, UUID authorId, String authorName, String body, Instant createdAt, Instant editedAt,
+            boolean deleted) {
         static CommentView of(Comment c) {
-            return new CommentView(c.id(), c.authorId(), c.authorName(), c.body(), c.createdAt());
+            return new CommentView(c.id(), c.authorId(), c.authorName(), c.body(), c.createdAt(), c.editedAt(),
+                    c.deleted());
         }
+    }
+
+    record EditRequest(String body, List<UUID> mentions) {
+    }
+
+    /** @param threadDeleted 남은 댓글이 없어 스레드도 지웠다. 화면은 본문의 댓글 서식을 걷는다 */
+    record DeleteResponse(boolean threadDeleted) {
     }
 
     record ThreadView(UUID id, String quote, Instant createdAt, boolean resolved, String resolvedByName,
@@ -73,6 +85,18 @@ class CommentController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void resolve(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID threadId, @RequestBody ResolveRequest request) {
         comments.resolve(userId(jwt), threadId, request.resolved());
+    }
+
+    /** 내 댓글 고치기 (D-49). 여기의 ID 는 댓글 ID 다(답글과 해결의 ID 는 스레드 ID). */
+    @PatchMapping("/api/comments/{commentId}")
+    CommentView edit(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID commentId, @RequestBody EditRequest request) {
+        return CommentView.of(comments.edit(userId(jwt), commentId, request.body(), mentions(request.mentions())));
+    }
+
+    /** 댓글 지우기 (D-49). 쓴 사람이나 그 페이지의 FULL. */
+    @DeleteMapping("/api/comments/{commentId}")
+    DeleteResponse delete(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID commentId) {
+        return new DeleteResponse(comments.delete(userId(jwt), commentId));
     }
 
     private static List<UUID> mentions(List<UUID> mentions) {

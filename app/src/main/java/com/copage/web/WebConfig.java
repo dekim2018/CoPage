@@ -32,6 +32,12 @@ class WebConfig {
         return registration;
     }
 
+    /** 에러 모니터링으로 보내기 전에 비밀을 가린다 (D-49). Sentry 스타터가 이 빈을 찾아 쓴다. */
+    @Bean
+    ErrorReportScrubber errorReportScrubber() {
+        return new ErrorReportScrubber();
+    }
+
     /**
      * 로그인 없이 부를 수 있는 경로의 IP 별 빈도 제한 (D-48). 저장소 오류를 503 으로 바꾸는 필터 안쪽, 보안 필터 바깥에 둔다.
      * 값은 사람이 쓰기에는 넉넉하고 스크립트로 훑기에는 느린 정도다.

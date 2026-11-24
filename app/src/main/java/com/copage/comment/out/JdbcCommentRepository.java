@@ -81,15 +81,20 @@ public final class JdbcCommentRepository implements CommentRepository {
         Map<UUID, List<Comment>> comments = new LinkedHashMap<>();
         rows.forEach(row -> comments.put(row.id(), new ArrayList<>()));
         jdbc.sql("""
-                        SELECT c.id, c.thread_id, c.author_id, u.name AS author_name, c.body, c.created_at
+                        SELECT c.id, c.thread_id, c.author_id, u.name AS author_name, c.body, c.created_at,
+                               c.edited_at, c.deleted_at
                         FROM comments c JOIN comment_threads t ON t.id = c.thread_id JOIN users u ON u.id = c.author_id
                         WHERE t.doc_id = :docId
                         ORDER BY c.created_at, c.id
                         """)
                 .param("docId", docId)
-                .query((rs, row) -> new Comment(rs.getObject("id", UUID.class), rs.getObject("thread_id", UUID.class),
-                        rs.getObject("author_id", UUID.class), rs.getString("author_name"), rs.getString("body"),
-                        rs.getTimestamp("created_at").toInstant()))
+                .query((rs, row) -> {
+                    Timestamp edited = rs.getTimestamp("edited_at");
+                    return new Comment(rs.getObject("id", UUID.class), rs.getObject("thread_id", UUID.class),
+                            rs.getObject("author_id", UUID.class), rs.getString("author_name"), rs.getString("body"),
+                            rs.getTimestamp("created_at").toInstant(), edited == null ? null : edited.toInstant(),
+                            rs.getTimestamp("deleted_at") != null);
+                })
                 .list()
                 .forEach(comment -> comments.get(comment.threadId()).add(comment));
         return rows.stream()
@@ -112,6 +117,56 @@ public final class JdbcCommentRepository implements CommentRepository {
                 .param("id", threadId)
                 .query(UUID.class)
                 .list());
+    }
+
+    @Override
+    public Optional<CommentRef> findComment(UUID commentId) {
+        return jdbc.sql("""
+                        SELECT c.id, c.thread_id, t.doc_id, c.author_id, c.deleted_at
+                        FROM comments c JOIN comment_threads t ON t.id = c.thread_id
+                        WHERE c.id = :id
+                        """)
+                .param("id", commentId)
+                .query((rs, row) -> new CommentRef(rs.getObject("id", UUID.class), rs.getObject("thread_id", UUID.class),
+                        rs.getObject("doc_id", UUID.class), rs.getObject("author_id", UUID.class),
+                        rs.getTimestamp("deleted_at") != null))
+                .optional();
+    }
+
+    @Override
+    public boolean editComment(UUID commentId, String body, Instant editedAt) {
+        return jdbc.sql("UPDATE comments SET body = :body, edited_at = :at WHERE id = :id AND deleted_at IS NULL")
+                .param("id", commentId)
+                .param("body", body)
+                .param("at", Timestamp.from(editedAt))
+                .update() == 1;
+    }
+
+    @Override
+    public boolean deleteComment(UUID commentId, Instant deletedAt) {
+        Boolean threadGone = tx.execute(status -> {
+            UUID threadId = jdbc.sql("""
+                            UPDATE comments SET body = '', deleted_at = :at
+                            WHERE id = :id AND deleted_at IS NULL
+                            RETURNING thread_id
+                            """)
+                    .param("id", commentId)
+                    .param("at", Timestamp.from(deletedAt))
+                    .query(UUID.class)
+                    .optional()
+                    .orElse(null);
+            if (threadId == null) {
+                return false;
+            }
+            // 남은 댓글이 없는 스레드는 지운다(댓글은 외래 키로 함께 지워진다).
+            return jdbc.sql("""
+                            DELETE FROM comment_threads t WHERE t.id = :threadId
+                            AND NOT EXISTS (SELECT 1 FROM comments c WHERE c.thread_id = t.id AND c.deleted_at IS NULL)
+                            """)
+                    .param("threadId", threadId)
+                    .update() == 1;
+        });
+        return Boolean.TRUE.equals(threadGone);
     }
 
     @Override

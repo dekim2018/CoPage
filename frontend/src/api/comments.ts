@@ -7,6 +7,10 @@ export interface CommentItem {
   authorName: string
   body: string
   createdAt: string
+  /** 고친 때. 고치지 않았으면 null */
+  editedAt: string | null
+  /** 지운 댓글. 글이 비어 있다 (D-49) */
+  deleted: boolean
 }
 
 export interface CommentThread {
@@ -36,6 +40,9 @@ export const commentsApi = {
     api<CommentThread>(`/api/docs/${docId}/comments`, { method: 'POST', ...json({ quote, body, mentions }) }),
   reply: (threadId: string, body: string, mentions: string[]) =>
     api<CommentItem>(`/api/comments/${threadId}/replies`, { method: 'POST', ...json({ body, mentions }) }),
+  edit: (commentId: string, body: string, mentions: string[]) =>
+    api<CommentItem>(`/api/comments/${commentId}`, { method: 'PATCH', ...json({ body, mentions }) }),
+  remove: (commentId: string) => api<{ threadDeleted: boolean }>(`/api/comments/${commentId}`, { method: 'DELETE' }),
   resolve: (threadId: string, resolved: boolean) =>
     api<void>(`/api/comments/${threadId}/resolved`, { method: 'PUT', ...json({ resolved }) }),
 }

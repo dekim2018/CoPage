@@ -53,6 +53,18 @@ management:
       probes:
         enabled: true
 
+# 에러 모니터링 (D-49, docs/DEPLOY.md). DSN 이 비어 있으면 아무것도 보내지 않는다. 처리하지 못한 예외(5xx)와 ERROR 로그만
+# 보낸다. 사용자 정보와 쿠키, 인증 헤더는 싣지 않고, 주소의 티켓과 토큰은 보내기 전에 가린다(ErrorReportScrubber).
+sentry:
+  dsn: ${COPAGE_SENTRY_DSN:}
+  environment: ${COPAGE_ENVIRONMENT:local}
+  send-default-pii: false
+  # @ExceptionHandler 가 처리한 오류(4xx ProblemDetail)는 보내지 않는다. 처리기들이 다 지나친 예외만 잡는다.
+  exception-resolver-order: 2147483647
+  logging:
+    minimum-event-level: error
+    minimum-breadcrumb-level: info
+
 copage:
   web:
     # 브라우저에서 API 와 WebSocket 을 부를 수 있는 Origin. 비어 있으면 같은 출처만 받는다.

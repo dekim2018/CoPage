@@ -89,4 +89,12 @@ public final class JdbcNotificationRepository implements NotificationRepository 
                 rs.getTimestamp("created_at").toInstant(),
                 read == null ? null : read.toInstant());
     }
+
+    @Override
+    public int deleteByDedupePrefix(String prefix) {
+        String pattern = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+        return jdbc.sql("DELETE FROM notifications WHERE dedupe_key LIKE :pattern")
+                .param("pattern", pattern)
+                .update();
+    }
 }

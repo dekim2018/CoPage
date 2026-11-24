@@ -100,6 +100,55 @@ public final class CommentService {
         announce.accept(docId, threadId);
     }
 
+    /**
+     * 내 댓글을 고친다 (D-49). 쓴 사람만, 그리고 지금도 그 문서에 COMMENT 이상이어야 한다. 새로 멘션한 사람에게는 알린다(이미 알린
+     * 사람에게는 다시 가지 않는다).
+     *
+     * @throws CommentException NOT_FOUND 없거나 지운 댓글, FORBIDDEN 남의 댓글이거나 등급이 모자람
+     */
+    public Comment edit(UUID userId, UUID commentId, String body, Collection<UUID> mentions) {
+        CommentRepository.CommentRef ref = live(commentId);
+        require(userId, ref.docId(), PageLevel.COMMENT);
+        if (!ref.authorId().equals(userId)) {
+            throw new CommentException(Kind.FORBIDDEN, "내 댓글만 고친다");
+        }
+        checkMentions(mentions);
+        String text = body(body);
+        Instant now = now();
+        if (!repository.editComment(commentId, text, now)) {
+            throw new CommentException(Kind.NOT_FOUND, "댓글이 없다");
+        }
+        Comment edited = new Comment(commentId, ref.threadId(), userId, null, text, now, now, false);
+        notifyMentions(ref.docId(), userId, edited, mentions);
+        announce.accept(ref.docId(), ref.threadId());
+        return edited;
+    }
+
+    /**
+     * 댓글을 지운다 (D-49). 쓴 사람(COMMENT 이상)이나 그 문서의 FULL 이 지운다. 글은 비우고, 그 댓글을 담은 알림(멘션, 답글)도
+     * 지운다. 스레드에 남은 댓글이 없으면 스레드도 지운다. 그때 화면이 본문의 댓글 서식을 걷는다.
+     *
+     * @return 스레드까지 지웠으면 true
+     */
+    public boolean delete(UUID userId, UUID commentId) {
+        CommentRepository.CommentRef ref = live(commentId);
+        PageLevel level = require(userId, ref.docId(), PageLevel.COMMENT);
+        if (!ref.authorId().equals(userId) && !level.atLeast(PageLevel.FULL)) {
+            throw new CommentException(Kind.FORBIDDEN, "내 댓글이나 전체 권한이 있는 페이지의 댓글만 지운다");
+        }
+        boolean threadGone = repository.deleteComment(commentId, now());
+        notifications.forget("reply:" + commentId + ":");
+        notifications.forget("comment-mention:" + commentId + ":");
+        announce.accept(ref.docId(), ref.threadId());
+        return threadGone;
+    }
+
+    private CommentRepository.CommentRef live(UUID commentId) {
+        return repository.findComment(commentId)
+                .filter(ref -> !ref.deleted())
+                .orElseThrow(() -> new CommentException(Kind.NOT_FOUND, "댓글이 없다"));
+    }
+
     private void notifyMentions(UUID docId, UUID actorId, Comment comment, Collection<UUID> mentions) {
         for (UUID mentioned : new LinkedHashSet<>(mentions)) {
             if (canView(mentioned, docId)) {
@@ -123,16 +172,18 @@ public final class CommentService {
         return repository.docOf(threadId).orElseThrow(() -> new CommentException(Kind.NOT_FOUND, "댓글이 없다"));
     }
 
-    private void require(UUID userId, UUID docId, PageLevel level) {
-        switch (permissions.access(userId, docId)) {
+    /** @return 그 문서에 대한 내 등급 */
+    private PageLevel require(UUID userId, UUID docId, PageLevel level) {
+        return switch (permissions.access(userId, docId)) {
             case Access.NotFound notFound -> throw new CommentException(Kind.NOT_FOUND, "페이지가 없다");
             case Access.Denied denied -> throw new CommentException(Kind.FORBIDDEN, "이 페이지에 권한이 없다");
             case Access.Granted granted -> {
                 if (!granted.level().atLeast(level)) {
                     throw new CommentException(Kind.FORBIDDEN, "댓글 권한이 없다");
                 }
+                yield granted.level();
             }
-        }
+        };
     }
 
     private static String body(String body) {

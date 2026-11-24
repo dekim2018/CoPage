@@ -225,4 +225,50 @@ class CommentFlowTest extends TestInfra {
         assertEquals(team.page, item.get("docId").stringValue());
         assertEquals(0, unread(stranger));
     }
+
+    @Test
+    void 쓴_사람만_고치고_쓴_사람이나_FULL_이_지우며_지운_댓글의_알림도_지운다() throws Exception {
+        Team team = new Team();
+        Response created = comment(team.page, "원문", "처음 글", List.of(), team.member);
+        String thread = created.body().get("id").stringValue();
+        String first = created.body().get("comments").get(0).get("id").stringValue();
+        String reply = send("POST", "/api/comments/" + thread + "/replies",
+                Map.of("body", "@주인 답글", "mentions", List.of(team.owner.id())), team.member).body().get("id")
+                .stringValue();
+        assertEquals(1, unread(team.owner));
+
+        // 고치기: 쓴 사람만. 새로 멘션한 사람에게 알린다.
+        assertEquals(403, send("PATCH", "/api/comments/" + first, Map.of("body", "남이 고침"), team.owner).status());
+        Response edited = send("PATCH", "/api/comments/" + first,
+                Map.of("body", "고친 글 @보기만", "mentions", List.of(team.viewer.id())), team.member);
+        assertEquals(200, edited.status());
+        assertTrue(edited.body().get("editedAt").isString());
+        assertEquals(1, unread(team.viewer), "고치며 새로 멘션한 사람(볼 수 있음)에게 알린다");
+        send("PATCH", "/api/comments/" + first,
+                Map.of("body", "고친 글 @보기만", "mentions", List.of(team.viewer.id())), team.member);
+        assertEquals(1, unread(team.viewer), "같은 댓글에서 같은 사람은 한 번만");
+        assertEquals(400, send("PATCH", "/api/comments/" + first, Map.of("body", " "), team.member).status());
+
+        JsonNode comments = send("GET", "/api/docs/" + team.page + "/comments", null, team.viewer).body().get(0)
+                .get("comments");
+        assertEquals("고친 글 @보기만", comments.get(0).get("body").stringValue());
+
+        // 지우기: 보기만 하는 사람은 못 지우고, 쓴 사람은 지운다. 그 댓글이 보낸 멘션 알림도 사라진다.
+        assertEquals(403, send("DELETE", "/api/comments/" + reply, null, team.viewer).status());
+        Response deleted = send("DELETE", "/api/comments/" + reply, null, team.member);
+        assertEquals(200, deleted.status());
+        assertEquals(false, deleted.body().get("threadDeleted").booleanValue());
+        assertEquals(0, unread(team.owner), "지운 답글의 멘션 알림");
+        JsonNode after = send("GET", "/api/docs/" + team.page + "/comments", null, team.owner).body().get(0)
+                .get("comments");
+        assertTrue(after.get(1).get("deleted").booleanValue());
+        assertEquals("", after.get(1).get("body").stringValue());
+        assertEquals(404, send("PATCH", "/api/comments/" + reply, Map.of("body", "되살리기"), team.member).status());
+        assertEquals(404, send("DELETE", "/api/comments/" + reply, null, team.member).status());
+
+        // FULL(주인)은 남의 댓글도 지운다. 남은 댓글이 없으면 스레드도 사라진다.
+        Response last = send("DELETE", "/api/comments/" + first, null, team.owner);
+        assertEquals(true, last.body().get("threadDeleted").booleanValue());
+        assertEquals(0, send("GET", "/api/docs/" + team.page + "/comments", null, team.owner).body().size());
+    }
 }

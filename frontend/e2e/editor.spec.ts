@@ -657,6 +657,40 @@ test('고른 글에 댓글을 달고 멘션하면 상대 알림이 늘고, 답�
   await expect(b.getByTestId('comment-thread')).toHaveCount(0)
 })
 
+test('내 댓글을 고치고 지우면 상대 창에도 바뀌고, 마지막 댓글을 지우면 본문의 댓글 표시도 사라진다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
+  await Promise.all([open(a, docId), open(b, docId)])
+  await prepare(a, b, '제목', ['검토할 본문'])
+  await b.getByTestId('comments-button').click()
+  await a.getByTestId('comments-button').click()
+  await a.locator('.ProseMirror').focus()
+  await selectText(a, 1, 0, 2)
+  await a.getByTestId('comment-start').click()
+  await a.getByTestId('comment-body').fill('처음 의견')
+  await a.getByRole('button', { name: '달기' }).click()
+  await expect(b.locator('.ProseMirror .comment-mark')).toHaveText('검토')
+
+  // 남(b)의 댓글에는 고치기와 지우기가 없다(b 는 MEMBER, 전체 권한이 아니다).
+  await expect(b.getByTestId('comment-thread')).toContainText('처음 의견')
+  await expect(b.getByTestId('comment-edit')).toHaveCount(0)
+  await expect(b.getByTestId('comment-delete')).toHaveCount(0)
+
+  await a.getByTestId('comment-edit').click()
+  await a.getByTestId('comment-edit-body').fill('고친 의견')
+  await a.getByTestId('comment-edit-save').click()
+  await expect(b.getByTestId('comment-thread')).toContainText('고친 의견')
+  await expect(b.getByTestId('comment-thread')).toContainText('(고침)')
+
+  // 지우기는 한 번 더 눌러 확인한다. 마지막 댓글이라 스레드와 본문의 표시가 함께 사라진다.
+  await a.getByTestId('comment-delete').click()
+  await expect(a.getByTestId('comment-delete')).toHaveText('정말 지우기')
+  await a.getByTestId('comment-delete').click()
+  await expect(b.getByTestId('comment-thread')).toHaveCount(0)
+  await expect(b.locator('.ProseMirror .comment-mark')).toHaveCount(0)
+  expect(await converged(a, b)).toEqual(['제목', '검토할 본문'])
+})
+
 test('본문에서 @ 로 멘션하면 상대에게 알림이 가고 누르면 그 페이지로 간다', async ({ browser }) => {
   const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
   const docId = await sharedPage(a, b)

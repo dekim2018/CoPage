@@ -273,6 +273,8 @@ onBeforeUnmount(() => {
     :doc-id="pageId"
     :binding="bindingRef"
     :can-comment="role !== null && role !== 'VIEW'"
+    :can-delete-any="role === 'FULL'"
+    :my-id="auth.user?.id ?? ''"
     :people="people"
     @close="showComments = false"
   />
