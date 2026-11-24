@@ -78,7 +78,7 @@ ack는 DB 커밋 뒤에만 보낸다. 다른 사람에게 보내는 `remote` 도
 | `workspace_invites` | id, workspace_id, email, role, token_hash(유일), created_by, created_at, expires_at, accepted_at, accepted_by | 토큰은 SHA-256 해시로 저장. 7일 뒤 만료 | 구현 (V6, D-40). 가입한 사용자를 바로 넣는 경로(D-22)도 남아 있다 |
 | `pages` | id, workspace_id(workspaces, 지우면 함께), parent_id(pages), pos(`COLLATE "C"`), title(기본 ''), title_rev(기본 0), restricted(기본 false), created_by(users), created_at, archived_at | id가 곧 문서 ID. title은 루트 블록에서 파생. 색인 (workspace_id, parent_id, pos), (parent_id) WHERE parent_id IS NOT NULL | V3, title_rev 는 V5 |
 | `page_grants` | page_id(pages, 지우면 함께), user_id(users), level(VIEW, COMMENT, EDIT, FULL), granted_by(users), created_at | 기본 키 (page_id, user_id). 색인 (user_id) | V4 |
-| `share_links` | id, page_id(유일), token_hash, level, expires_at, revoked_at |  | 계획 (S-4) |
+| `share_links` | id, page_id(유일), token_hash(유일), level(VIEW, COMMENT, EDIT), expires_at(없으면 끌 때까지), created_by, created_at | 토큰은 SHA-256 해시. 끄면 행을 지운다(revoked_at 은 두지 않았다) | 구현 (V7, D-41) |
 | `doc_ops` | 8.1 참고 | doc_id 는 페이지 ID 지만 외래 키를 걸지 않는다(V3 이전 문서가 남아 있다) | V1 |
 | `doc_snapshots` | 8.1 참고 |  | V1 |
 | `doc_versions` | id, doc_id, rev, kind(AUTO, NAMED, RESTORE), name, created_by, created_at | 버전 기록 목록 | 계획 (5단계) |

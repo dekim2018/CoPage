@@ -138,8 +138,8 @@ public final class DocumentSession {
     private Instant idleSince;
     /** 다시 계산을 시작한 순번. 실행 흐름에서만 고친다. */
     private long reauthorizeSeq;
-    /** 사용자마다 마지막으로 적용한 다시 계산의 순번. 늦게 끝난 낡은 계산이 새 결과를 덮지 않게 한다. */
-    private final Map<UUID, Long> appliedSeq = new HashMap<>();
+    /** 권한 주체(사용자, 공유 링크)마다 마지막으로 적용한 다시 계산의 순번. 늦게 끝난 낡은 계산이 새 결과를 덮지 않게 한다. */
+    private final Map<Principal, Long> appliedSeq = new HashMap<>();
 
     public DocumentSession(
             UUID docId,
@@ -224,9 +224,12 @@ public final class DocumentSession {
         });
     }
 
-    /** 사용자의 이 문서 권한을 다시 계산한다. 권한이 없으면 빈 값. 저장소를 읽으므로 세션 실행 흐름 밖에서 부른다. */
+    /**
+     * 이 문서 권한을 다시 계산한다. 권한이 없으면 빈 값. 공유 링크로 들어온 연결은 링크가 살아 있는지도 본다. 저장소를 읽으므로
+     * 세션 실행 흐름 밖에서 부른다.
+     */
     public interface RoleResolver {
-        Optional<PageRole> roleOf(UUID userId, UUID docId);
+        Optional<PageRole> roleOf(Principal principal, UUID docId);
     }
 
     /**
@@ -246,9 +249,9 @@ public final class DocumentSession {
             if (closed) {
                 return;
             }
-            List<UUID> targets = members.values().stream()
-                    .map(member -> member.connection().userId())
-                    .filter(users)
+            List<Principal> targets = members.values().stream()
+                    .map(member -> member.connection().principal())
+                    .filter(principal -> users.test(principal.userId()))
                     .distinct()
                     .toList();
             if (targets.isEmpty()) {
@@ -256,10 +259,10 @@ public final class DocumentSession {
             }
             long seq = ++reauthorizeSeq;
             background.execute(() -> {
-                Map<UUID, Optional<PageRole>> roles = new HashMap<>();
+                Map<Principal, Optional<PageRole>> roles = new HashMap<>();
                 try {
-                    for (UUID userId : targets) {
-                        roles.put(userId, resolver.roleOf(userId, docId));
+                    for (Principal principal : targets) {
+                        roles.put(principal, resolver.roleOf(principal, docId));
                     }
                 } catch (RuntimeException e) {
                     // 계산하지 못하면 바꾸지 않는다. 다음 재접속 때 새 티켓이 바른 등급을 준다.
@@ -271,11 +274,11 @@ public final class DocumentSession {
         });
     }
 
-    private void applyRoles(long seq, Map<UUID, Optional<PageRole>> roles) {
-        roles.keySet().removeIf(userId -> appliedSeq.getOrDefault(userId, 0L) > seq);
-        roles.keySet().forEach(userId -> appliedSeq.put(userId, seq));
+    private void applyRoles(long seq, Map<Principal, Optional<PageRole>> roles) {
+        roles.keySet().removeIf(principal -> appliedSeq.getOrDefault(principal, 0L) > seq);
+        roles.keySet().forEach(principal -> appliedSeq.put(principal, seq));
         for (Member member : List.copyOf(members.values())) {
-            Optional<PageRole> next = roles.get(member.connection().userId());
+            Optional<PageRole> next = roles.get(member.connection().principal());
             if (next == null) {
                 continue;
             }

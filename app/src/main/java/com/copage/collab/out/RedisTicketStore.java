@@ -23,8 +23,11 @@ public final class RedisTicketStore implements TicketStore {
 
     @Override
     public void save(String ticket, WsTicket value, Duration ttl) {
+        // 이름은 '|' 를 담을 수 있어 맨 뒤에 둔다. 공유 링크가 없으면 '-'.
+        String link = value.shareLinkId() == null ? "-" : value.shareLinkId().toString();
         redis.opsForValue().set(
-                key(ticket), value.userId() + "|" + value.docId() + "|" + value.role() + "|" + value.name(), ttl);
+                key(ticket), value.userId() + "|" + value.docId() + "|" + value.role() + "|" + link + "|" + value.name(),
+                ttl);
     }
 
     @Override
@@ -33,9 +36,10 @@ public final class RedisTicketStore implements TicketStore {
         if (value == null) {
             return Optional.empty();
         }
-        String[] parts = value.split("\\|", 4);
+        String[] parts = value.split("\\|", 5);
+        UUID link = parts[3].equals("-") ? null : UUID.fromString(parts[3]);
         return Optional.of(new WsTicket(
-                UUID.fromString(parts[0]), UUID.fromString(parts[1]), PageRole.valueOf(parts[2]), parts[3]));
+                UUID.fromString(parts[0]), UUID.fromString(parts[1]), PageRole.valueOf(parts[2]), parts[4], link));
     }
 
     private static String key(String ticket) {

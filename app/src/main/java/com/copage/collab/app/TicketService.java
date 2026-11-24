@@ -26,10 +26,19 @@ public final class TicketService {
      * @param name 접속자 목록과 남의 커서에 보일 이름
      */
     public String issue(UUID userId, UUID docId, PageRole role, String name) {
+        return issue(new WsTicket(userId, docId, role, name));
+    }
+
+    /** 공유 링크로 들어온 연결의 티켓. 링크가 꺼지거나 바뀌면 그 연결은 등급을 다시 계산해 닫힌다 (D-41). */
+    public String issueViaShareLink(UUID userId, UUID docId, PageRole role, String name, UUID shareLinkId) {
+        return issue(new WsTicket(userId, docId, role, name, shareLinkId));
+    }
+
+    private String issue(WsTicket value) {
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
         String ticket = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        store.save(ticket, new WsTicket(userId, docId, role, name), ttl);
+        store.save(ticket, value, ttl);
         return ticket;
     }
 

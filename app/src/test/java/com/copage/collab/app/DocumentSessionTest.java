@@ -431,10 +431,10 @@ class DocumentSessionTest {
 
     /** userId 가 users 에 있으면 그 등급, 없으면 권한 없음. 물어본 사용자를 asked 에 남긴다. */
     private DocumentSession.RoleResolver resolver(Map<UUID, PageRole> roles, List<UUID> asked) {
-        return (userId, docId) -> {
+        return (principal, docId) -> {
             assertEquals(DOC, docId);
-            asked.add(userId);
-            return Optional.ofNullable(roles.get(userId));
+            asked.add(principal.userId());
+            return Optional.ofNullable(roles.get(principal.userId()));
         };
     }
 

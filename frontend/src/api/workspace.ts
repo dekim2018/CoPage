@@ -74,6 +74,21 @@ export interface InvitePreview {
   expiresAt: string
 }
 
+/** 공유 링크 설정. token 은 새로 만들었을 때만 있다(D-41). */
+export interface ShareLinkSetting {
+  level: PageRole
+  expiresAt: string | null
+  createdAt: string
+  token: string | null
+}
+
+/** 링크로 연 페이지. */
+export interface SharedPage {
+  pageId: string
+  title: string
+  level: PageRole
+}
+
 /** 휴지통의 페이지. canRestore 는 휴지통에 가기 전 FULL 이었는지다. */
 export interface TrashedPage {
   id: string
@@ -107,6 +122,14 @@ export const workspaceApi = {
   trashPage: (pageId: string) => api<void>(`/api/pages/${pageId}`, { method: 'DELETE' }),
   restorePage: (pageId: string) => api<PageDetail>(`/api/pages/${pageId}/restore`, { method: 'POST' }),
   trash: (workspaceId: string) => api<TrashedPage[]>(`/api/workspaces/${workspaceId}/trash`),
+  shareLink: (pageId: string) => api<ShareLinkSetting | undefined>(`/api/pages/${pageId}/share-link`),
+  saveShareLink: (pageId: string, level: PageRole, expiresAt: string | null, regenerate: boolean) =>
+    api<ShareLinkSetting>(`/api/pages/${pageId}/share-link`, {
+      method: 'PUT',
+      ...json({ level, expiresAt, regenerate }),
+    }),
+  disableShareLink: (pageId: string) => api<void>(`/api/pages/${pageId}/share-link`, { method: 'DELETE' }),
+  openShared: (token: string) => api<SharedPage>(`/api/share/${encodeURIComponent(token)}`),
   invites: (workspaceId: string) => api<PendingInvite[]>(`/api/workspaces/${workspaceId}/invites`),
   invite: (workspaceId: string, email: string, role: WorkspaceRole) =>
     api<CreatedInvite>(`/api/workspaces/${workspaceId}/invites`, { method: 'POST', ...json({ email, role }) }),

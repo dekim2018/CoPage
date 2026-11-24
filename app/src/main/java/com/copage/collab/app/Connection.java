@@ -14,6 +14,15 @@ public interface Connection {
 
     UUID userId();
 
+    /** 공유 링크로 열린 연결이면 그 링크 ID (D-41). */
+    default UUID shareLinkId() {
+        return null;
+    }
+
+    default Principal principal() {
+        return new Principal(userId(), shareLinkId());
+    }
+
     void send(ServerMessage message);
 
     void close(int code, String reason);

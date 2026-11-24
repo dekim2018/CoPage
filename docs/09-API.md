@@ -1,6 +1,6 @@
 # 11. REST API 목록
 
-REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 30개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
+REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 35개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
 
 오류 응답은 RFC 9457 형식(`application/problem+json`)으로 통일한다. Spring의 `ProblemDetail` 을 쓴다.
 
@@ -39,6 +39,11 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | DELETE | `/api/workspaces/{wsId}/invites/{inviteId}` | OWNER | 204, 초대 취소 | 404 대기 중인 초대가 아님. 403 위와 같음 |
 | GET | `/api/invites/{token}` | 로그인 | 200, `{workspaceId, workspaceName, email, role, expiresAt}` | 404 없거나 만료되었거나 받았거나 취소됨 |
 | POST | `/api/invites/{token}/accept` | 로그인, 초대한 이메일과 같은 계정 | 200, `{workspaceId}`. 멤버가 아니면 그 역할로 넣고, GUEST 가 MEMBER 초대를 받으면 올린다. 역할을 내리지는 않는다 | 404 없거나 만료됨. 409 이미 받음. 403 다른 이메일 |
+| GET | `/api/pages/{pageId}/share-link` | FULL | 200, `{level, expiresAt, createdAt, token: null}`. 링크가 없으면 204 (D-41) | 404 없거나 볼 수 없는 페이지. 403 FULL 이 아님 |
+| PUT | `/api/pages/{pageId}/share-link` | FULL | 200, 본문 `{level, expiresAt, regenerate}`. 링크가 없거나 regenerate 면 새 토큰을 `token` 에 담는다(이때만). 링크는 `/s/{token}` | 400 FULL 등급, 지난 만료일. 404, 403 위와 같음 |
+| DELETE | `/api/pages/{pageId}/share-link` | FULL | 204, 링크를 끈다 | 404, 403 위와 같음 |
+| GET | `/api/share/{token}` | 없음 | 200, `{pageId, title, level}` | 404 없거나 만료되었거나 페이지가 휴지통에 있음 |
+| POST | `/api/share/{token}/ws-ticket` | 없음(토큰이 있으면 그 사용자) | 200, `{ticket, role, pageId, title}`. 로그인했으면 자기 등급과 링크 등급 중 높은 것, 아니면 링크 등급과 임시 이름(익명 수달 등) | 404 위와 같음 |
 | POST | `/api/docs/{docId}/ws-ticket` | VIEW | 200, `{ticket, role}`. 티켓은 30초 1회용 | 404 페이지가 없거나 속하지 않음. 403 등급이 없음 |
 
 권한을 바꾸는 요청(멤버 역할, 내보내기, 페이지 권한, restricted, 페이지 옮기기, 휴지통으로 보내기와 꺼내기)은 커밋한 뒤 열린 편집 연결에 1초 안에 적용된다(9.4). 옮기면 새 부모의 권한을 물려받으므로, 제한된 페이지 밖으로 옮기면 더 넓게 보일 수 있다(D-39).
@@ -88,10 +93,10 @@ API 포트에는 `/actuator` 가 없다. 지표와 상태 확인은 관리 포�
 | POST | `/api/pages/{pageId}/grants` | 이메일로 부여(`{email, level}`). 공유 창이 쓴다 | FULL | 구현 |
 | DELETE | `/api/pages/{pageId}/grants/{userId}` | 이 페이지에 준 권한 회수 | FULL | 구현 |
 | PUT | `/api/pages/{pageId}/restricted` | 상속 끊기 또는 다시 잇기. 끊는 사람이 OWNER 가 아니면 그 페이지에 자신의 FULL 을 남긴다 | FULL | 구현 |
-| PUT | `/api/pages/{pageId}/share-link` | 링크 공유 켜기, 등급과 만료일 설정 | FULL | 계획 |
-| DELETE | `/api/pages/{pageId}/share-link` | 링크 공유 끄기 | FULL | 계획 |
-| GET | `/api/share/{token}` | 링크로 페이지 정보 조회 | 없음 | 계획 |
-| POST | `/api/share/{token}/ws-ticket` | 링크 방문자용 WebSocket 티켓. 비로그인이면 임시 이름(예: 익명 수달)을 붙인다 | 없음 | 계획 |
+| PUT | `/api/pages/{pageId}/share-link` | 링크 공유 켜기, 등급과 만료일 설정 | FULL | 구현(D-41) |
+| DELETE | `/api/pages/{pageId}/share-link` | 링크 공유 끄기 | FULL | 구현(D-41) |
+| GET | `/api/share/{token}` | 링크로 페이지 정보 조회 | 없음 | 구현(D-41) |
+| POST | `/api/share/{token}/ws-ticket` | 링크 방문자용 WebSocket 티켓. 비로그인이면 임시 이름(예: 익명 수달)을 붙인다 | 없음 | 구현(D-41) |
 
 ## 11.4 협업, 버전, 댓글, 검색, 알림
 

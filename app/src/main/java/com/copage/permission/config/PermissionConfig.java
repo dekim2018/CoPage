@@ -6,13 +6,17 @@ import com.copage.permission.app.PagePermissions;
 import com.copage.permission.app.PermissionChangeListener;
 import com.copage.permission.app.PermissionChanges;
 import com.copage.permission.app.PermissionRepository;
+import com.copage.permission.app.ShareLinks;
 import com.copage.permission.app.WorkspaceMembership;
 import com.copage.permission.out.JdbcGrantRepository;
 import com.copage.permission.out.JdbcPermissionRepository;
+import com.copage.permission.out.JdbcShareLinkRepository;
+import java.time.Clock;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Configuration
 public class PermissionConfig {
@@ -31,6 +35,16 @@ public class PermissionConfig {
     @Bean
     PermissionChanges permissionChanges(ObjectProvider<PermissionChangeListener> listeners) {
         return new PermissionChanges(() -> listeners.orderedStream().toList());
+    }
+
+    @Bean
+    ShareLinks shareLinks(
+            JdbcClient jdbcClient,
+            TransactionTemplate transactionTemplate,
+            PagePermissions pagePermissions,
+            PermissionChanges permissionChanges) {
+        return new ShareLinks(new JdbcShareLinkRepository(jdbcClient, transactionTemplate), pagePermissions,
+                permissionChanges, Clock.systemUTC());
     }
 
     @Bean
