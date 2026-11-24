@@ -5,6 +5,7 @@ import { DocConnection } from '../transport/connection'
 import type { ConnectionState } from '../transport/connection'
 import { ClientSession } from './clientSession'
 import type { CommittedChange, Submission } from './clientSession'
+import type { OfflineStore } from './offlineStore'
 import { moveCursor } from './presence'
 import type { Cursor, Peer } from './presence'
 import { parseRole } from './role'
@@ -59,9 +60,18 @@ interface CommittedJson {
   ops: unknown
 }
 
+/** 브라우저에 남기는 간격. 이 안의 변경은 한 번에 쓴다. */
+const PERSIST_INTERVAL_MS = 200
+
 export class CollabClient {
-  /** 탭마다 다르다 (12.4). 같은 사람이 탭 두 개를 열면 서로 다른 참여자다. */
-  readonly clientId = crypto.randomUUID()
+  /**
+   * 탭마다 다르다 (12.4). 같은 사람이 탭 두 개를 열면 서로 다른 참여자다. 브라우저에 남긴 편집을 이어받으면 그때의 clientId 를
+   * 이어 써서, 서버가 순번으로 이미 확정한 묶음을 걸러 낸다.
+   */
+  private currentClientId: string = crypto.randomUUID()
+  /** 마지막으로 받은 내 등급. 브라우저에 함께 남겨 연결 전에도 편집할 수 있게 한다. */
+  private role: PageRole | null = null
+  private saveTimer: ReturnType<typeof setTimeout> | null = null
   private session: ClientSession | null = null
   /** 살려서 다시 넣은 편집이 다음에 보낼 묶음에 들어 있다. 그 묶음이 다시 거부되면 또 살리지 않는다(되풀이 막기). */
   private salvagePending = false
@@ -85,6 +95,8 @@ export class CollabClient {
     ticket: () => Promise<string>,
     private readonly listener: CollabListener,
     wsBase: string = defaultWsBase(),
+    /** 보내지 못한 편집을 남길 곳 (12.4, R-6). 없으면 메모리에만 둔다. */
+    private readonly store: OfflineStore | null = null,
   ) {
     this.connection = new DocConnection(
       (t) => `${wsBase}/ws/docs/${docId}?ticket=${encodeURIComponent(t)}&v=1`,
@@ -103,11 +115,61 @@ export class CollabClient {
     )
   }
 
+  get clientId(): string {
+    return this.currentClientId
+  }
+
+  /**
+   * 브라우저에 남긴 편집이 있으면 먼저 화면에 보이고(연결 전, 오프라인이어도), 연결되면 마지막 리비전부터 이어 붙어 다시 보낸다.
+   */
   start(): void {
-    this.connection.start()
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', this.onPageHide)
+    }
+    void this.restore().finally(() => this.connection.start())
+  }
+
+  /** 새로고침이나 탭 닫기에는 onBeforeUnmount 가 불리지 않는다. 마지막 편집을 남겨 본다(끝까지 쓴다는 보장은 없다). */
+  private readonly onPageHide = (): void => {
+    void this.persist()
+  }
+
+  private async restore(): Promise<void> {
+    if (this.store === null || !this.store.owned) {
+      return
+    }
+    const record = await this.store.load()
+    if (record === null || this.session !== null) {
+      return
+    }
+    try {
+      this.session = ClientSession.restore(record.session)
+    } catch (e) {
+      // 남긴 형식이 맞지 않으면 버리고 서버에서 새로 연다.
+      console.warn('브라우저에 남긴 편집을 되살리지 못했다', e)
+      return
+    }
+    this.currentClientId = record.session.clientId
+    if (record.role !== null) {
+      this.role = record.role
+      this.listener.onRole(record.role)
+    }
+    this.notify()
+    this.reportStatus()
   }
 
   stop(): void {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('pagehide', this.onPageHide)
+    }
+    if (this.saveTimer !== null) {
+      clearTimeout(this.saveTimer)
+      this.saveTimer = null
+    }
+    const store = this.store
+    if (store !== null) {
+      void this.persist().finally(() => store.release())
+    }
     if (this.presenceTimer !== null) {
       clearTimeout(this.presenceTimer)
     }
@@ -264,7 +326,8 @@ export class CollabClient {
         this.presence(message)
         break
       case 'role':
-        this.listener.onRole(parseRole(message.role))
+        this.role = parseRole(message.role)
+        this.listener.onRole(this.role)
         break
     }
   }
@@ -286,7 +349,8 @@ export class CollabClient {
       this.peers.set(peer.clientId, peer)
     }
     this.listener.onPeers([...this.peers.values()])
-    this.listener.onRole(parseRole(message.role))
+    this.role = parseRole(message.role)
+    this.listener.onRole(this.role)
     queueMicrotask(() => this.sendPresence(this.myCursor))
     const rev = message.rev as number
     if (message.snapshot !== undefined) {
@@ -362,8 +426,24 @@ export class CollabClient {
         this.salvagePending = this.session.hasBuffer()
       }
       this.lastChangeAt = Date.now()
-      this.sendChange(submission)
+      this.sendAfterPersist(submission)
     }
+  }
+
+  /**
+   * 남겨 둔 기록이 보낸 묶음보다 뒤처지지 않게, 기록을 쓴 뒤에 보낸다. 뒤처지면 되살린 탭이 이미 확정된 buffer 를 새 순번으로
+   * 다시 보내고, 서버가 준 자기 묶음을 남의 편집으로 받아 같은 글이 두 번 들어간다.
+   */
+  private sendAfterPersist(submission: Submission): void {
+    if (this.store === null || !this.store.owned) {
+      this.sendChange(submission)
+      return
+    }
+    if (this.saveTimer !== null) {
+      clearTimeout(this.saveTimer)
+      this.saveTimer = null
+    }
+    void this.persist().then(() => this.sendChange(submission))
   }
 
   private sendChange(submission: Submission): void {
@@ -381,7 +461,26 @@ export class CollabClient {
     }
   }
 
+  /** 상태가 바뀔 때마다 부른다. 200ms 안의 변경은 한 번에 남긴다. */
+  private persistSoon(): void {
+    if (this.store === null || !this.store.owned || this.saveTimer !== null) {
+      return
+    }
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null
+      void this.persist()
+    }, PERSIST_INTERVAL_MS)
+  }
+
+  private async persist(): Promise<void> {
+    if (this.store === null || !this.store.owned || this.session === null) {
+      return
+    }
+    await this.store.save({ session: this.session.export(), role: this.role, savedAt: Date.now() })
+  }
+
   private reportStatus(detail?: string): void {
+    this.persistSoon()
     if (this.connectionState === 'fatal') {
       this.listener.onStatus('error', detail)
     } else if (this.connectionState !== 'open') {
