@@ -21,4 +21,7 @@ public interface InviteRepository {
 
     /** 받았다고 적는다. 이미 받았으면 아무것도 바꾸지 않는다. @return 바꿨는지 */
     boolean markAccepted(UUID inviteId, UUID userId, Instant at);
+
+    /** 만료된 초대를 지운다(받은 것도). 만료되면 어느 쪽이든 쓸 수 없다 (W-4, D-47). @return 지운 수 */
+    int purgeExpired(Instant now);
 }

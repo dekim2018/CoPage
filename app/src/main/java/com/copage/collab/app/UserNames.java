@@ -9,4 +9,9 @@ import java.util.UUID;
 public interface UserNames {
 
     String nameOf(UUID userId);
+
+    /** 프로필에서 고른 커서 색. 없으면 null (A-3). */
+    default String colorOf(UUID userId) {
+        return null;
+    }
 }

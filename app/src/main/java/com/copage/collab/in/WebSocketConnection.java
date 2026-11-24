@@ -41,6 +41,8 @@ final class WebSocketConnection implements Connection {
     private final Clock clock;
     private final Duration sendTimeLimit;
     private final long bufferLimitBytes;
+    /** 티켓에 담긴 커서 색. 연결을 만든 뒤 한 번 정한다. */
+    private volatile String color;
 
     // 아래는 this 로 잠그고 읽고 쓴다.
     private final Deque<TextMessage> queue = new ArrayDeque<>();
@@ -71,6 +73,15 @@ final class WebSocketConnection implements Connection {
     @Override
     public String id() {
         return raw.getId();
+    }
+
+    @Override
+    public String color() {
+        return color;
+    }
+
+    void color(String color) {
+        this.color = color;
     }
 
     @Override

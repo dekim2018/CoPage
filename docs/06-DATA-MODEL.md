@@ -72,7 +72,7 @@ ack는 DB 커밋 뒤에만 보낸다. 다른 사람에게 보내는 `remote` 도
 
 | 테이블 | 주요 컬럼 | 비고 | 상태 |
 | --- | --- | --- | --- |
-| `users` | id, email(유일), password_hash, name, created_at | 이메일은 앞뒤 공백을 빼고 소문자로 저장 | V2 |
+| `users` | id, email(유일), password_hash, name, created_at, cursor_color | 이메일은 앞뒤 공백을 빼고 소문자로 저장. cursor_color 는 고르지 않았으면 NULL(ID 로 정한 색) | V2, cursor_color 는 V10 (A-3) |
 | `workspaces` | id, name, owner_id(users), created_at | owner_id 는 만든 사람이다. 권한 판단에는 쓰지 않고 `workspace_members.role` 만 본다 | V3 |
 | `workspace_members` | workspace_id(workspaces, 지우면 함께), user_id(users), role(OWNER, MEMBER, GUEST), created_at | 기본 키 (workspace_id, user_id). 색인 (user_id) | V3 |
 | `workspace_invites` | id, workspace_id, email, role, token_hash(유일), created_by, created_at, expires_at, accepted_at, accepted_by | 토큰은 SHA-256 해시로 저장. 7일 뒤 만료 | 구현 (V6, D-40). 가입한 사용자를 바로 넣는 경로(D-22)도 남아 있다 |
@@ -85,7 +85,7 @@ ack는 DB 커밋 뒤에만 보낸다. 다른 사람에게 보내는 `remote` 도
 | `comment_threads` | id, doc_id(pages 외래 키), quote, created_by, created_at, resolved_at, resolved_by | quote는 댓글을 달 당시의 원문. 해결은 시각과 사람으로 둔다(status 칸 대신). orphaned 는 아직 없다 | 구현 (V9, D-46) |
 | `comments` | id, thread_id, author_id, body, created_at | 수정과 삭제는 아직 없다 | 구현 (V9, D-46) |
 | `notifications` | id, user_id, kind(MENTION, COMMENT_MENTION, REPLY), doc_id, actor_id, preview, dedupe_key, created_at, read_at | dedupe_key 유일(값에 받는 사람이 들어간다). (user_id, created_at DESC) 색인 | 구현 (V9, D-46) |
-| `page_search` | page_id, workspace_id, title, body, rev | pg_bigm GIN 인덱스 | 계획 (5단계) |
+| `page_search` | page_id(pages 외래 키), body, rev, updated_at | 제목은 pages.title 을 쓴다. body 와 pages.title 에 pg_trgm GIN 인덱스(pg_bigm 대신, D-47) | 구현 (V10) |
 
 Redis 에는 Refresh 토큰, Access 토큰 차단 목록(로그아웃한 jti, 모든 세션을 끊은 사용자의 시각), 로그인 실패 횟수, 1회용 티켓을 둔다. 소유 리스는 다중 노드(4단계)에서 더한다. 권한 캐시는 두지 않는다(D-11, 9.4).
 

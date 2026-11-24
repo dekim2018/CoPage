@@ -1,5 +1,6 @@
 package com.copage.collab.domain;
 
+import com.copage.identity.domain.CursorColors;
 import java.util.List;
 import java.util.UUID;
 
@@ -10,13 +11,11 @@ import java.util.UUID;
  */
 public record Peer(String clientId, UUID userId, String name, String color, Cursor cursor) {
 
-    /** 남의 커서 색 12가지. 같은 사람은 어느 문서에서나 같은 색이다. */
-    public static final List<String> COLORS = List.of(
-            "#e5484d", "#f76b15", "#ffc53d", "#46a758", "#12a594", "#0090ff",
-            "#3e63dd", "#6e56cf", "#ab4aba", "#d6409f", "#8d8d86", "#a18072");
+    /** 남의 커서 색 12가지. 프로필에서 고를 수 있다 (A-3). */
+    public static final List<String> COLORS = CursorColors.PALETTE;
 
-    /** 사용자 ID 를 해시해 색을 고른다. */
+    /** 고른 색이 없을 때 사용자 ID 를 해시해 고른다. */
     public static String colorOf(UUID userId) {
-        return COLORS.get(Math.floorMod(userId.hashCode(), COLORS.size()));
+        return CursorColors.byId(userId);
     }
 }

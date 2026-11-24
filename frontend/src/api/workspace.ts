@@ -1,5 +1,6 @@
 /* 워크스페이스, 페이지 트리, 공유 API (docs/09-API.md 11.2, 11.3). */
 import { api } from './http'
+import type { UserInfo } from './http'
 import type { PageRole } from '../collab/client/role'
 
 export type WorkspaceRole = 'OWNER' | 'MEMBER' | 'GUEST'
@@ -98,6 +99,20 @@ export interface TrashedPage {
   canRestore: boolean
 }
 
+/** 검색 결과 하나 (F-1, D-47). snippet 은 본문에서 찾은 곳 앞뒤의 글 */
+export interface SearchHit {
+  id: string
+  parentId: string | null
+  title: string
+  snippet: string
+}
+
+/** 프로필에서 고를 수 있는 커서 색 (A-3). 서버의 CursorColors 와 같은 순서다. */
+export const CURSOR_COLORS = [
+  '#e5484d', '#f76b15', '#ffc53d', '#46a758', '#12a594', '#0090ff',
+  '#3e63dd', '#6e56cf', '#ab4aba', '#d6409f', '#8d8d86', '#a18072',
+] as const
+
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) })
 
 export const workspaceApi = {
@@ -122,6 +137,10 @@ export const workspaceApi = {
   trashPage: (pageId: string) => api<void>(`/api/pages/${pageId}`, { method: 'DELETE' }),
   restorePage: (pageId: string) => api<PageDetail>(`/api/pages/${pageId}/restore`, { method: 'POST' }),
   trash: (workspaceId: string) => api<TrashedPage[]>(`/api/workspaces/${workspaceId}/trash`),
+  search: (workspaceId: string, query: string) =>
+    api<SearchHit[]>(`/api/workspaces/${workspaceId}/search?q=${encodeURIComponent(query)}`),
+  updateProfile: (change: { name?: string; color?: string }) =>
+    api<UserInfo>('/api/me', { method: 'PATCH', ...json(change) }),
   shareLink: (pageId: string) => api<ShareLinkSetting | undefined>(`/api/pages/${pageId}/share-link`),
   saveShareLink: (pageId: string, level: PageRole, expiresAt: string | null, regenerate: boolean) =>
     api<ShareLinkSetting>(`/api/pages/${pageId}/share-link`, {

@@ -289,3 +289,88 @@ form {
   color: #3451b2;
   font-weight: 500;
 }
+
+/* 사이드바에서 페이지를 끌어 옮길 때 놓일 자리 (W-3) */
+.tree-row.drop-before {
+  box-shadow: inset 0 2px 0 #0090ff;
+}
+.tree-row.drop-after {
+  box-shadow: inset 0 -2px 0 #0090ff;
+}
+.tree-row.drop-inside {
+  background: rgba(0, 144, 255, 0.12);
+}
+
+/* 검색 (F-1, D-47) */
+.search {
+  position: relative;
+  margin-bottom: 8px;
+}
+.search-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.search-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.search-hit:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+.search-title {
+  font-weight: 600;
+}
+.search-snippet {
+  font-size: 12px;
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.search-empty {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* 프로필 (A-3) */
+.profile {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 360px;
+}
+.profile .colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+}
+.profile .swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.profile .swatch.selected {
+  border-color: currentColor;
+  outline: 2px solid #fff;
+  outline-offset: -4px;
+}

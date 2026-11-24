@@ -13,8 +13,13 @@ import com.copage.workspace.domain.WorkspaceRole;
 import com.copage.workspace.out.JdbcInviteRepository;
 import com.copage.workspace.out.JdbcWorkspaceRepository;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -22,6 +27,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Configuration
 public class WorkspaceConfig {
+
+    private static final System.Logger LOG = System.getLogger(WorkspaceConfig.class.getName());
+
+    /** 휴지통에 남겨 두는 기간 (W-4). 요구사항의 값이라 설정으로 빼지 않았다. */
+    static final Duration TRASH_KEEP = Duration.ofDays(30);
 
     @Bean
     JdbcWorkspaceRepository workspaceRepository(JdbcClient jdbcClient, TransactionTemplate transactionTemplate) {
@@ -87,5 +97,29 @@ public class WorkspaceConfig {
                 pageGrants,
                 work -> transactionTemplate.executeWithoutResult(status -> work.run()),
                 Clock.systemUTC());
+    }
+
+    @Bean(destroyMethod = "shutdownNow")
+    ScheduledExecutorService workspaceJobs() {
+        return Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().name("workspace-jobs").daemon().factory());
+    }
+
+    /**
+     * 한 시간마다 휴지통에서 30일이 지난 페이지와 만료된 초대를 지운다 (W-4, D-47). 모든 노드가 돌려도 같은 행을 지울 뿐이다.
+     */
+    @Bean
+    ScheduledFuture<?> trashPurgeJob(
+            WorkspaceService workspaceService, InviteService inviteService, ScheduledExecutorService workspaceJobs) {
+        return workspaceJobs.scheduleWithFixedDelay(() -> {
+            try {
+                int pages = workspaceService.purgeTrash(TRASH_KEEP);
+                int invites = inviteService.purgeExpired();
+                if (pages > 0 || invites > 0) {
+                    LOG.log(System.Logger.Level.INFO, "휴지통 페이지 " + pages + " 개와 만료된 초대 " + invites + " 개를 지웠다");
+                }
+            } catch (RuntimeException e) {
+                LOG.log(System.Logger.Level.WARNING, "휴지통을 비우지 못했다", e);
+            }
+        }, 1, 60, TimeUnit.MINUTES);
     }
 }

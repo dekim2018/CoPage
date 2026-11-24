@@ -51,9 +51,9 @@ class AuthController {
     record LoginRequest(@NotBlank String email, @NotBlank String password) {
     }
 
-    record UserResponse(UUID id, String email, String name, Instant createdAt) {
+    record UserResponse(UUID id, String email, String name, Instant createdAt, String color) {
         static UserResponse of(User user) {
-            return new UserResponse(user.id(), user.email(), user.name(), user.createdAt());
+            return new UserResponse(user.id(), user.email(), user.name(), user.createdAt(), user.color());
         }
     }
 

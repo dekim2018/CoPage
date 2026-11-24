@@ -19,6 +19,11 @@ public interface Connection {
         return null;
     }
 
+    /** 프로필에서 고른 커서 색. 없으면 null 이고 사용자 ID 로 정한 색을 쓴다 (A-3). */
+    default String color() {
+        return null;
+    }
+
     default Principal principal() {
         return new Principal(userId(), shareLinkId());
     }

@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import NotificationBell from '../components/NotificationBell.vue'
 import PageTree from '../components/PageTree.vue'
+import SearchBox from '../components/SearchBox.vue'
 import { useWorkspace } from '../stores/workspace'
 
 /** 워크스페이스 화면의 틀. 왼쪽 사이드바(워크스페이스 고르기, 페이지 트리)와 오른쪽 내용 (docs/01-PLAN.md 3장). */
@@ -69,12 +70,15 @@ function switchTo(event: Event) {
         <option v-for="workspace in store.workspaces" :key="workspace.id" :value="workspace.id">{{ workspace.name }}</option>
       </select>
       <template v-if="store.current">
+        <SearchBox :workspace-id="workspaceId" />
         <button v-if="canCreate" type="button" class="new-page" @click="createRoot">새 페이지</button>
         <PageTree :workspace-id="workspaceId" :parent-id="null" />
+        <p v-if="store.moveError" class="error" data-testid="move-error">{{ store.moveError }}</p>
         <RouterLink v-if="canCreate" :to="`/w/${workspaceId}/members`" class="members-link">멤버</RouterLink>
         <RouterLink v-if="canCreate" :to="`/w/${workspaceId}/trash`" class="members-link">휴지통</RouterLink>
         <!-- create 가 없으면 첫 화면이 곧바로 내 워크스페이스로 되돌려 보낸다 -->
         <RouterLink :to="{ path: '/', query: { create: '1' } }" class="members-link">워크스페이스 만들기</RouterLink>
+        <RouterLink :to="`/w/${workspaceId}/profile`" class="members-link" data-testid="profile-link">내 프로필</RouterLink>
       </template>
     </aside>
     <section class="content">

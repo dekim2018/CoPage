@@ -177,6 +177,13 @@ public final class AuthService {
         return me(userId);
     }
 
+    /** 커서 색을 바꾼다 (A-3). 정해 둔 색 중 하나다. 확인은 부르는 쪽(입구)이 한다. */
+    public User recolor(UUID userId, String color) {
+        me(userId);
+        users.recolor(userId, color);
+        return me(userId);
+    }
+
     /** Access 토큰을 받아들여도 되는지. 리소스 서버의 토큰 검증기가 부른다. */
     public boolean isRevoked(UUID userId, String jti, Instant issuedAt) {
         if (jti != null && revocations.isBlocked(jti)) {

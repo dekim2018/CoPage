@@ -433,6 +433,66 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
                 .list());
     }
 
+    @Override
+    public List<SearchHit> search(UUID workspaceId, String needle, int limit) {
+        // pages.title 과 page_search.body 의 pg_trgm GIN 인덱스가 ILIKE '%..%' 를 받는다. 두 글자 이하 검색어는 세 글자 단위
+        // 조각을 만들 수 없어 인덱스가 걸러 주지 못하고 워크스페이스의 페이지를 다 훑는다(D-47).
+        String pattern = "%" + needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+        return jdbc.sql("SELECT " + PAGE_COLUMNS + """
+                        , CASE WHEN s.body IS NULL THEN ''
+                               ELSE substr(s.body, greatest(1, strpos(lower(s.body), lower(:needle)) - 40), 160)
+                          END AS snippet
+                        FROM pages p
+                        LEFT JOIN page_search s ON s.page_id = p.id
+                        WHERE p.workspace_id = :workspaceId AND p.archived_at IS NULL
+                          AND (p.title ILIKE :pattern OR s.body ILIKE :pattern)
+                        ORDER BY (p.title ILIKE :pattern) DESC, coalesce(s.updated_at, p.created_at) DESC, p.id
+                        LIMIT :limit
+                        """)
+                .param("workspaceId", workspaceId)
+                .param("needle", needle)
+                .param("pattern", pattern)
+                .param("limit", limit)
+                .query((rs, row) -> new SearchHit(page(rs), rs.getString("snippet")))
+                .list();
+    }
+
+    @Override
+    public void updateBody(UUID pageId, String body, long rev, Instant now) {
+        jdbc.sql("""
+                        INSERT INTO page_search (page_id, body, rev, updated_at)
+                        SELECT id, :body, :rev, :now FROM pages WHERE id = :pageId
+                        ON CONFLICT (page_id) DO UPDATE SET body = EXCLUDED.body, rev = EXCLUDED.rev,
+                            updated_at = EXCLUDED.updated_at
+                        WHERE page_search.rev < EXCLUDED.rev
+                        """)
+                .param("pageId", pageId)
+                .param("body", body)
+                .param("rev", rev)
+                .param("now", Timestamp.from(now))
+                .update();
+    }
+
+    @Override
+    public int purgeTrash(Instant archivedBefore) {
+        // 한 문장이라 부모와 하위를 함께 지워도 parent_id 외래 키는 문장 끝에 확인된다. doc_ops, doc_snapshots, doc_versions
+        // 는 외래 키가 없어(V3 이전 문서) 따로 지운다.
+        return jdbc.sql("""
+                        WITH RECURSIVE doomed (id, depth) AS (
+                            SELECT id, 0 FROM pages WHERE archived_at < :before
+                            UNION
+                            SELECT p.id, d.depth + 1 FROM pages p JOIN doomed d ON p.parent_id = d.id
+                            WHERE d.depth < 1000
+                        ),
+                        ops AS (DELETE FROM doc_ops WHERE doc_id IN (SELECT id FROM doomed)),
+                        snapshots AS (DELETE FROM doc_snapshots WHERE doc_id IN (SELECT id FROM doomed)),
+                        versions AS (DELETE FROM doc_versions WHERE doc_id IN (SELECT id FROM doomed))
+                        DELETE FROM pages WHERE id IN (SELECT id FROM doomed)
+                        """)
+                .param("before", Timestamp.from(archivedBefore))
+                .update();
+    }
+
     /** parentId 의 하위 페이지들(보관된 것 포함)에서 condition 에 맞는 expression 값을 하나 읽는다. 없으면 null. */
     private String siblingValue(
             String expression, UUID workspaceId, UUID parentId, String condition, Map<String, Object> params) {

@@ -12,7 +12,7 @@
 | OT 코어 | `src/collab/ot/` | `ot-core` 의 TypeScript 구현. 적용, 변환, 합성, 역연산 |
 | 전송 | `src/collab/transport/` | 티켓 발급, WebSocket 연결, 재접속(지수 백오프 1초부터 최대 30초, 무작위 지연 포함), 핑 |
 | 상태 저장소 | `src/stores/` | Pinia: 인증(`auth.ts`), 워크스페이스와 트리(`workspace.ts`). 댓글 패널(`CommentsPanel.vue`)과 알림 종(`NotificationBell.vue`)은 저장소 없이 API(`api/comments.ts`)와 알림 연결(`api/live.ts`)을 바로 쓴다(D-46) |
-| 화면 | `src/views/`, `src/components/` | 3장의 화면 9개 가운데 로그인, 가입, 워크스페이스 홈, 편집기, 공유 창, 멤버 화면(워크스페이스 설정의 일부)이 있다 |
+| 화면 | `src/views/`, `src/components/` | 3장의 화면 9개 가운데 로그인, 가입, 워크스페이스 홈, 편집기, 공유 창, 멤버 화면(워크스페이스 설정의 일부), 휴지통, 내 프로필(`ProfileView.vue`, A-3)이 있다. 사이드바에 검색(`SearchBox.vue`)과 페이지 끌어 옮기기(`PageTree.vue`, D-47)가 있다 |
 
 협업 클라이언트와 OT 코어는 Vue를 모르는 순수 TypeScript로 짠다. 브라우저 없이 Vitest에서 돌리기 위해서다.
 

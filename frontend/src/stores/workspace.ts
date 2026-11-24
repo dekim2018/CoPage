@@ -109,6 +109,32 @@ export const useWorkspace = defineStore('workspace', () => {
     }
   }
 
+  /** 사이드바에서 끌어 옮기다 실패한 까닭. 사이드바가 보여 준다. */
+  const moveError = ref<string | null>(null)
+
+  /**
+   * 페이지를 newParentId 아래 afterId 뒤(null 이면 맨 뒤)로 옮기고 옛 부모와 새 부모의 목록을 다시 읽는다 (W-3). 새 부모는 펼친다.
+   * 자기 하위로 옮기는 것은 서버가 400 으로 막는다.
+   */
+  async function movePage(pageId: string, newParentId: string | null, afterId: string | null): Promise<void> {
+    const oldParent = findNode(pageId)?.parentId ?? null
+    await workspaceApi.movePage(pageId, newParentId, afterId)
+    if (newParentId !== null) {
+      expanded.add(newParentId)
+      const parent = findNode(newParentId)
+      if (parent !== undefined) {
+        parent.hasChildren = true
+      }
+    }
+    await Promise.all([loadChildren(oldParent), loadChildren(newParentId)])
+    if (oldParent !== null && (childrenOf(oldParent) ?? []).length === 0) {
+      const parent = findNode(oldParent)
+      if (parent !== undefined) {
+        parent.hasChildren = false
+      }
+    }
+  }
+
   /** 휴지통에서 꺼내고 돌아간 자리의 목록을 다시 읽는다. 부모가 아직 휴지통에 있으면 최상위로 간다(서버가 정한다). */
   async function restorePage(pageId: string): Promise<PageDetail> {
     const page = await workspaceApi.restorePage(pageId)
@@ -182,6 +208,8 @@ export const useWorkspace = defineStore('workspace', () => {
     createPage,
     trashed,
     trashPage,
+    movePage,
+    moveError,
     restorePage,
     setTitle,
     editedTitle,

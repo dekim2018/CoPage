@@ -29,9 +29,19 @@ public final class TicketService {
         return issue(new WsTicket(userId, docId, role, name));
     }
 
+    /** @param color 프로필에서 고른 커서 색. 없으면 null (A-3) */
+    public String issue(UUID userId, UUID docId, PageRole role, String name, String color) {
+        return issue(new WsTicket(userId, docId, role, name, null, color));
+    }
+
     /** 공유 링크로 들어온 연결의 티켓. 링크가 꺼지거나 바뀌면 그 연결은 등급을 다시 계산해 닫힌다 (D-41). */
     public String issueViaShareLink(UUID userId, UUID docId, PageRole role, String name, UUID shareLinkId) {
         return issue(new WsTicket(userId, docId, role, name, shareLinkId));
+    }
+
+    public String issueViaShareLink(UUID userId, UUID docId, PageRole role, String name, UUID shareLinkId,
+            String color) {
+        return issue(new WsTicket(userId, docId, role, name, shareLinkId, color));
     }
 
     private String issue(WsTicket value) {

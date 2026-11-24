@@ -10,6 +10,8 @@ export interface UserInfo {
   id: string
   email: string
   name: string
+  /** 프로필에서 고른 커서 색. 고르지 않았으면 null (A-3) */
+  color?: string | null
 }
 
 export interface TokenResponse {
