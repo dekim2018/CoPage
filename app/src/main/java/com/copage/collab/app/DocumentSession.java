@@ -17,7 +17,10 @@ import com.copage.ot.text.Component;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -112,7 +115,8 @@ public final class DocumentSession {
         }
 
         Peer peer() {
-            return new Peer(clientId, connection.userId(), name, Peer.colorOf(connection.userId()), cursor);
+            String color = connection.color() != null ? connection.color() : Peer.colorOf(connection.userId());
+            return new Peer(clientId, connection.userId(), name, color, cursor);
         }
     }
 
@@ -133,6 +137,13 @@ public final class DocumentSession {
     private static final String MENTION_MARK = "mention";
 
     private final MentionSink mentions;
+    /** 검색 본문을 알리는 간격. 편집이 이어지는 동안에는 이 간격마다 한 번 알린다 (D-47). */
+    private static final Duration BODY_INTERVAL = Duration.ofSeconds(5);
+
+    private final BodySink bodies;
+    /** 마지막으로 알린 뒤 커밋이 있었는지. 실행기 스레드에서만 읽고 쓴다. */
+    private boolean bodyDirty;
+    private boolean bodyScheduled;
     private final TitleSink titles;
     private final CollabMetrics metrics;
     /** 마지막으로 알린 제목. 같은 제목을 다시 쓰지 않는다. */
@@ -141,6 +152,8 @@ public final class DocumentSession {
     private ServerDocument server;
     private long lastSnapshotRev;
     private boolean closed;
+    /** 저장소보다 앞선 채 버렸는지. 버린 세션의 본문은 검색에 알리지 않는다. */
+    private boolean discarded;
     private final Map<String, Member> members = new LinkedHashMap<>();
     private List<Pending> pending = new ArrayList<>();
     private boolean drainQueued;
@@ -167,9 +180,11 @@ public final class DocumentSession {
             TitleSink titles,
             CollabMetrics metrics,
             MentionSink mentions,
+            BodySink bodies,
             Unloader unloader) {
         this.docId = docId;
         this.mentions = mentions;
+        this.bodies = bodies;
         this.titles = titles;
         this.metrics = metrics;
         this.store = store;
@@ -376,6 +391,8 @@ public final class DocumentSession {
             lastSnapshotRev = snapshot.snapshotRev();
             // 제목을 동기화하기 전에 만든 페이지도 처음 열릴 때 채워진다. 받는 쪽은 리비전이 같으면 바꾸지 않는다.
             publishTitle(true);
+            // 검색을 만들기 전의 문서도 처음 열릴 때 색인된다.
+            bodyChanged();
         }
     }
 
@@ -458,6 +475,7 @@ public final class DocumentSession {
             }
             publishTitle(false);
             publishMentions(commits);
+            bodyChanged();
         }
         replies.forEach(Runnable::run);
     }
@@ -573,6 +591,7 @@ public final class DocumentSession {
         if (server != null && server.rev() > lastSnapshotRev) {
             saveSnapshot();
         }
+        publishBody();
         unloader.unloaded(this);
     }
 
@@ -667,6 +686,73 @@ public final class DocumentSession {
         }
     }
 
+    /** 커밋이 있었다. 간격 안에 이미 예약했으면 그때 함께 알린다. */
+    private void bodyChanged() {
+        bodyDirty = true;
+        if (!bodyScheduled) {
+            bodyScheduled = true;
+            scheduler.schedule(() -> executor.execute(this::publishBody), BODY_INTERVAL);
+        }
+    }
+
+    /**
+     * 검색에 쓸 본문을 background 에서 알린다 (F-1, D-47). 세션을 버린 뒤(discard)에는 부르지 않는다. 메모리의 문서가 저장소보다
+     * 앞설 수 있어서다. 실패해도 편집에는 영향이 없다. 다음 커밋이나 다음에 세션을 올릴 때 다시 쓴다.
+     */
+    private void publishBody() {
+        bodyScheduled = false;
+        if (!bodyDirty || server == null || discarded) {
+            return;
+        }
+        bodyDirty = false;
+        String body = plainBody(server.document());
+        long rev = server.rev();
+        try {
+            background.execute(() -> {
+                try {
+                    bodies.update(docId, body, rev);
+                } catch (RuntimeException e) {
+                    LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 검색 본문을 쓰지 못했다", e);
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            LOG.log(System.Logger.Level.WARNING, "실행기가 닫혀 문서 " + docId + " 의 검색 본문을 쓰지 못했다", e);
+        }
+    }
+
+    /** 제목(루트)을 뺀, 지우지 않은 블록의 글을 화면 순서로 잇는다. 부모별 자식 목록을 한 번 만들어 쓴다. */
+    static String plainBody(Document document) {
+        Map<String, List<Block>> children = new HashMap<>();
+        for (Block block : document.blocks()) {
+            if (block.parentId() != null && !block.deleted()) {
+                children.computeIfAbsent(block.parentId(), id -> new ArrayList<>()).add(block);
+            }
+        }
+        Comparator<Block> order = Comparator.comparing(Block::pos).thenComparing(Block::id);
+        children.values().forEach(list -> list.sort(order));
+        StringBuilder text = new StringBuilder();
+        Deque<Block> stack = new ArrayDeque<>();
+        List<Block> top = children.getOrDefault(document.rootId(), List.of());
+        for (int i = top.size() - 1; i >= 0; i--) {
+            stack.push(top.get(i));
+        }
+        while (!stack.isEmpty()) {
+            Block block = stack.pop();
+            String line = block.text().plainText();
+            if (!line.isEmpty()) {
+                if (!text.isEmpty()) {
+                    text.append('\n');
+                }
+                text.append(line);
+            }
+            List<Block> below = children.getOrDefault(block.id(), List.of());
+            for (int i = below.size() - 1; i >= 0; i--) {
+                stack.push(below.get(i));
+            }
+        }
+        return text.toString();
+    }
+
     /** 이 문서의 모든 연결에 알린다. 편집과 상관없는 알림(댓글이 바뀜 등)이다. */
     public void announce(ServerMessage message) {
         executor.execute(() -> {
@@ -696,6 +782,7 @@ public final class DocumentSession {
             if (server != null && server.rev() > lastSnapshotRev) {
                 saveSnapshot();
             }
+            publishBody();
             for (Member member : members.values()) {
                 member.connection().close(CloseCodes.MOVED, "문서가 다른 노드로 옮겨 간다. 다시 접속한다");
             }
@@ -716,6 +803,7 @@ public final class DocumentSession {
 
     private void discard() {
         closed = true;
+        discarded = true;
         pending.clear();
         for (Member member : members.values()) {
             member.connection().close(CloseCodes.MOVED, "문서 세션을 다시 연다");

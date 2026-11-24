@@ -24,6 +24,7 @@ export const router = createRouter({
         { path: 'p/:pageId', component: () => import('./views/EditorView.vue'), props: true },
         { path: 'members', component: () => import('./views/MembersView.vue'), props: true },
         { path: 'trash', component: () => import('./views/TrashView.vue'), props: true },
+        { path: 'profile', component: () => import('./views/ProfileView.vue') },
       ],
     },
   ],

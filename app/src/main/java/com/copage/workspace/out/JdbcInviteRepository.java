@@ -99,4 +99,11 @@ public final class JdbcInviteRepository implements InviteRepository {
                 rs.getTimestamp("expires_at").toInstant(),
                 accepted == null ? null : accepted.toInstant());
     }
+
+    @Override
+    public int purgeExpired(Instant now) {
+        return jdbc.sql("DELETE FROM workspace_invites WHERE expires_at < :now")
+                .param("now", Timestamp.from(now))
+                .update();
+    }
 }

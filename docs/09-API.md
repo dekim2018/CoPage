@@ -1,6 +1,6 @@
 # 11. REST API 목록
 
-REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 45개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
+REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 46개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
 
 오류 응답은 RFC 9457 형식(`application/problem+json`)으로 통일한다. Spring의 `ProblemDetail` 을 쓴다.
 
@@ -15,7 +15,7 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | POST | `/api/auth/refresh` | Refresh 쿠키, Origin 검사 | 200, 새 Access 토큰과 새 쿠키 | 401 쿠키가 없거나 틀림(쿠키를 지운다). 409 동시 재발급(쿠키를 지우지 않는다). 403 허용하지 않은 Origin |
 | POST | `/api/auth/logout` | Refresh 쿠키, Origin 검사. Access 토큰이 있으면 남은 시간 동안 막는다 | 204 | 403 허용하지 않은 Origin |
 | GET | `/api/me` | 토큰 | 200, 내 정보 |  |
-| PATCH | `/api/me` | 토큰 | 200, 이름을 바꾼 내 정보 | 400 이름이 비었거나 50자를 넘음 |
+| PATCH | `/api/me` | 토큰 | 200, 바꾼 내 정보 `{id, email, name, createdAt, color}`. 본문 `{name, color}` 중 바꿀 것만. color 는 커서 색 12가지 중 하나(A-3, D-47). 바꾼 이름과 색은 다음에 여는 편집 연결부터 보인다 | 400 둘 다 없음, 이름이 비었거나 50자를 넘음, 고를 수 없는 색 |
 | GET | `/api/workspaces` | 토큰 | 200, 내가 속한 워크스페이스와 내 역할 |  |
 | POST | `/api/workspaces` | 토큰 | 201, 만든 워크스페이스(내 역할 OWNER) | 400 이름이 비었거나 100자를 넘음 |
 | GET | `/api/workspaces/{wsId}/members` | OWNER 또는 MEMBER | 200, 멤버 목록 | 404 속하지 않은 워크스페이스. 403 GUEST |
@@ -52,6 +52,7 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | POST | `/api/docs/{docId}/comments` | COMMENT | 201, 본문 `{quote, body, mentions}`. 스레드와 첫 댓글. 위치 서식은 클라이언트가 편집으로 붙인다. 멘션한 사람 중 그 페이지를 볼 수 있는 사람에게 알린다 | 400 본문이 비거나 4,000자를 넘거나 멘션이 50명을 넘음. 404, 403 |
 | POST | `/api/comments/{threadId}/replies` | COMMENT | 201, 본문 `{body, mentions}`. 스레드에 쓴 사람들에게 답글 알림 | 400, 404, 403 위와 같음 |
 | PUT | `/api/comments/{threadId}/resolved` | COMMENT | 204, 본문 `{resolved}`. false 면 다시 연다 | 404, 403 |
+| GET | `/api/workspaces/{workspaceId}/search?q=` | 멤버 | 200, 최대 30개 `[{id, parentId, title, snippet}]`. 볼 수 있는 페이지만. 제목에 든 것이 먼저, 그 안에서는 최근에 고친 것이 먼저. 빈 검색어는 빈 목록 (D-47) | 404 멤버가 아님 |
 | GET | `/api/notifications` | 로그인 | 200, `{unread, items: [{id, kind, docId, actorName, preview, createdAt, read}]}`. 최근 50개 | |
 | POST | `/api/notifications/read` | 로그인 | 204, 본문 `{ids}`. 빈 목록이면 전부 읽음 | |
 | GET | `/api/notifications/stream` | 로그인(Authorization 헤더) | 200, `text/event-stream`. 처음에 `ready`, 그 뒤 `notification`(새 알림), `tree`(`{workspaceId, parentIds}`, 사이드바 다시 읽기). 25초마다 주석 줄 | 401 |
@@ -69,7 +70,7 @@ API 포트에는 `/actuator` 가 없다. 지표와 상태 확인은 관리 포�
 | POST | `/api/auth/refresh` | 토큰 재발급과 회전 | 구현 |
 | POST | `/api/auth/logout` | 로그아웃 | 구현 |
 | GET | `/api/me` | 내 정보 | 구현 |
-| PATCH | `/api/me` | 이름 수정 | 구현 |
+| PATCH | `/api/me` | 이름과 커서 색 수정 | 구현(D-47) |
 
 ## 11.2 워크스페이스와 페이지
 
@@ -124,7 +125,7 @@ API 포트에는 `/actuator` 가 없다. 지표와 상태 확인은 관리 포�
 | PATCH | `/api/comments/{commentId}` | 내 댓글 수정 | 작성자 | 계획 |
 | DELETE | `/api/comments/{commentId}` | 내 댓글 삭제 | 작성자 또는 FULL | 계획 |
 | POST | `/api/threads/{threadId}/resolve` | 해결 처리. `reopen` 으로 다시 연다 | COMMENT | 구현. `PUT /api/comments/{threadId}/resolved`(D-46) |
-| GET | `/api/workspaces/{wsId}/search?q=` | 제목과 본문 검색 | MEMBER 또는 GUEST | 계획 |
+| GET | `/api/workspaces/{wsId}/search?q=` | 제목과 본문 검색 | MEMBER 또는 GUEST | 구현(D-47) |
 | GET | `/api/notifications?before=` | 알림 목록 | 로그인 | 구현. 최근 50개, 커서는 아직 없다(D-46) |
 | POST | `/api/notifications/read` | 읽음 처리 (여러 개) | 로그인 | 구현 |
 | GET | `/api/notifications/stream?ticket=` | 알림 SSE | 로그인 | 구현. 티켓 대신 Authorization 헤더, 사이드바 트리 변경도 같은 연결로 보낸다(D-46) |

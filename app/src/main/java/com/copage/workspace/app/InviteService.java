@@ -156,6 +156,11 @@ public final class InviteService {
         }
     }
 
+    /** 만료된 초대를 지운다 (W-4, D-47). 주기 작업이 부른다. */
+    public int purgeExpired() {
+        return invites.purgeExpired(now());
+    }
+
     private Instant now() {
         return clock.instant().truncatedTo(ChronoUnit.MICROS);
     }

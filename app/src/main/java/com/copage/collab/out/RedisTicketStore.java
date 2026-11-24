@@ -17,16 +17,20 @@ public final class RedisTicketStore implements TicketStore {
 
     private final StringRedisTemplate redis;
 
+    private static final java.util.regex.Pattern COLOR_FIELD = java.util.regex.Pattern.compile("-|#[0-9a-f]{6}");
+
     public RedisTicketStore(StringRedisTemplate redis) {
         this.redis = redis;
     }
 
     @Override
     public void save(String ticket, WsTicket value, Duration ttl) {
-        // 이름은 '|' 를 담을 수 있어 맨 뒤에 둔다. 공유 링크가 없으면 '-'.
+        // 이름은 '|' 를 담을 수 있어 맨 뒤에 둔다. 공유 링크나 색이 없으면 '-'.
         String link = value.shareLinkId() == null ? "-" : value.shareLinkId().toString();
+        String color = value.color() == null ? "-" : value.color();
         redis.opsForValue().set(
-                key(ticket), value.userId() + "|" + value.docId() + "|" + value.role() + "|" + link + "|" + value.name(),
+                key(ticket),
+                value.userId() + "|" + value.docId() + "|" + value.role() + "|" + link + "|" + color + "|" + value.name(),
                 ttl);
     }
 
@@ -36,10 +40,16 @@ public final class RedisTicketStore implements TicketStore {
         if (value == null) {
             return Optional.empty();
         }
-        String[] parts = value.split("\\|", 5);
+        String[] parts = value.split("\\|", 6);
         UUID link = parts[3].equals("-") ? null : UUID.fromString(parts[3]);
+        // 색 칸이 없는 예전 형식(배포 중 30초 안에 남은 티켓)이면 다섯째 칸부터가 이름이다.
+        if (parts.length < 6 || !COLOR_FIELD.matcher(parts[4]).matches()) {
+            return Optional.of(new WsTicket(UUID.fromString(parts[0]), UUID.fromString(parts[1]),
+                    PageRole.valueOf(parts[2]), value.split("\\|", 5)[4], link));
+        }
+        String color = parts[4].equals("-") ? null : parts[4];
         return Optional.of(new WsTicket(
-                UUID.fromString(parts[0]), UUID.fromString(parts[1]), PageRole.valueOf(parts[2]), parts[4], link));
+                UUID.fromString(parts[0]), UUID.fromString(parts[1]), PageRole.valueOf(parts[2]), parts[5], link, color));
     }
 
     private static String key(String ticket) {

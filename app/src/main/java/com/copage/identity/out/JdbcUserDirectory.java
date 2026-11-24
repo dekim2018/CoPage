@@ -20,7 +20,7 @@ public final class JdbcUserDirectory implements UserDirectory {
 
     @Override
     public Optional<User> findByEmail(String email) {
-        return jdbc.sql("SELECT id, email, name, created_at FROM users WHERE email = :email")
+        return jdbc.sql("SELECT id, email, name, created_at, cursor_color FROM users WHERE email = :email")
                 .param("email", AuthService.normalizeEmail(email))
                 .query((rs, row) -> JdbcUserRepository.user(rs))
                 .optional();
@@ -31,7 +31,7 @@ public final class JdbcUserDirectory implements UserDirectory {
         if (ids.isEmpty()) {
             return List.of();
         }
-        return jdbc.sql("SELECT id, email, name, created_at FROM users WHERE id = ANY(:ids)")
+        return jdbc.sql("SELECT id, email, name, created_at, cursor_color FROM users WHERE id = ANY(:ids)")
                 .param("ids", ids.toArray(UUID[]::new))
                 .query((rs, row) -> JdbcUserRepository.user(rs))
                 .list();

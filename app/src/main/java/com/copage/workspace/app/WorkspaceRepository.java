@@ -107,4 +107,26 @@ public interface WorkspaceRepository {
 
     /** 이 페이지와 하위 전부(보관된 것 포함). 권한이 바뀌었을 수 있는 범위를 알릴 때 쓴다. */
     Set<UUID> subtree(UUID pageId);
+
+    /**
+     * 검색 후보 (F-1, D-47). 제목이나 본문에 needle 이 든 휴지통 밖의 페이지. 제목에 든 것이 먼저, 그 안에서는 최근에 고친 것이
+     * 먼저다. 볼 수 있는지는 부르는 쪽이 거른다.
+     *
+     * @param snippet 본문에서 처음 찾은 곳 앞뒤의 글. 본문에 없으면 본문의 앞부분
+     */
+    record SearchHit(Page page, String snippet) {
+    }
+
+    List<SearchHit> search(UUID workspaceId, String needle, int limit);
+
+    /** 검색에 쓸 본문을 쓴다. 이미 같거나 더 큰 리비전의 본문이 있으면 그대로 둔다. 페이지가 없으면 아무것도 하지 않는다. */
+    void updateBody(UUID pageId, String body, long rev, Instant now);
+
+    /**
+     * 휴지통에 보낸 지 오래된 페이지를 하위와 문서 기록(연산 로그, 스냅샷, 버전)까지 지운다 (W-4, D-47). 댓글, 권한, 공유 링크,
+     * 검색 본문, 알림은 외래 키로 함께 지워진다.
+     *
+     * @return 지운 페이지 수
+     */
+    int purgeTrash(Instant archivedBefore);
 }

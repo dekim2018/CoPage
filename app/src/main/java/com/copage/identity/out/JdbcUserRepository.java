@@ -39,7 +39,7 @@ public final class JdbcUserRepository implements UserRepository {
 
     @Override
     public Optional<Credentials> findByEmail(String email) {
-        return jdbc.sql("SELECT id, email, name, created_at, password_hash FROM users WHERE email = :email")
+        return jdbc.sql("SELECT id, email, name, created_at, cursor_color, password_hash FROM users WHERE email = :email")
                 .param("email", email)
                 .query((rs, row) -> new Credentials(user(rs), rs.getString("password_hash")))
                 .optional();
@@ -47,7 +47,7 @@ public final class JdbcUserRepository implements UserRepository {
 
     @Override
     public Optional<User> findById(UUID id) {
-        return jdbc.sql("SELECT id, email, name, created_at FROM users WHERE id = :id")
+        return jdbc.sql("SELECT id, email, name, created_at, cursor_color FROM users WHERE id = :id")
                 .param("id", id)
                 .query((rs, row) -> user(rs))
                 .optional();
@@ -58,11 +58,17 @@ public final class JdbcUserRepository implements UserRepository {
         jdbc.sql("UPDATE users SET name = :name WHERE id = :id").param("id", id).param("name", name).update();
     }
 
+    @Override
+    public void recolor(UUID id, String color) {
+        jdbc.sql("UPDATE users SET cursor_color = :color WHERE id = :id").param("id", id).param("color", color).update();
+    }
+
     static User user(ResultSet rs) throws SQLException {
         return new User(
                 rs.getObject("id", UUID.class),
                 rs.getString("email"),
                 rs.getString("name"),
-                rs.getTimestamp("created_at").toInstant());
+                rs.getTimestamp("created_at").toInstant(),
+                rs.getString("cursor_color"));
     }
 }

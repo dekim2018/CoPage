@@ -16,6 +16,8 @@ public interface UserRepository {
 
     void rename(UUID id, String name);
 
+    void recolor(UUID id, String color);
+
     record Credentials(User user, String passwordHash) {
     }
 

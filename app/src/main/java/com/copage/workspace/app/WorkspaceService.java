@@ -14,6 +14,7 @@ import com.copage.workspace.domain.Page;
 import com.copage.workspace.domain.Workspace;
 import com.copage.workspace.domain.WorkspaceRole;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -52,6 +53,16 @@ public final class WorkspaceService {
      */
     public record PageView(Page page, PageLevel level, List<Page> path) {
     }
+
+    /** 검색 결과 하나 (F-1, D-47). */
+    public record SearchResult(Page page, String snippet) {
+    }
+
+    /** 검색어 길이. 더 길면 자른다. */
+    static final int MAX_QUERY = 100;
+    /** 권한으로 거르기 전에 읽는 후보 수와 돌려주는 결과 수. */
+    static final int SEARCH_CANDIDATES = 200;
+    static final int SEARCH_RESULTS = 30;
 
     /** @param canRestore 꺼낼 수 있는지(휴지통에 가기 전 FULL 이었는지) */
     public record TrashView(Page page, Instant archivedAt, boolean canRestore) {
@@ -177,6 +188,49 @@ public final class WorkspaceService {
         if (repository.updateTitle(pageId, normalizeTitle(title), rev)) {
             repository.findPageById(pageId).ifPresent(page -> treeChanged(page.workspaceId(), page.parentId()));
         }
+    }
+
+    /** 문서 세션이 알린 검색 본문을 쓴다 (D-47). 리비전이 더 큰 것만 쓴다. */
+    public void updateBody(UUID pageId, String body, long rev) {
+        repository.updateBody(pageId, body, rev, now());
+    }
+
+    /**
+     * 워크스페이스에서 제목과 본문을 찾는다 (F-1, F-2, docs/08-FEATURES.md 10.5). 볼 수 있는 페이지만 돌려준다. 볼 수 없는
+     * 페이지는 제목도 내보내지 않는다. 제목에 든 것이 먼저, 그 안에서는 최근에 고친 것이 먼저다.
+     *
+     * @throws WorkspaceException NOT_FOUND 멤버가 아님
+     */
+    public List<SearchResult> search(UUID userId, UUID workspaceId, String query) {
+        roleOf(workspaceId, userId);
+        String needle = query == null ? "" : query.strip();
+        if (needle.isEmpty()) {
+            return List.of();
+        }
+        if (needle.length() > MAX_QUERY) {
+            needle = needle.substring(0, MAX_QUERY);
+        }
+        List<SearchResult> results = new ArrayList<>();
+        for (WorkspaceRepository.SearchHit hit : repository.search(workspaceId, needle, SEARCH_CANDIDATES)) {
+            if (permissions.access(userId, hit.page().id()) instanceof Access.Granted granted
+                    && granted.workspaceId().equals(workspaceId)) {
+                results.add(new SearchResult(hit.page(), hit.snippet()));
+                if (results.size() == SEARCH_RESULTS) {
+                    break;
+                }
+            }
+        }
+        return results;
+    }
+
+    /**
+     * 휴지통에 보낸 지 keep 이 지난 페이지와 만료된 초대를 지운다 (W-4, D-47). 주기 작업이 부른다. 여러 노드가 함께 돌려도
+     * 같은 행을 두 번 지울 뿐이다.
+     *
+     * @return 지운 페이지 수
+     */
+    public int purgeTrash(Duration keep) {
+        return repository.purgeTrash(now().minus(keep));
     }
 
     /** 트리 변경을 받을 곳 (W-5, D-46). */

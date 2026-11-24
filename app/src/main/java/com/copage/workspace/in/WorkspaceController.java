@@ -73,6 +73,14 @@ class WorkspaceController {
         }
     }
 
+    /** @param snippet 본문에서 찾은 곳 앞뒤의 글. 제목에만 있으면 본문의 앞부분이나 빈 글 */
+    record SearchResponse(UUID id, UUID parentId, String title, String snippet) {
+        static SearchResponse of(WorkspaceService.SearchResult result) {
+            Page page = result.page();
+            return new SearchResponse(page.id(), page.parentId(), page.title(), result.snippet());
+        }
+    }
+
     /** @param canRestore 꺼낼 수 있는지(휴지통에 가기 전 FULL 이었는지) */
     record TrashResponse(UUID id, UUID parentId, String title, Instant archivedAt, boolean canRestore) {
         static TrashResponse of(WorkspaceService.TrashView view) {
@@ -157,6 +165,13 @@ class WorkspaceController {
     @GetMapping("/{workspaceId}/trash")
     List<TrashResponse> trash(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID workspaceId) {
         return workspaces.trash(userId(jwt), workspaceId).stream().map(TrashResponse::of).toList();
+    }
+
+    /** 제목과 본문 검색 (F-1, F-2, D-47). 볼 수 있는 페이지만. */
+    @GetMapping("/{workspaceId}/search")
+    List<SearchResponse> search(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID workspaceId,
+            @RequestParam(name = "q", defaultValue = "") String query) {
+        return workspaces.search(userId(jwt), workspaceId, query).stream().map(SearchResponse::of).toList();
     }
 
     private static UUID userId(Jwt jwt) {

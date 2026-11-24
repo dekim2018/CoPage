@@ -5,6 +5,7 @@ import com.copage.collab.app.CollabMetrics;
 import com.copage.collab.app.DocumentSession;
 import com.copage.collab.app.DocumentSessions;
 import com.copage.collab.app.DocumentStore;
+import com.copage.collab.app.BodySink;
 import com.copage.collab.app.MentionSink;
 import com.copage.collab.app.OwnershipLease;
 import com.copage.collab.app.TicketService;
@@ -126,11 +127,23 @@ public class CollabConfig {
      */
     @Bean
     UserNames userNames(AuthService authService) {
-        return userId -> {
-            try {
-                return authService.me(userId).name();
-            } catch (AuthException e) {
-                return "이름 없음";
+        return new UserNames() {
+            @Override
+            public String nameOf(UUID userId) {
+                try {
+                    return authService.me(userId).name();
+                } catch (AuthException e) {
+                    return "이름 없음";
+                }
+            }
+
+            @Override
+            public String colorOf(UUID userId) {
+                try {
+                    return authService.me(userId).color();
+                } catch (AuthException e) {
+                    return null;
+                }
             }
         };
     }
@@ -199,6 +212,14 @@ public class CollabConfig {
             }
         };
         documentSessions.mentionsTo(sink);
+        return sink;
+    }
+
+    /** 검색 본문은 workspace 모듈이 쓴다 (F-1, D-47). 제목과 같은 길이다. */
+    @Bean
+    BodySink searchBodies(DocumentSessions documentSessions, WorkspaceService workspaceService) {
+        BodySink sink = workspaceService::updateBody;
+        documentSessions.bodiesTo(sink);
         return sink;
     }
 

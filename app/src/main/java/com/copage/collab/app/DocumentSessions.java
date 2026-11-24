@@ -33,6 +33,7 @@ public final class DocumentSessions {
     private final CollabMetrics metrics;
     private final OwnershipLease lease;
     private volatile MentionSink mentions = MentionSink.NONE;
+    private volatile BodySink bodies = BodySink.NONE;
     /** 리스를 잡은 시각. 막 잡은 문서는 넘겨 달라는 요청을 받아도 넘기지 않는다(노드 사이를 오가는 것을 막는다). */
     private final Map<UUID, Instant> acquiredAt = new ConcurrentHashMap<>();
     private final Duration handoffGrace;
@@ -209,6 +210,11 @@ public final class DocumentSessions {
         this.mentions = sink;
     }
 
+    /** 검색에 쓸 본문을 받을 곳 (D-47). 새로 여는 세션부터 쓴다. */
+    public void bodiesTo(BodySink sink) {
+        this.bodies = sink;
+    }
+
     /** 시험이 세션 안을 들여다볼 때 쓴다. */
     DocumentSession session(UUID docId) {
         return sessions.get(docId);
@@ -222,7 +228,7 @@ public final class DocumentSessions {
     private DocumentSession create(UUID docId) {
         return new DocumentSession(
                 docId, store, policy, settings, executor, background, scheduler, clock, titles, metrics, mentions,
-                this::unloaded);
+                bodies, this::unloaded);
     }
 
     private void unloaded(DocumentSession session) {

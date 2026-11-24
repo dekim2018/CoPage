@@ -53,7 +53,8 @@ class TicketController {
             case Access.Denied denied -> throw new ResponseStatusException(HttpStatus.FORBIDDEN, "이 페이지에 권한이 없다");
             case Access.Granted granted -> PageRole.valueOf(granted.level().name());
         };
-        return Map.of("ticket", tickets.issue(userId, docId, role, names.nameOf(userId)), "role", role);
+        return Map.of("ticket", tickets.issue(userId, docId, role, names.nameOf(userId), names.colorOf(userId)),
+                "role", role);
     }
 
     /**
@@ -72,9 +73,11 @@ class TicketController {
         PageLevel level = opened.link().level();
         UUID userId;
         String name;
+        String color = null;
         if (jwt != null) {
             userId = UUID.fromString(jwt.getSubject());
             name = names.nameOf(userId);
+            color = names.colorOf(userId);
             if (permissions.access(userId, docId) instanceof Access.Granted granted) {
                 level = PageLevel.max(level, granted.level());
             }
@@ -83,7 +86,7 @@ class TicketController {
             name = "익명 " + ANIMALS.get(random.nextInt(ANIMALS.size()));
         }
         PageRole role = PageRole.valueOf(level.name());
-        String ticket = tickets.issueViaShareLink(userId, docId, role, name, opened.link().id());
+        String ticket = tickets.issueViaShareLink(userId, docId, role, name, opened.link().id(), color);
         return Map.of("ticket", ticket, "role", role, "pageId", docId, "title", opened.title());
     }
 }
