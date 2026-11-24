@@ -108,7 +108,7 @@ class DbLatencyTest {
         }
         RawClient observer = new RawClient(false);
         observer.connect(uri(docId), "observer");
-        double batchMaxBefore = meters.get("collab.commit.batch.size").summary().max();
+        long commitsBefore = meters.get("collab.commit.batch.size").summary().count();
 
         PROXY.toxics().latency("latency", ToxicDirection.DOWNSTREAM, LATENCY_MS);
         long startedAt = System.currentTimeMillis();
@@ -152,11 +152,13 @@ class DbLatencyTest {
             assertEquals(writers.get(0).session.view(), writer.session.view());
         }
         assertEquals(WRITERS * EDITS_EACH, remotesSeen);
-        double batchMax = meters.get("collab.commit.batch.size").summary().max();
-        // 커밋마다 DB 왕복이 여럿이라 묶지 않으면 60번 x (왕복 수 x 200ms) 가 걸린다. 묶으면 사람 수만큼 함께 확정된다.
-        assertTrue(batchMax >= 2 || batchMaxBefore >= 2, "묶음 커밋이 동작하지 않았다");
-        System.out.printf("DB 지연 %dms 실험: 묶음 %d 개를 %dms 에 확정(초당 %.1f), 커밋 묶음 크기 최대 %.0f%n", LATENCY_MS,
-                WRITERS * EDITS_EACH, elapsed, WRITERS * EDITS_EACH * 1000.0 / elapsed, batchMax);
+        long commits = meters.get("collab.commit.batch.size").summary().count() - commitsBefore;
+        // 묶지 않으면 묶음마다 커밋한다(60번). 커밋 하나가 DB 를 여러 번 왕복하므로, 묶으면 앞 커밋을 기다리는 동안 모인 묶음이
+        // 함께 확정되어 커밋 수가 줄어든다.
+        assertTrue(commits < WRITERS * EDITS_EACH, "묶음 커밋이 동작하지 않았다: 커밋 " + commits + " 번");
+        System.out.printf("DB 지연 %dms 실험: 묶음 %d 개를 %dms 에 확정(초당 %.1f), 커밋 %d 번(평균 묶음 %.1f)%n", LATENCY_MS,
+                WRITERS * EDITS_EACH, elapsed, WRITERS * EDITS_EACH * 1000.0 / elapsed, commits,
+                (double) WRITERS * EDITS_EACH / commits);
     }
 
     private static boolean stored(Connection direct, UUID docId, long rev) throws Exception {
