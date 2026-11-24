@@ -421,7 +421,8 @@ public final class DocumentSession {
         if (refused.isPresent()) {
             long rev = server.rev();
             metrics.nack(refused.get().category());
-            replies.add(() -> sender.send(new ServerMessage.Nack(seq, refused.get().message(), rev)));
+            replies.add(() -> sender.send(
+                    new ServerMessage.Nack(seq, refused.get().message(), rev, refused.get().category())));
             return;
         }
         // 세션이 다시 올라오면 ServerDocument 는 예전 순번을 모른다. 저장소에서 한 번 더 확인한다 (7.5 의 4번).
@@ -449,7 +450,7 @@ public final class DocumentSession {
                 long rev = server.rev();
                 // 변환할 수 없는 충돌, 적용할 수 없는 연산, 문서 크기 한도
                 metrics.nack("rejected");
-                replies.add(() -> sender.send(new ServerMessage.Nack(seq, rejected.reason(), rev)));
+                replies.add(() -> sender.send(new ServerMessage.Nack(seq, rejected.reason(), rev, "rejected")));
             }
             case SubmitResult.Stale stale -> {
                 // nack 하면 클라이언트는 묶음을 버린다. 연결을 닫아 resume 으로 다시 붙게 하면 대기 편집을 살려 다시 맞춘다.

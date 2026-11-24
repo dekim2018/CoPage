@@ -24,8 +24,14 @@ public sealed interface ServerMessage
     record Ack(long clientSeq, long rev) implements ServerMessage {
     }
 
-    /** 내 묶음이 거부되었다. rev 는 지금 서버의 리비전이다. */
-    record Nack(long clientSeq, String reason, long rev) implements ServerMessage {
+    /**
+     * 내 묶음이 거부되었다. rev 는 지금 서버의 리비전이다.
+     *
+     * @param reason 사람이 읽는 사유
+     * @param code 사유의 분류. permission(권한), input(허용하지 않는 입력), empty(빈 묶음), rejected(변환할 수 없는 충돌, 적용할
+     *     수 없는 연산, 문서 크기 한도). 클라이언트는 rejected 일 때만 살릴 수 있는 편집을 다시 보낸다 (D-27)
+     */
+    record Nack(long clientSeq, String reason, long rev, String code) implements ServerMessage {
     }
 
     /** 다른 연결의 확정된 묶음. 변환이 끝난 형태다. */

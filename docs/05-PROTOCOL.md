@@ -58,7 +58,7 @@ sequenceDiagram
 | --- | --- | --- |
 | `welcome` | `rev`, `role`, `rebase`, `snapshot` 또는 `ops`, `peers` | `hello` 의 답. 처음 여는 연결(`resume` 이 false)이나 너무 오래된 연결에는 전체 문서를, 이어 붙는 연결에는 `lastRev` 이후의 묶음만 보낸다. `ops` 의 항목은 `remote` 와 같은 필드를 갖는다 |
 | `ack` | `clientSeq`, `rev` | 내 묶음이 이 리비전으로 확정됨. DB 커밋 뒤에만 보낸다 |
-| `nack` | `clientSeq`, `reason`, `rev` | 내 묶음이 거부됨. 클라이언트는 대기 중인 편집을 버린다 |
+| `nack` | `clientSeq`, `reason`, `rev`, `code` | 내 묶음이 거부됨. `code` 는 사유 분류(permission, input, empty, rejected). 클라이언트는 rejected 일 때만 다른 블록의 글처럼 그대로 다시 적용할 수 있는 편집을 새 묶음으로 다시 보내고, 나머지는 보관함에 보인다(D-27). `code` 가 없으면(예전 서버) 다시 보내지 않는다 |
 | `remote` | `rev`, `userId`, `clientId`, `clientSeq`, `ops` | 다른 연결의 확정된 묶음 (변환이 끝난 형태). 같은 클라이언트가 새 연결로 다시 붙어 있으면 예전 연결로 보낸 묶음도 새 연결에는 `remote` 로 간다 |
 | `presence` | `clientId`, `userId`, `name`, `color`, `cursor` 또는 `left` | 다른 사람의 커서, 입장과 퇴장 |
 | `role` | `role` | 내 권한이 바뀜(올라가거나 내려감). EDIT 아래(VIEW, COMMENT)면 편집기를 읽기 전용으로 바꾼다. 그 뒤 서버는 그 연결의 묶음을 새 등급으로 검사한다. 권한을 아예 잃으면 이 메시지 대신 4003 으로 닫는다. 문서당 연결 한도로 읽기로 받은 연결은 다시 계산해도 읽기 위로 올리지 않는다 |

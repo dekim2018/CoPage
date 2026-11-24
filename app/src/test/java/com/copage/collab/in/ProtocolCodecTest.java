@@ -120,6 +120,12 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void nack_은_사유와_분류를_싣는다() {
+        assertEquals(MAPPER.readTree(json("{'t':'nack','clientSeq':3,'reason':'충돌','rev':7,'code':'rejected'}")),
+                MAPPER.readTree(codec.write(new ServerMessage.Nack(3, "충돌", 7, "rejected"))));
+    }
+
+    @Test
     void role_은_바뀐_등급만_싣는다() {
         assertEquals(MAPPER.readTree(json("{'t':'role','role':'VIEW'}")),
                 MAPPER.readTree(codec.write(new ServerMessage.Role(PageRole.VIEW))));

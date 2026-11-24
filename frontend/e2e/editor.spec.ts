@@ -237,3 +237,28 @@ test('워크스페이스가 있어도 사이드바에서 둘째를 만들 수 �
   await stranger.goto(`/w/${first}`)
   await expect(stranger.getByTestId('page-error')).toHaveText('워크스페이스를 열 수 없다')
 })
+
+test('구조 충돌로 묶음이 거부되어도 다른 블록에 친 글자는 남고, 살리지 못한 편집은 보관함에 보인다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
+  const inboxB = await controlInbox(b)
+  await Promise.all([open(a, docId), open(b, docId)])
+  await prepare(a, b, '제목', ['', '둘째', '셋째'])
+
+  // b 는 서버의 답을 받지 못한 채 편집한다. 첫 글자는 바로 보내지고, 그 뒤 편집은 한 묶음으로 쌓인다.
+  inboxB.hold()
+  await caretAtEnd(b, 3)
+  await b.keyboard.type('x')
+  await b.keyboard.type(' 살아남을 글')
+  // 둘째 문단을 빈 첫 문단에 합친다. 같은 묶음에 들어간다.
+  await caret(b, 2, 0)
+  await b.keyboard.press('Backspace')
+  // 그사이 a 는 빈 첫 문단을 지운다. b 의 합치기는 지워진 블록에 합치려는 충돌이라 거부된다.
+  await caret(a, 1, 0)
+  await a.keyboard.press('Backspace')
+  await expect(a.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+  inboxB.release()
+
+  expect(await converged(a, b)).toEqual(['제목', '둘째', '셋째x 살아남을 글'])
+  await expect(b.getByTestId('lost')).toContainText('다른 사람의 편집과 겹쳐')
+})
