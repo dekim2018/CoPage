@@ -125,6 +125,10 @@ final class WebSocketConnection implements Connection {
             queue.clear();
             queuedBytes = 0;
         }
+        if (code == CloseCodes.SLOW) {
+            // 받는 쪽이 막힌 연결이라 닫기 프레임이 닿지 못할 수 있다(클라이언트에는 1006). 운영에서 원인을 알 수 있게 남긴다.
+            LOG.log(System.Logger.Level.WARNING, "연결 " + id() + " 을 느려서 닫는다: " + reason);
+        }
         run(() -> {
             try {
                 raw.close(new CloseStatus(code, truncate(reason)));
