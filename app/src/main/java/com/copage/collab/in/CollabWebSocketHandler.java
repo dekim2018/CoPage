@@ -131,6 +131,8 @@ public final class CollabWebSocketHandler extends TextWebSocketHandler {
             }
             handle(state, parsed, now);
         } catch (ProtocolException e) {
+            // 정상 클라이언트는 규약을 어기지 않는다. 끊긴 쪽은 다시 붙지 않으므로(4008 은 치명) 원인을 남긴다.
+            LOG.log(System.Logger.Level.WARNING, "연결 " + state.connection.id() + " 을 규약 위반으로 닫는다: " + e.getMessage());
             state.connection.close(CloseCodes.PROTOCOL, e.getMessage());
         }
     }
