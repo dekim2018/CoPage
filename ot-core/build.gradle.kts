@@ -6,7 +6,7 @@ plugins {
 }
 
 dependencies {
-    testImplementation(platform("org.junit:junit-bom:5.13.4"))
+    testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     // 적합성 벡터를 JSON 으로 내보낼 때만 쓴다. 버전은 app 의 Spring Boot 4.1.1 이 쓰는 것과 맞췄다.
