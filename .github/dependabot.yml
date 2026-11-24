@@ -7,6 +7,9 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     target-branch: develop
+    ignore:
+      # Jackson 은 Spring Boot 가 관리하는 판을 따른다. ot-core 의 시험 의존성도 그 판에 맞춘다 (D-35)
+      - dependency-name: "tools.jackson.*"
 
   - package-ecosystem: npm
     directory: /frontend
@@ -14,6 +17,13 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     target-branch: develop
+    ignore:
+      # vue-tsc 가 TypeScript 의 JS API 를 쓰는데 7.0(네이티브 구현)에는 없다 (docs/10-FRONTEND.md 12.6, D-35)
+      - dependency-name: "typescript"
+        versions: [">=7"]
+      # 실행 환경이 Node 22 다. 타입도 같은 주 판에 맞춘다
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
