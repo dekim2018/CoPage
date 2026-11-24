@@ -47,7 +47,8 @@ public final class Main {
                     integer(options, "seconds", 30), integer(options, "rate", 5));
             case "many-docs" -> typing(api, wsBase, management, integer(options, "docs", 20),
                     integer(options, "editors", 5), integer(options, "seconds", 30), integer(options, "rate", 5));
-            case "open-doc" -> open(api, wsBase, integer(options, "blocks", 1000), integer(options, "opens", 20));
+            case "open-doc" -> open(api, wsBase, management, integer(options, "blocks", 1000), integer(options, "opens", 20),
+                    Boolean.parseBoolean(options.getOrDefault("cold", "false")));
             default -> throw new IllegalArgumentException("모르는 시나리오: " + scenario);
         }
         System.exit(0);
@@ -139,7 +140,12 @@ public final class Main {
         return group.stream().allMatch(editor -> editor.view().equals(first));
     }
 
-    private static void open(Api api, String wsBase, int blocks, int opens) throws Exception {
+    /**
+     * cold 면 채운 뒤 서버가 세션을 내릴 때까지(sessionUnloadDelay, 기본 60초) 기다려 첫 열기가 스냅샷에서 복구하게 한다.
+     * 첫 열기(복구 포함)와 나머지(메모리의 세션)를 따로 적는다.
+     */
+    private static void open(Api api, String wsBase, String management, int blocks, int opens, boolean cold)
+            throws Exception {
         Api.Account owner = api.account("owner");
         String workspace = api.workspace(owner);
         String page = api.page(owner, workspace);
@@ -162,14 +168,28 @@ public final class Main {
         }
         filler.close();
         System.out.println(blocks + " 블록 문서를 채웠다. " + opens + " 번 연다");
+        if (cold) {
+            long waitStart = System.currentTimeMillis();
+            while (api.metric(management, "collab_sessions") > 0 && System.currentTimeMillis() - waitStart < 180_000) {
+                Thread.sleep(1_000);
+            }
+            System.out.printf("세션이 내려갔다(%.0f초 기다림)%n", (System.currentTimeMillis() - waitStart) / 1000.0);
+        }
+        double loadCountBefore = api.metric(management, "collab_session_load_seconds_count");
+        double loadSumBefore = api.metric(management, "collab_session_load_seconds_sum");
 
+        VirtualEditor.Shared first = new VirtualEditor.Shared();
         VirtualEditor.Shared shared = new VirtualEditor.Shared();
         for (int i = 0; i < opens; i++) {
-            VirtualEditor reader = new VirtualEditor("reader" + i, page, shared, i);
+            VirtualEditor reader = new VirtualEditor("reader" + i, page, i == 0 ? first : shared, i, false);
             reader.connect(wsBase, api.ticket(owner, page));
             reader.close();
         }
-        System.out.println("열기(접속부터 welcome 까지) " + shared.open.summary());
+        double loads = api.metric(management, "collab_session_load_seconds_count") - loadCountBefore;
+        double loadSum = api.metric(management, "collab_session_load_seconds_sum") - loadSumBefore;
+        System.out.println("첫 열기(접속부터 welcome 까지)   " + first.open.summary());
+        System.out.println("나머지 열기                      " + shared.open.summary());
+        System.out.printf("서버 세션 복구 %.0f 번, 평균 %.1fms%n", loads, loads > 0 ? loadSum / loads * 1000 : 0.0);
     }
 
     private static Runnable guard(Runnable task) {

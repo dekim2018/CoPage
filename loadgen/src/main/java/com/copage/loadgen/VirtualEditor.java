@@ -26,6 +26,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import tools.jackson.databind.JsonNode;
@@ -53,15 +56,25 @@ final class VirtualEditor implements WebSocket.Listener {
     private static final long CHANGE_INTERVAL_MS = 50;
     /** 편집자마다 HttpClient 를 만들면 선택자 스레드가 편집자 수만큼 생긴다. 하나를 함께 쓴다. */
     private static final HttpClient HTTP = HttpClient.newHttpClient();
+    /** 실제 클라이언트처럼 20초마다 ping 을 보낸다. 서버는 45초 동안 조용한 연결을 닫는다. */
+    private static final ScheduledExecutorService PINGER = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "loadgen-ping");
+        thread.setDaemon(true);
+        return thread;
+    });
     private static final String LETTERS = "abcdefghijklmnopqrstuvwxyz가나다라마바사 ";
 
     private final String clientId;
     private final String pageId;
     private final Shared shared;
     private final Random random;
+    private final boolean writes;
     private final StringBuilder partial = new StringBuilder();
     private final CountDownLatch welcomed = new CountDownLatch(1);
     private WebSocket socket;
+    /** JDK WebSocket 은 앞 전송이 끝나기 전에 다시 보내면 예외다. 보낼 것은 모두 이 사슬에 이어 붙인다. */
+    private CompletableFuture<WebSocket> lastSend;
+    private ScheduledFuture<?> ping;
     private ClientSession session;
     private long connectStartedNanos;
     private long lastSendAt;
@@ -70,6 +83,12 @@ final class VirtualEditor implements WebSocket.Listener {
     private int counter;
 
     VirtualEditor(String clientId, String pageId, Shared shared, long seed) {
+        this(clientId, pageId, shared, seed, true);
+    }
+
+    /** writes 가 false 면 들어와서 자기 문단을 만들지 않는다. 문서 열기만 잴 때 쓴다. */
+    VirtualEditor(String clientId, String pageId, Shared shared, long seed, boolean writes) {
+        this.writes = writes;
         this.clientId = clientId;
         this.pageId = pageId;
         this.shared = shared;
@@ -81,11 +100,13 @@ final class VirtualEditor implements WebSocket.Listener {
         socket = HTTP.newWebSocketBuilder()
                 .buildAsync(URI.create(wsBase + "/ws/docs/" + pageId + "?ticket=" + ticket + "&v=1"), this)
                 .get(10, TimeUnit.SECONDS);
+        lastSend = CompletableFuture.completedFuture(socket);
         ObjectNode hello = Api.MAPPER.createObjectNode();
         hello.put("t", "hello");
         hello.put("clientId", clientId);
         hello.put("lastRev", 0);
-        socket.sendText(Api.MAPPER.writeValueAsString(hello), true).get(5, TimeUnit.SECONDS);
+        sendText(Api.MAPPER.writeValueAsString(hello)).get(5, TimeUnit.SECONDS);
+        ping = PINGER.scheduleAtFixedRate(() -> sendText("{\"t\":\"ping\"}"), 20, 20, TimeUnit.SECONDS);
         if (!welcomed.await(30, TimeUnit.SECONDS)) {
             throw new IllegalStateException(clientId + " 가 welcome 을 받지 못했다");
         }
@@ -145,10 +166,20 @@ final class VirtualEditor implements WebSocket.Listener {
         next.ifPresent(this::send);
     }
 
-    void close() {
-        if (socket != null) {
-            socket.sendClose(WebSocket.NORMAL_CLOSURE, "끝");
+    synchronized void close() {
+        if (ping != null) {
+            ping.cancel(false);
         }
+        if (lastSend != null) {
+            lastSend = lastSend.exceptionally(error -> socket)
+                    .thenCompose(ws -> ws.sendClose(WebSocket.NORMAL_CLOSURE, "끝"));
+        }
+    }
+
+    private synchronized CompletableFuture<WebSocket> sendText(String text) {
+        // 앞 전송이 실패했어도 사슬이 끊기지 않게 한다. 실패한 연결은 onClose 로 드러난다.
+        lastSend = lastSend.exceptionally(error -> socket).thenCompose(ws -> ws.sendText(text, true));
+        return lastSend;
     }
 
     private void send(Submission submission) {
@@ -160,7 +191,7 @@ final class VirtualEditor implements WebSocket.Listener {
         change.put("clientSeq", submission.clientSeq());
         change.put("baseRev", submission.baseRev());
         change.set("ops", OpJson.ops(submission.ops()));
-        socket.sendText(Api.MAPPER.writeValueAsString(change), true);
+        sendText(Api.MAPPER.writeValueAsString(change));
     }
 
     @Override
@@ -187,7 +218,9 @@ final class VirtualEditor implements WebSocket.Listener {
             case "welcome" -> {
                 session = new ClientSession(clientId, OpJson.readDocument(message.get("snapshot")), message.get("rev").longValue());
                 shared.open.add((now - connectStartedNanos) / 1e6);
-                makeOwnParagraph();
+                if (writes) {
+                    makeOwnParagraph();
+                }
                 welcomed.countDown();
             }
             case "ack" -> {
