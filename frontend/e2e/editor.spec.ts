@@ -103,6 +103,26 @@ test('여러 줄을 붙여넣은 뒤 이어 친 글자는 붙여넣은 글 끝�
   expect(await converged(a, b)).toEqual(['제목', '첫째둘째', '셋째!'])
 })
 
+test('64KB 를 넘는 붙여넣기는 여러 묶음으로 나눠 보내 끊기지 않고 상대에게 그대로 간다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
+  await Promise.all([open(a, docId), open(b, docId)])
+  await prepare(a, b, '제목', ['첫째'])
+
+  // 한글 5만 자는 UTF-8 로 150KB 다. 묶음 하나로 보내면 서버가 4008 로 끊는다.
+  const pasted = '가나다라마'.repeat(10_000)
+  await caretAtEnd(a, 1)
+  await a.locator('.ProseMirror').evaluate((editor, text) => {
+    const data = new DataTransfer()
+    data.setData('text/plain', text)
+    editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  }, pasted)
+  await a.keyboard.type('!')
+
+  expect(await converged(a, b)).toEqual(['제목', `첫째${pasted}!`])
+  await expect(a.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+})
+
 test('새로고침해도 로그인과 내용이 남는다', async ({ browser }) => {
   const a = await newUser(browser, 'a')
   const docId = await sharedPage(a)

@@ -4,6 +4,7 @@ import { InvalidOperationError, TransformConflictError } from '../ot/errors'
 import type { Op } from '../ot/op'
 import { transform } from '../ot/transformer'
 import type { Discard } from './salvage'
+import { takeWithin } from './sendBudget'
 
 /** 클라이언트가 서버로 보내는 편집 묶음. baseRev 는 이 묶음을 만들 때 클라이언트가 알고 있던 마지막 리비전이다. */
 export interface Submission {
@@ -88,6 +89,11 @@ export class ClientSession {
     return this.inflight !== null || this.buffer.length > 0
   }
 
+  /** 아직 보내지 않은 편집이 있는지. 큰 묶음을 나눠 보내는 중이면 poll 뒤에도 true 다. */
+  hasBuffer(): boolean {
+    return this.buffer.length > 0
+  }
+
   /**
    * 내 편집을 화면 문서에 바로 적용하고 buffer 에 쌓는다.
    *
@@ -98,17 +104,23 @@ export class ClientSession {
     this.buffer = append(this.buffer, ops)
   }
 
-  /** 보낼 묶음이 있고 답을 기다리는 묶음이 없으면, buffer 를 inflight 로 옮기고 보낼 내용을 돌려준다. 없으면 null. */
+  /**
+   * 보낼 묶음이 있고 답을 기다리는 묶음이 없으면, buffer 를 inflight 로 옮기고 보낼 내용을 돌려준다. 없으면 null.
+   *
+   * buffer 가 메시지 크기 한도(sendBudget)를 넘으면(큰 붙여넣기) 앞에서부터 한도 안에 드는 만큼만 옮기고 나머지는 buffer 에
+   * 남긴다. 나머지는 ack 뒤 다음 poll 이 보낸다 (docs/05-PROTOCOL.md 7.7).
+   */
   poll(): Submission | null {
     if (this.inflight !== null || this.buffer.length === 0) {
       return null
     }
-    this.inflight = this.buffer
+    const [head, rest] = takeWithin(this.buffer)
+    this.inflight = head
     this.inflightSeq = this.nextSeq++
     this.inflightInView = true
     this.inflightDead = false
     this.inflightRecorded = false
-    this.buffer = []
+    this.buffer = rest
     return { clientId: this.clientId, clientSeq: this.inflightSeq, baseRev: this.rev, ops: this.inflight }
   }
 

@@ -7,6 +7,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 /**
  * 협업 모듈의 설정 값. 기본값은 docs/05-PROTOCOL.md 7.7, docs/03-ARCHITECTURE.md 5.2, docs/07-SECURITY.md 9.3 을 따른다.
  *
+ * @param maxMessageBytes 클라이언트 메시지 하나의 바이트 한도. 넘으면 4008. 화면 클라이언트는 묶음을 60,000 바이트 안으로 나눠
+ *     보내므로(frontend sendBudget.ts 의 MAX_CHANGE_BYTES, D-37) 이보다 작게 줄이면 정상 클라이언트도 끊긴다
  * @param maxPresencePerSecond 연결마다 초당 받을 presence 수. 넘는 것은 연결을 끊지 않고 버린다
  * @param maxTextLength 문서 하나의 글자 수 한도. UTF-16 코드 단위로 센다
  * @param rebaseMaxGap 재접속할 때 이보다 리비전 차이가 크면 대기 편집을 합치지 않게 한다 (7.5)

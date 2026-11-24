@@ -358,7 +358,8 @@ export class CollabClient {
       // 살린 편집은 buffer 에 들어가 이 새 묶음에 실린다. resync 가 다시 보내는 예전 inflight 에는 실리지 않는다.
       if (this.salvagePending) {
         this.salvageSeqs.add(submission.clientSeq)
-        this.salvagePending = false
+        // 살린 편집이 커서 여러 묶음으로 나뉘면 마지막 묶음까지 살린 것으로 적는다.
+        this.salvagePending = this.session.hasBuffer()
       }
       this.lastChangeAt = Date.now()
       this.sendChange(submission)
