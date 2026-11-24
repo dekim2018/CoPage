@@ -19,8 +19,11 @@ export interface ConnectionHandlers {
   onState(state: ConnectionState, detail?: string): void
 }
 
-/** 다시 붙어도 소용없는 종료 코드. 권한 없음(4003), 규약 위반(4008), 규약 버전 불일치(4010). */
-const FATAL_CODES = new Set([4003, 4008, 4010])
+/**
+ * 다시 붙어도 소용없는 종료 코드. 권한 없음(4003), 규약 위반(4008), 규약 버전 불일치(4010), 메시지가 너무 큼(1009, 서버의
+ * WebSocket 컨테이너가 처리기보다 먼저 끊는 경우). 다시 붙으면 같은 메시지를 다시 보내 또 끊긴다.
+ */
+const FATAL_CODES = new Set([1009, 4003, 4008, 4010])
 const PING_INTERVAL_MS = 20_000
 const MIN_BACKOFF_MS = 1_000
 const MAX_BACKOFF_MS = 30_000

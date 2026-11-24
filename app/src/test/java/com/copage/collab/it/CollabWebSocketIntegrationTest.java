@@ -181,6 +181,22 @@ class CollabWebSocketIntegrationTest extends TestInfra {
         assertEquals(CloseCodes.PROTOCOL, awaitClose(big), "64KB 를 넘었다");
     }
 
+    /**
+     * 컨테이너의 글 버퍼는 한도와 같은 글자 수라(D-36) 글자 수까지 한도를 넘는 메시지는 처리기에 오기 전에 컨테이너가 1009 로
+     * 끊는다. 클라이언트는 1009 를 치명으로 보고 다시 붙지 않으므로, 다른 코드로 끊기면 재접속을 되풀이하게 된다.
+     */
+    @Test
+    void 글자_수까지_한도를_넘는_메시지는_컨테이너가_1009_로_끊는다() throws Exception {
+        UUID docId = UUID.randomUUID();
+        TestClient huge = new TestClient("h");
+        huge.connect(uri(docId));
+        huge.take();
+        String text = "a".repeat(70_000);
+        huge.send(MAPPER.readTree("{\"t\":\"change\",\"clientSeq\":1,\"baseRev\":0,\"ops\":[{\"op\":\"text\",\"blockId\":\""
+                + docId + "\",\"delta\":[{\"insert\":\"" + text + "\"}]}]}"));
+        assertEquals(1009, awaitClose(huge));
+    }
+
     @Test
     void 읽기_권한으로_보낸_편집은_nack_를_받는다() throws Exception {
         UUID docId = UUID.randomUUID();
