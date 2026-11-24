@@ -1,6 +1,7 @@
 import { append } from '../ot/changes'
 import type { Document } from '../ot/document'
 import { InvalidOperationError, TransformConflictError } from '../ot/errors'
+import * as J from '../ot/json'
 import type { Op } from '../ot/op'
 import { transform } from '../ot/transformer'
 import type { Discard } from './salvage'
@@ -39,6 +40,23 @@ export interface CommittedChange {
  * inflight 와 buffer 를 그 묶음에 맞게 변환한 뒤 화면 문서를 다시 계산한다. inflight 를 변환하는 순서와 함수가 서버와
  * 같으므로, 서버가 확정한 내 묶음과 여기서 들고 있는 inflight 는 항상 같은 값이 된다.
  */
+/**
+ * 브라우저에 남겨 두는 상태 기계 (docs/10-FRONTEND.md 12.4, R-6). 탭을 닫았다 열어도 보내지 못한 편집을 이어서 보낸다. 연산과
+ * 문서는 규약 JSON 이다.
+ */
+export interface PersistedSession {
+  version: 1
+  clientId: string
+  rev: number
+  nextSeq: number
+  confirmed: J.DocumentJson
+  inflight: J.OpJson[] | null
+  inflightSeq: number
+  inflightInView: boolean
+  inflightDead: boolean
+  buffer: J.OpJson[]
+}
+
 export class ClientSession {
   private confirmedDoc: Document
   private rev: number
@@ -69,6 +87,38 @@ export class ClientSession {
     this.confirmedDoc = document
     this.rev = rev
     this.viewDoc = document
+  }
+
+  /** 브라우저에 남길 상태. 버린 편집(discards)은 이미 화면에 알렸으므로 남기지 않는다. */
+  export(): PersistedSession {
+    return {
+      version: 1,
+      clientId: this.clientId,
+      rev: this.rev,
+      nextSeq: this.nextSeq,
+      confirmed: J.encodeDocument(this.confirmedDoc),
+      inflight: this.inflight === null ? null : J.encodeOps(this.inflight),
+      inflightSeq: this.inflightSeq,
+      inflightInView: this.inflightInView,
+      inflightDead: this.inflightDead,
+      buffer: J.encodeOps(this.buffer),
+    }
+  }
+
+  /**
+   * 남겨 둔 상태로 다시 만든다. 같은 clientId 와 순번을 이어 쓰므로, 연결이 돌아와 resync 하면 예전 inflight 는 같은 순번으로
+   * 다시 보내지고 서버가 이미 확정했으면 처음 리비전으로 ack 한다 (7.5).
+   */
+  static restore(saved: PersistedSession): ClientSession {
+    const session = new ClientSession(saved.clientId, J.decodeDocument(saved.confirmed), saved.rev)
+    session.nextSeq = saved.nextSeq
+    session.inflight = saved.inflight === null ? null : J.decodeOps(saved.inflight)
+    session.inflightSeq = saved.inflightSeq
+    session.inflightInView = saved.inflightInView
+    session.inflightDead = saved.inflightDead
+    session.buffer = J.decodeOps(saved.buffer)
+    session.rebuildView()
+    return session
   }
 
   /** 화면에 보이는 문서. 내 편집이 서버 확인 전에 먼저 반영되어 있다. */

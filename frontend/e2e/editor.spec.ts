@@ -441,3 +441,75 @@ test('공유 링크로 로그인하지 않은 사람이 페이지를 보고, 등
   await dialog.getByRole('button', { name: '링크 끄기' }).click()
   await expect(visitor.getByTestId('status')).toHaveAttribute('data-status', 'error', { timeout: 1_000 })
 })
+
+test('보내지 못한 편집은 탭을 닫았다 열어도 남아 있다가 연결되면 한 번만 확정된다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
+  await Promise.all([open(a, docId), open(b, docId)])
+  await prepare(a, b, '제목', ['본문'])
+
+  // 서버로 가는 편집만 막는다. 편집은 화면에만 있고 서버는 모른다.
+  await a.evaluate(() => {
+    const send = WebSocket.prototype.send
+    WebSocket.prototype.send = function (data) {
+      if (typeof data === 'string' && data.includes('"t":"change"')) {
+        return
+      }
+      send.call(this, data)
+    }
+  })
+  await caretAtEnd(a, 1)
+  await a.keyboard.type(' 오프라인')
+  // 브라우저에 남을 때까지 기다린다.
+  await expect
+    .poll(() =>
+      a.evaluate(
+        () =>
+          new Promise<number>((resolve) => {
+            const request = indexedDB.open('copage', 1)
+            request.onsuccess = () => {
+              const all = request.result.transaction('docs').objectStore('docs').getAll()
+              all.onsuccess = () =>
+                resolve(
+                  (all.result as { session: { inflight: unknown[] | null; buffer: unknown[] } }[])
+                    .map((r) => (r.session.inflight?.length ?? 0) + r.session.buffer.length)
+                    .reduce((x, y) => x + y, 0),
+                )
+            }
+          }),
+      ),
+    )
+    .toBeGreaterThan(0)
+  expect(await blocks(b)).toEqual(['제목', '본문'])
+  const context = a.context()
+  await a.close()
+
+  const again = await context.newPage()
+  await again.goto(`/p/${docId}`)
+  await expect(again.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+  expect(await converged(again, b)).toEqual(['제목', '본문 오프라인'])
+})
+
+test('권한을 잃으면 브라우저에 남긴 그 문서의 기록을 지운다', async ({ browser }) => {
+  const [a, b] = await Promise.all([newUser(browser, 'a'), newUser(browser, 'b')])
+  const docId = await sharedPage(a, b)
+  await Promise.all([open(a, docId), open(b, docId)])
+  await prepare(a, b, '제목', ['본문'])
+  const records = () =>
+    b.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          const request = indexedDB.open('copage', 1)
+          request.onsuccess = () => {
+            const count = request.result.transaction('docs').objectStore('docs').count()
+            count.onsuccess = () => resolve(count.result)
+          }
+        }),
+    )
+  await expect.poll(records).toBe(1)
+
+  await apiAs(a, 'DELETE', `/api/pages/${docId}`)
+
+  await expect(b.getByTestId('status')).toHaveAttribute('data-status', 'error', { timeout: 1_000 })
+  await expect.poll(records).toBe(0)
+})

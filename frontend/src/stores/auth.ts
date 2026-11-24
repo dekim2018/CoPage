@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { api, authApi, refresh, setAccessToken } from '../api/http'
+import { clearOfflineStore } from '../collab/client/offlineStore'
 import { useWorkspace } from './workspace'
 import type { TokenResponse, UserInfo } from '../api/http'
 
@@ -40,6 +41,8 @@ export const useAuth = defineStore('auth', () => {
       user.value = null
       // 다른 사람이 같은 브라우저로 로그인해도 앞 사람의 트리가 남지 않는다.
       useWorkspace().reset()
+      // 공용 PC 에 문서가 남지 않게 브라우저에 남긴 편집도 지운다 (docs/10-FRONTEND.md 12.4).
+      await clearOfflineStore()
     }
   }
 
