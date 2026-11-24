@@ -247,6 +247,22 @@ class AuthFlowTest extends TestInfra {
     }
 
     @Test
+    void TLS_를_끝내는_프록시_뒤에서도_같은_출처의_재발급은_받는다() throws Exception {
+        String email = newEmail();
+        signup(email, PASSWORD, "a");
+        Response session = login(email, PASSWORD);
+
+        // 프록시(같은 기기)가 https 를 끝내고 http 로 넘긴다. 브라우저의 Origin 은 https 다. 운영에서는 공개 포트가 443 이라
+        // 포트 헤더가 없어도 되지만, 이 시험은 무작위 포트라 프록시처럼 X-Forwarded-Port 를 붙인다.
+        String proto = "https";
+        Response proxied = refresh(session.refreshCookie(), "Origin", "https://localhost:" + port,
+                "X-Forwarded-Proto", proto, "X-Forwarded-Port", String.valueOf(port));
+        assertEquals(200, proxied.status(), String.valueOf(proxied.body()));
+        assertEquals(403, refresh(proxied.refreshCookie(), "Origin", "https://evil.example",
+                "X-Forwarded-Proto", proto, "X-Forwarded-Port", String.valueOf(port)).status());
+    }
+
+    @Test
     void 발급자나_대상이_다른_토큰은_서명이_맞아도_401() throws Exception {
         String email = newEmail();
         signup(email, PASSWORD, "a");
