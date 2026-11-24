@@ -11,7 +11,8 @@
     "build": "vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "perf": "vitest run -c vitest.perf.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",

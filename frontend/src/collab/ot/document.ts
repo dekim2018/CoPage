@@ -65,6 +65,13 @@ export const ROOT_TYPE = 'page'
  * apply 는 원본을 건드리지 않고 새 문서를 돌려준다. 묶음 안의 연산 하나라도 실패하면 예외가 나고 원본은 그대로다.
  */
 export class Document {
+  /**
+   * 부모 ID 별 자식(삭제 표시 포함, 화면 순서). 처음 children 을 부를 때 한 번 만든다. 문서는 바뀌지 않으므로(apply 는 새 문서를
+   * 돌려준다) 만든 뒤에는 그대로 쓴다. 전에는 children 을 부를 때마다 블록 전체를 훑어서, 화면을 그리는 flatten 이 블록 수의
+   * 제곱만큼 걸렸다(진단 PERF-1).
+   */
+  private childIndex: Map<string, readonly Block[]> | null = null
+
   private constructor(
     readonly rootId: string,
     private readonly blockMap: Map<string, Block>,
@@ -107,15 +114,30 @@ export class Document {
     return this.blockMap.values()
   }
 
-  /** 삭제 표시된 것까지 포함한 자식 블록을 화면 순서대로 돌려준다. */
+  /** 삭제 표시된 것까지 포함한 자식 블록을 화면 순서대로 돌려준다. 돌려준 배열은 고쳐도 문서에 영향이 없다. */
   children(parentId: string): Block[] {
-    const children: Block[] = []
-    for (const b of this.blockMap.values()) {
-      if (b.parentId === parentId) {
-        children.push(b)
+    return [...(this.index().get(parentId) ?? [])]
+  }
+
+  private index(): Map<string, readonly Block[]> {
+    if (this.childIndex === null) {
+      const index = new Map<string, Block[]>()
+      for (const b of this.blockMap.values()) {
+        if (b.parentId !== null) {
+          const siblings = index.get(b.parentId)
+          if (siblings === undefined) {
+            index.set(b.parentId, [b])
+          } else {
+            siblings.push(b)
+          }
+        }
       }
+      for (const siblings of index.values()) {
+        siblings.sort(siblingOrder)
+      }
+      this.childIndex = index
     }
-    return children.sort(siblingOrder)
+    return this.childIndex
   }
 
   /** 블록 자신과 모든 조상에 삭제 표시가 없으면 true. */
