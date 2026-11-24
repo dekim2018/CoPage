@@ -39,6 +39,7 @@ export const useWorkspace = defineStore('workspace', () => {
     current.value = found ?? null
     children.clear()
     expanded.clear()
+    editedTitles.clear()
     if (current.value !== null) {
       await loadChildren(null)
     }
@@ -81,8 +82,12 @@ export const useWorkspace = defineStore('workspace', () => {
     return page
   }
 
+  /** 이 탭의 편집기에서 고친 제목. 서버에 저장되기 전에도 가장 새로운 값이다. */
+  const editedTitles = new Map<string, string>()
+
   /** 편집기에서 제목 줄을 고치면 사이드바에도 바로 보인다. 서버에도 커밋 뒤 따로 저장된다(D-21). */
   function setTitle(pageId: string, title: string): void {
+    editedTitles.set(pageId, title)
     for (const list of children.values()) {
       const node = list.find((page) => page.id === pageId)
       if (node !== undefined) {
@@ -92,17 +97,12 @@ export const useWorkspace = defineStore('workspace', () => {
   }
 
   /**
-   * 사이드바가 아는 페이지 제목. 편집기에서 고친 제목이 바로 들어 있다. 모르면 undefined. 경로(빵 부스러기)는 페이지를 열 때
-   * 받은 제목이 그 뒤 바뀌어도 이것으로 최신을 보인다.
+   * 이 탭의 편집기에서 고친 제목. 없으면 undefined. 경로(빵 부스러기)는 이것이 있으면 쓰고 없으면 서버가 준 제목을 쓴다. 내
+   * 편집은 서버에 저장되기 전일 수 있어 이것이 가장 새롭고, 남의 편집은 서버 응답이 가장 새롭다(사이드바 목록은 펼칠 때 받은
+   * 것이라 남의 변경이 늦게 보인다, D-23).
    */
-  function titleOf(pageId: string): string | undefined {
-    for (const list of children.values()) {
-      const node = list.find((page) => page.id === pageId)
-      if (node !== undefined) {
-        return node.title
-      }
-    }
-    return undefined
+  function editedTitle(pageId: string): string | undefined {
+    return editedTitles.get(pageId)
   }
 
   function reset(): void {
@@ -124,7 +124,7 @@ export const useWorkspace = defineStore('workspace', () => {
     toggle,
     createPage,
     setTitle,
-    titleOf,
+    editedTitle,
     reset,
   }
 })
