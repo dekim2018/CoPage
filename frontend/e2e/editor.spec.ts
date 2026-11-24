@@ -376,3 +376,39 @@ test('열어 둔 하위 페이지의 조상을 휴지통으로 보내면 첫 화
 
   await owner.waitForURL(new RegExp(`/w/${workspaceId}$`))
 })
+
+test('초대 링크를 받은 사람은 그 이메일로 가입하고 돌아와 워크스페이스에 참여한다', async ({ browser }) => {
+  const owner = await newUser(browser, 'owner')
+  await owner.fill('input[name=workspace-name]', '초대하는 팀')
+  await owner.getByRole('button', { name: '워크스페이스 만들기' }).click()
+  await owner.waitForURL(/\/w\/[0-9a-f-]{36}$/)
+  const workspaceId = owner.url().split('/w/')[1] as string
+  await owner.getByRole('link', { name: '멤버' }).click()
+  const email = `invitee-${crypto.randomUUID()}@example.com`
+  await owner.fill('input[name=invite-email]', email)
+  await owner.getByRole('button', { name: '초대 링크 만들기' }).click()
+  const link = await owner.getByTestId('invite-link').inputValue()
+  await expect(owner.locator(`[data-testid=pending-invites] li[data-email="${email}"]`)).toBeVisible()
+
+  // 로그인하지 않은 사람이 링크를 연다. 로그인 화면으로 갔다가 가입하고 초대 화면으로 돌아온다.
+  const invitee = await (await browser.newContext()).newPage()
+  await invitee.goto(new URL(link).pathname)
+  await invitee.waitForURL((url) => url.pathname === '/login')
+  await invitee.getByRole('link', { name: '가입하기' }).click()
+  // 로그인 화면에도 같은 이름의 입력란이 있어, 가입 화면이 뜬 뒤에 채운다.
+  await invitee.waitForURL((url) => url.pathname === '/signup')
+  await invitee.fill('input[name=email]', email)
+  await invitee.fill('input[name=password]', 'correct horse 1')
+  await invitee.fill('input[name=name]', '초대받은 사람')
+  await invitee.click('button[type=submit]')
+  // next 쿼리에도 /invite/ 가 들어 있어 경로만 본다.
+  await invitee.waitForURL((url) => url.pathname.startsWith('/invite/'))
+  await expect(invitee.getByTestId('invite')).toContainText('초대하는 팀')
+  await invitee.getByRole('button', { name: '참여하기' }).click()
+
+  await invitee.waitForURL(new RegExp(`/w/${workspaceId}$`))
+  await expect(invitee.getByLabel('워크스페이스')).toContainText('초대하는 팀')
+  await owner.reload()
+  await expect(owner.locator(`[data-testid=members] tr[data-email="${email}"]`)).toContainText('MEMBER')
+  await expect(owner.locator(`[data-testid=pending-invites] li`)).toHaveCount(0)
+})

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ApiError } from '../api/http'
 import { workspaceApi } from '../api/workspace'
-import type { Member, WorkspaceRole } from '../api/workspace'
+import type { Member, PendingInvite, WorkspaceRole } from '../api/workspace'
 import { useWorkspace } from '../stores/workspace'
 
 /**
@@ -18,8 +18,30 @@ const error = ref('')
 const isOwner = computed(() => store.current?.role === 'OWNER')
 const roles: WorkspaceRole[] = ['OWNER', 'MEMBER', 'GUEST']
 
+const invites = ref<PendingInvite[]>([])
+const inviteEmail = ref('')
+const inviteRole = ref<WorkspaceRole>('MEMBER')
+/** 방금 만든 초대 링크. 토큰은 이때만 알 수 있어 화면을 떠나면 다시 볼 수 없다. */
+const inviteLink = ref('')
+
 async function load() {
   members.value = await workspaceApi.members(props.workspaceId)
+  if (isOwner.value) {
+    invites.value = await workspaceApi.invites(props.workspaceId)
+  }
+}
+
+/** 초대 링크를 만든다. 메일은 보내지 않는다. OWNER 가 링크를 건넨다(D-40). */
+function invite() {
+  void run(async () => {
+    const created = await workspaceApi.invite(props.workspaceId, inviteEmail.value, inviteRole.value)
+    inviteLink.value = `${location.origin}/invite/${created.token}`
+    inviteEmail.value = ''
+  })
+}
+
+function copyLink() {
+  void navigator.clipboard?.writeText(inviteLink.value)
 }
 
 async function run(action: () => Promise<unknown>) {
@@ -76,5 +98,27 @@ onMounted(() => run(async () => undefined))
     </select>
     <button type="submit">넣기</button>
   </form>
+  <section v-if="isOwner" class="invites">
+    <h2>초대</h2>
+    <form @submit.prevent="invite">
+      <input v-model="inviteEmail" name="invite-email" type="email" placeholder="초대할 이메일" required />
+      <select v-model="inviteRole" aria-label="초대 역할">
+        <option value="MEMBER">MEMBER</option>
+        <option value="GUEST">GUEST</option>
+      </select>
+      <button type="submit">초대 링크 만들기</button>
+    </form>
+    <p v-if="inviteLink" class="invite-link">
+      이 링크를 초대한 사람에게 건넨다. 그 이메일로 가입한 사람만 받을 수 있고 7일 뒤 만료된다. 지금만 볼 수 있다.
+      <input :value="inviteLink" readonly data-testid="invite-link" aria-label="초대 링크" />
+      <button type="button" @click="copyLink">복사</button>
+    </p>
+    <ul data-testid="pending-invites">
+      <li v-for="pending in invites" :key="pending.id" :data-email="pending.email">
+        {{ pending.email }} ({{ pending.role }})
+        <button type="button" @click="run(() => workspaceApi.revokeInvite(workspaceId, pending.id))">취소</button>
+      </li>
+    </ul>
+  </section>
   <p v-if="error" class="error" role="alert">{{ error }}</p>
 </template>

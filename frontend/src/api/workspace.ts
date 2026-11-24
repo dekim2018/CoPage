@@ -48,6 +48,32 @@ export interface Grant {
   inheritedFrom: string | null
 }
 
+/** 대기 중인 초대. 토큰은 만들 때만 받는다(CreatedInvite). */
+export interface PendingInvite {
+  id: string
+  email: string
+  role: WorkspaceRole
+  createdAt: string
+  expiresAt: string
+}
+
+export interface CreatedInvite {
+  id: string
+  email: string
+  role: WorkspaceRole
+  expiresAt: string
+  token: string
+}
+
+/** 초대 링크를 연 사람에게 보일 내용. */
+export interface InvitePreview {
+  workspaceId: string
+  workspaceName: string
+  email: string
+  role: WorkspaceRole
+  expiresAt: string
+}
+
 /** 휴지통의 페이지. canRestore 는 휴지통에 가기 전 FULL 이었는지다. */
 export interface TrashedPage {
   id: string
@@ -81,6 +107,14 @@ export const workspaceApi = {
   trashPage: (pageId: string) => api<void>(`/api/pages/${pageId}`, { method: 'DELETE' }),
   restorePage: (pageId: string) => api<PageDetail>(`/api/pages/${pageId}/restore`, { method: 'POST' }),
   trash: (workspaceId: string) => api<TrashedPage[]>(`/api/workspaces/${workspaceId}/trash`),
+  invites: (workspaceId: string) => api<PendingInvite[]>(`/api/workspaces/${workspaceId}/invites`),
+  invite: (workspaceId: string, email: string, role: WorkspaceRole) =>
+    api<CreatedInvite>(`/api/workspaces/${workspaceId}/invites`, { method: 'POST', ...json({ email, role }) }),
+  revokeInvite: (workspaceId: string, inviteId: string) =>
+    api<void>(`/api/workspaces/${workspaceId}/invites/${inviteId}`, { method: 'DELETE' }),
+  previewInvite: (token: string) => api<InvitePreview>(`/api/invites/${encodeURIComponent(token)}`),
+  acceptInvite: (token: string) =>
+    api<{ workspaceId: string }>(`/api/invites/${encodeURIComponent(token)}/accept`, { method: 'POST' }),
   grants: (pageId: string) => api<Grant[]>(`/api/pages/${pageId}/grants`),
   grantByEmail: (pageId: string, email: string, level: PageRole) =>
     api<Grant>(`/api/pages/${pageId}/grants`, { method: 'POST', ...json({ email, level }) }),

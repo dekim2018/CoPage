@@ -32,6 +32,8 @@ public interface WorkspaceRepository {
 
     List<Membership> findByMember(UUID userId);
 
+    Optional<Workspace> findWorkspace(UUID workspaceId);
+
     Optional<WorkspaceRole> roleOf(UUID workspaceId, UUID userId);
 
     List<Member> members(UUID workspaceId);

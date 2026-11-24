@@ -81,6 +81,18 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
     }
 
     @Override
+    public Optional<Workspace> findWorkspace(UUID workspaceId) {
+        return jdbc.sql("SELECT id, name, owner_id, created_at FROM workspaces WHERE id = :id")
+                .param("id", workspaceId)
+                .query((rs, row) -> new Workspace(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("name"),
+                        rs.getObject("owner_id", UUID.class),
+                        rs.getTimestamp("created_at").toInstant()))
+                .optional();
+    }
+
+    @Override
     public Optional<WorkspaceRole> roleOf(UUID workspaceId, UUID userId) {
         return jdbc.sql("SELECT role FROM workspace_members WHERE workspace_id = :workspaceId AND user_id = :userId")
                 .param("workspaceId", workspaceId)
