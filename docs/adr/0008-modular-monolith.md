@@ -25,3 +25,7 @@ MSA
 ## 다시 검토할 조건
 
 13장의 부하 측정과 장애 실험 결과가 이 결정의 전제와 다르게 나오면 이 문서를 고치고 상태를 "대체됨"으로 바꾼다.
+
+## 후속
+
+- 2026-11-24: 모듈 경계는 Spring Modulith 대신 ArchUnit 시험으로 지킨다([ADR 0018](./0018-module-boundaries-with-archunit.md), D-32). 지금 모듈은 `identity`, `workspace`, `permission`, `collab` 이다.

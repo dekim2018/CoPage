@@ -7,7 +7,7 @@
 | 항목 | 설계 |
 | --- | --- |
 | 비밀번호 저장 | Spring Security의 `DelegatingPasswordEncoder` (기본 BCrypt) |
-| Access 토큰 | JWT HS256, 유효 15분, `Authorization: Bearer` 헤더. 클레임은 사용자 ID와 토큰 ID(jti) |
+| Access 토큰 | JWT HS256, 유효 15분, `Authorization: Bearer` 헤더. 클레임은 사용자 ID(sub), 토큰 ID(jti), 발급자(iss), 대상(aud) |
 | Refresh 토큰 | 무작위 문자열, 유효 14일, HttpOnly + Secure + SameSite=Strict 쿠키. Redis에 해시로 저장 |
 | 회전 | 재발급할 때마다 Refresh 토큰을 새로 바꾼다. 이미 쓴 토큰이 다시 오면 탈취로 보고 그 사용자의 모든 세션을 끊는다. 다만 쓴 뒤 10초 안에 다시 온 것은 같은 사용자의 동시 재발급(탭 두 개, 재시도)으로 보고 그 요청만 409로 돌려보낸다. 쿠키는 지우지 않는다. 먼저 온 요청이 내려 준 새 쿠키로 다시 시도하면 된다 |
 | 로그아웃 | Refresh 토큰 삭제 + Access 토큰의 jti를 남은 유효 시간 동안 Redis 차단 목록에 둔다 |
@@ -17,7 +17,7 @@
 
 ## 9.2 필터 체인
 
-경로에 따라 체인을 셋으로 나눈다.
+경로에 따라 체인을 셋으로 나눈다. 그 앞에 관리 포트 전용 체인이 하나 더 있다. 관리 포트(기본 8081, 기본으로 127.0.0.1 에서만)로 들어온 요청만 열고, API 포트의 `/actuator` 는 3번 체인이 막는다(D-25).
 
 | 순서 | 경로 | 인증 |
 | --- | --- | --- |
@@ -27,16 +27,16 @@
 
 JWT 검증은 직접 필터를 짜지 않고 Spring Security의 리소스 서버(`NimbusJwtDecoder`, HS256)를 쓴다. 발급자(iss)와 대상(aud)이 이 서비스인 토큰만 받는다(`copage.auth.issuer`, `copage.auth.audience`, D-28). 서명과 만료 검사에 더해 두 가지를 거부하는 검증기를 붙였다. 로그아웃으로 막은 jti, 그리고 Refresh 토큰 재사용을 알아챈 사용자에게 그 시각(초 단위)까지 발급한 토큰이다. 둘 다 Redis에 Access 토큰 유효 시간만큼만 남는다. `/api/auth/**` 에서는 Authorization 헤더를 읽지 않는다. 만료된 토큰을 붙인 채 로그인이나 재발급을 해도 401이 나지 않게 하기 위해서다.
 
-API는 쿠키가 아니라 헤더로 인증하므로 CSRF 토큰을 쓰지 않는다. 쿠키를 쓰는 유일한 경로인 `/api/auth/refresh` 는 SameSite=Strict와 Origin 검사로 막는다. Origin 검사는 CORS 필터가 한다. 다른 출처의 요청은 Origin이 `copage.web.allowed-origins` 에 없으면 컨트롤러에 닿기 전에 403으로 끝난다. Refresh 쿠키의 경로는 `/api/auth` 라서 다른 API 요청에는 실리지 않는다.
+API는 쿠키가 아니라 헤더로 인증하므로 CSRF 토큰을 쓰지 않는다. 쿠키를 쓰는 경로인 `/api/auth/refresh` 와 `/api/auth/logout` 은 SameSite=Strict와 Origin 검사로 막는다. 다른 출처의 요청은 Origin이 `copage.web.allowed-origins` 에 없으면 CORS 필터가 컨트롤러에 닿기 전에 403으로 끝낸다. CORS 설정이 바뀌거나 필터가 빠져도 풀리지 않도록 컨트롤러도 Origin 을 직접 본다(`OriginCheck`, 9.8). Refresh 쿠키의 경로는 `/api/auth` 라서 다른 API 요청에는 실리지 않는다.
 
 ## 9.3 WebSocket 인증
 
 1. 클라이언트가 `POST /api/docs/{docId}/ws-ticket` 을 호출한다. 이 요청은 일반 API처럼 JWT로 인증되고 권한 검사를 거친다.
 2. 서버는 무작위 티켓을 만들어 Redis에 30초 동안 저장한다. 값은 사용자 ID, 문서 ID, 권한 등급이다.
 3. 클라이언트가 티켓을 붙여 WebSocket을 연다. `HandshakeInterceptor` 가 `GETDEL` 로 티켓을 꺼내면서 지운다. 한 번 쓴 티켓은 다시 쓸 수 없다.
-4. 핸드셰이크에서 Origin 헤더가 허용한 도메인인지 검사한다.
+4. 핸드셰이크에서 Origin 헤더가 허용한 도메인(`copage.web.allowed-origins`, 비어 있으면 같은 출처만)인지 검사한다.
 
-티켓에는 9.4 로 계산한 등급을 담는다. 문서 ID 는 곧 페이지 ID 다. 페이지가 없거나, 휴지통에 있거나(조상이 휴지통에 있어도), 그 워크스페이스에 속하지 않으면 404 다. 없는 것과 볼 수 없는 것을 구분하지 않아 존재 여부를 흘리지 않는다. 속해 있지만 등급이 없으면 403 이다. 페이지가 없는 문서 ID 로는 새 문서를 열 수 없다. 연결한 뒤 권한이 바뀌는 경우는 아직 다루지 않는다(연결 중 회수).
+티켓에는 9.4 로 계산한 등급을 담는다. 문서 ID 는 곧 페이지 ID 다. 페이지가 없거나, 휴지통에 있거나(조상이 휴지통에 있어도), 그 워크스페이스에 속하지 않으면 404 다. 없는 것과 볼 수 없는 것을 구분하지 않아 존재 여부를 흘리지 않는다. 속해 있지만 등급이 없으면 403 이다. 페이지가 없는 문서 ID 로는 새 문서를 열 수 없다. 연결한 뒤 권한이 바뀌면 열린 연결에 다시 계산한 등급을 적용한다(9.4 끝, 연결 중 회수).
 
 토큰을 주소에 직접 붙이지 않는 이유는 주소가 프록시 로그에 남기 때문이다. 티켓은 30초 뒤에 쓸모가 없어지므로 로그에 남아도 위험하지 않다.
 
@@ -76,14 +76,9 @@ API는 쿠키가 아니라 헤더로 인증하므로 CSRF 토큰을 쓰지 않�
 
 열린 연결에는 1초 안에 적용한다(S-5). collab 이 `PermissionChangeListener` 를 구현해, 영향받는 페이지의 열린 세션 가운데 그 사용자의 연결만 다시 계산한다. 계산(저장소 읽기)은 세션 실행 흐름 밖에서 하고, 적용은 실행 흐름에서 한다. 내려가거나 올라가면 `role` 메시지, 잃으면 4003 이다. 노드 1대에서 잰 값은 내리기 9ms, 회수 16ms, 제한 16ms, 내보내기 9ms 다(`LiveRevocationTest`, 2026-11-24, 로컬 개발 기기). 노드가 여럿이면 다른 노드의 세션은 알림을 받지 못한다. 로드맵 4단계에서 넓힌다(D-17).
 
-권한 캐시는 처음에는 두지 않는다. 캐시를 지우는 시점을 잘못 잡으면 회수한 권한이 남는다. 부하 측정에서 계산이 병목으로 보이면 `perm:{pageId}:{userId}` 키로 Redis 에 짧게 캐시하고, 권한이나 트리가 바뀌면 영향받는 페이지의 캐시를 지운다.
+권한 캐시는 두지 않는다(D-11, [ADR 0015](./adr/0015-permission-per-request-without-cache.md)). 캐시를 지우는 시점을 잘못 잡으면 회수한 권한이 남는다. 부하 측정에서 계산이 병목으로 보이면 `perm:{pageId}:{userId}` 키로 Redis 에 짧게 캐시하고, 권한이나 트리가 바뀌면 영향받는 페이지의 캐시를 지운다.
 
-REST 쪽은 메서드 보안으로 걸러 낸다.
-
-```java
-@PreAuthorize("@pageAuthz.atLeast(#pageId, 'EDIT')")
-public VersionRestoreResult restore(UUID pageId, long rev) { ... }
-```
+REST 쪽은 처음에 메서드 보안(`@PreAuthorize`)으로 거르려 했다. 지금은 쓰지 않는다. 서비스(`WorkspaceService`, `PageGrants`, `TicketController`)가 `PagePermissions.access` 에 직접 묻고, 결과(`NotFound`, `Denied`, `Granted`)를 404, 403, 등급으로 바꾼다. 결과가 sealed 타입이라 switch 에서 빠진 경우를 컴파일러가 잡는다.
 
 ## 9.5 연산 단위 인가
 
@@ -95,16 +90,18 @@ WebSocket은 한 번 열리면 오래 유지된다. 연결할 때 한 번만 검
 | COMMENT | `text` 연산 중 `comment` 서식만 바꾸는 `retain` 으로만 이루어진 것. 글자를 넣거나 지우는 조각이 하나라도 있으면 거부 |
 | EDIT, FULL | 전부 |
 
-권한이 바뀌면 `permission` 모듈이 `perm:changed` 채널에 페이지 ID를 알린다. 해당 문서의 세션은 접속자들의 등급을 다시 계산해서, 내려간 사람에게는 `role` 메시지를 보내고 접근이 없어진 사람은 4003으로 끊는다.
+권한이 바뀌면 `permission` 모듈이 `PermissionChangeListener` 포트로 알린다(9.4). 해당 문서의 세션은 그 사용자의 등급을 다시 계산해서, 바뀐 사람에게는 `role` 메시지를 보내고 접근이 없어진 사람은 4003으로 끊는다. 등급이 내려간 뒤 도착한 묶음은 새 등급으로 검사해 nack 한다(D-20). 노드가 여럿이 되면 `perm:changed` 채널(Redis pub/sub)로 넓힌다(4단계).
 
 ## 9.6 입력 검증
 
 클라이언트가 보낸 연산은 전부 의심한다. 편집기를 거치지 않고 직접 만든 메시지가 올 수 있기 때문이다.
 
 - 위치가 블록 길이를 넘는지, 없는 블록을 가리키는지, 허용하지 않는 블록 종류나 서식 이름인지 검사한다.
+- 블록 속성은 키마다 값을 검사한다. 허용 키는 `type`, `level`(1~3 정수), `checked`(참거짓), `language`(32자 이하, 글자와 숫자와 `+ # . _ -`)다. 다른 키는 거부하고 null 은 지우기로 받는다. 구분선은 결과 문서에서 글이 비어 있어야 한다(D-29).
+- 블록 연산(insert, split, move)의 순서 키는 모양(빈 키, 0 으로 끝남, 쓸 수 없는 글자)과 길이(256 글자)를 검사한다(D-24).
 - 연산에 든 문자열과 값은 PostgreSQL `jsonb` 에 그대로 저장할 수 있는 것만 받는다. 문자열에는 U+0000 과 짝 없는 서로게이트가 없어야 하고, 숫자는 long 범위의 정수만 받는다. `jsonb` 는 U+0000 을 받지 않아 커밋이 실패하고, 숫자를 정규화해서(1e19 는 10000000000000000000) 다시 열 수 없는 문서를 만든다. `hello` 의 `clientId` 에는 제어 문자를 쓸 수 없다.
 - 링크 서식의 주소는 `http`, `https`, `mailto` 로 시작하는 것만 받는다. `javascript:` 주소를 저장해 다른 사람의 브라우저에서 실행시키는 공격을 막는다.
-- `mention` 서식의 사용자 ID가 그 페이지에 접근할 수 있는 사람인지 확인한다.
+- `mention` 서식의 사용자 ID가 그 페이지에 접근할 수 있는 사람인지 확인한다. 멘션(5단계)과 함께 만든다. 지금은 서식 이름만 허용 목록에 있고 값은 검사하지 않는다.
 - 프론트엔드는 본문을 HTML 문자열로 그리지 않고 편집기의 문서 모델로만 그린다.
 
 ## 9.7 Redis 장애 시
@@ -120,13 +117,18 @@ Redis 는 Access 토큰 차단 목록, Refresh 토큰, 로그인 잠금 카운�
 | 이미 열린 편집 연결 | 영향 없음. 편집, ack, remote, presence 는 Redis 를 쓰지 않는다 |
 
 - 401 이 아니라 503 과 `Retry-After: 5` 로 답한다. 클라이언트는 로그인이 끝난 것으로 보지 않는다. 재발급이 5xx 이거나 서버에 닿지 못하면 Access 토큰을 지우지 않고, 원래 요청을 그 오류로 실패시킨다. 편집기는 이를 일시적인 실패로 보고 재접속을 이어 간다
-- 저장소 오류는 토큰 검증(보안 필터) 안에서도 나므로, 보안 필터보다 바깥의 필터가 연결 실패(`DataAccessResourceFailureException`)와 응답 시간 초과(`QueryTimeoutException`)만 503 으로 바꾼다. 그 밖의 데이터 오류는 500 그대로다. PostgreSQL 연결 풀이 시간 안에 연결을 내주지 못할 때(`SQLTransientConnectionException`. 트랜잭션 안이면 `CannotCreateTransactionException` 의 원인으로 온다)도 같은 필터가 503 으로 바꾼다. `CannotCreateTransactionException` 자체는 보지 않는다. 중첩 트랜잭션 미지원 같은 프로그램 오류도 그 하위 타입이기 때문이다. 이 경로는 예외 판정 단위 테스트로만 확인했고, PostgreSQL 장애 시험은 4단계(장애와 부하 테스트)에서 한다. 장애 동안 로그는 예외 종류마다 10초에 한 번만 WARNING 이다
+- 저장소 오류는 토큰 검증(보안 필터) 안에서도 나므로, 보안 필터보다 바깥의 필터가 연결 실패(`DataAccessResourceFailureException`)와 응답 시간 초과(`QueryTimeoutException`)만 503 으로 바꾼다. 그 밖의 데이터 오류는 500 그대로다. PostgreSQL 연결 풀이 시간 안에 연결을 내주지 못할 때(`SQLTransientConnectionException`. 트랜잭션 안이면 `CannotCreateTransactionException` 의 원인으로 온다)도 같은 필터가 503 으로 바꾼다. `CannotCreateTransactionException` 자체는 보지 않는다. 중첩 트랜잭션 미지원 같은 프로그램 오류도 그 하위 타입이기 때문이다. PostgreSQL 을 일시 정지한 시험(`PostgresOutageTest`)에서 그동안 API 가 503 이고, 되살린 뒤 재접속한 클라이언트의 편집이 한 번만 확정되는 것을 확인했다([CHAOS.md](./CHAOS.md)). 장애 동안 로그는 예외 종류마다 10초에 한 번만 WARNING 이다
 - Redis 명령과 연결의 시간 한도는 2초다(`COPAGE_REDIS_TIMEOUT`, `COPAGE_REDIS_CONNECT_TIMEOUT`). 기본값(60초)이면 Redis 가 답하지 않을 때 요청이 1분 동안 매달린다. PostgreSQL 연결 풀의 대기 한도는 3초다(`COPAGE_DB_CONNECT_TIMEOUT_MS`, 밀리초, 기본값 30초)
 - 시간 초과로 포기한 명령도 Redis 가 돌아오면 처리된다(일시 정지한 Redis 로 확인했다). 대부분은 늦게 처리되어도 괜찮지만(로그아웃, 잠금 카운터, 티켓 소비), Refresh 토큰 회전은 옛 토큰을 써 버리고 새 토큰은 클라이언트에 닿지 않아 세션을 잃게 만든다. 그래서 재발급은 (1) 주인을 먼저 읽고 사용자를 DB 에서 읽은 뒤에 회전하고, (2) 옛 토큰 표시와 새 토큰 저장을 스크립트 하나로 하며, (3) 그 스크립트에 기한(명령 시간 한도의 절반)을 붙여 기한이 지난 뒤의 실행은 아무것도 바꾸지 않게 한다. 기한 지남을 답으로 받으면 시계가 어긋난 것이므로 기한 없이 한 번 더 실행한다
 - 확인: `RedisOutageTest` 가 Redis 컨테이너를 일시 정지해(연결은 받되 답하지 않는 가장 나쁜 경우) 위 표를 실제 서버로 확인하고, 되살린 뒤 다시 되는지 본다
+- 생존 검사(`/actuator/health/liveness`)는 Redis 를 보지 않는다. Redis 장애가 노드 재시작으로 번지면 열린 편집 연결까지 끊겨 이 정책의 뜻이 사라진다(D-25, [ADR 0014](./adr/0014-fail-closed-on-redis-outage.md))
 
 ## 9.8 남은 노출과 정책 (D-28)
 
 - 재발급과 로그아웃은 CORS 필터와 별도로 컨트롤러가 Origin 을 검사한다. Origin 이 없거나, 같은 출처거나, `copage.web.allowed-origins` 에 있을 때만 받는다
 - 가입은 이미 가입한 이메일에 409 를 준다(로그인은 숨긴다). 가입 빈도 제한은 공개 배포 때 프록시에서 건다
 - WebSocket 티켓은 주소에 실린다(30초, 1회용). 접근 로그를 켤 때 `ticket` 값을 가린다
+- 프록시(Caddy)가 TLS 를 끝내고 넘기므로 `server.forward-headers-strategy: native` 를 켠다. Tomcat 은 내부 주소(127/8, 10/8, 192.168/16 등)에서 온 요청의 X-Forwarded-* 만 믿는다. 같은 출처 판정이 https 를 보게 된다. 프록시는 같은 기기나 내부망에 둔다
+- 지표와 상태 확인은 관리 포트에만 있고 기본으로 이 기기에서만 받는다. 수집기를 위해 `COPAGE_MANAGEMENT_ADDRESS` 로 열 때는 공개 네트워크에 내지 않는다(D-25)
+- CI 가 커밋 이력 전체에서 비밀키를 찾고(gitleaks, 판 고정), 화면 의존성의 high 이상 취약점에 실패한다(npm audit). 의존성 갱신은 Dependabot 이 주마다 PR 로 연다(gradle, npm, actions, D-32, D-35)
+- JWT 키(`COPAGE_JWT_SECRET`, 32바이트 이상)는 저장소에 두지 않는다. 없으면 서버가 뜨지 않는다. dev 프로필만 개발용 키를 쓴다
