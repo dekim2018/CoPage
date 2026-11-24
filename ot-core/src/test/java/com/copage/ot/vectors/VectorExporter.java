@@ -345,6 +345,26 @@ public final class VectorExporter {
                 node.set("expected", VectorJson.error("argument"));
             }
         }
+        // 맨 뒤에 붙이기와 맨 앞에 넣기를 길게 이어 간다. 세는 길이와 첫 글자 옮기기, 'z' 와 '0' 떼기를 모두 지나간다(D-24).
+        // 예전 방식으로 길어진 키에서 시작하는 줄도 넣는다.
+        for (String start : new String[] {null, "V", "zzzzzV", "00001", "y", "1"}) {
+            String last = start;
+            String first = start == null ? FractionalIndex.between(null, null) : start;
+            for (int i = 0; i < 300; i++) {
+                String appended = FractionalIndex.between(last, null);
+                ObjectNode append = cases.addObject();
+                append.put("before", last);
+                append.putNull("after");
+                append.put("expected", appended);
+                last = appended;
+                String prepended = FractionalIndex.between(null, first);
+                ObjectNode prepend = cases.addObject();
+                prepend.putNull("before");
+                prepend.put("after", first);
+                prepend.put("expected", prepended);
+                first = prepended;
+            }
+        }
         return cases;
     }
 }

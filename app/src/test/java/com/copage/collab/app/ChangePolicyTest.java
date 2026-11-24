@@ -50,6 +50,19 @@ class ChangePolicyTest {
     }
 
     @Test
+    void 순서_키는_모양이_맞고_256_글자_이하여야_한다() {
+        String longest = "a".repeat(ChangePolicy.MAX_POS_LENGTH);
+        assertEquals(Optional.empty(), check(PageRole.EDIT, new InsertBlock("N", "r", longest, "paragraph", Attrs.NONE, RichText.EMPTY)));
+        assertTrue(check(PageRole.EDIT, new InsertBlock("N", "r", longest + "a", "paragraph", Attrs.NONE, RichText.EMPTY)).isPresent());
+        for (String bad : new String[] {"", "a0", "a-b", "가"}) {
+            assertTrue(check(PageRole.EDIT, new InsertBlock("N", "r", bad, "paragraph", Attrs.NONE, RichText.EMPTY)).isPresent(), bad);
+            assertTrue(check(PageRole.EDIT, new Op.MoveBlock("X", "r", bad)).isPresent(), bad);
+            assertTrue(check(PageRole.EDIT, new SplitBlock("X", 0, "N", "r", bad, "paragraph", Attrs.NONE)).isPresent(), bad);
+        }
+        assertEquals(Optional.empty(), check(PageRole.EDIT, new Op.MoveBlock("X", "r", "V1")));
+    }
+
+    @Test
     void 허용하지_않는_블록_종류와_서식은_거부한다() {
         assertTrue(check(PageRole.EDIT, new InsertBlock("N", "r", "a", "iframe", Attrs.NONE, RichText.EMPTY)).isPresent());
         assertTrue(check(PageRole.EDIT, new SplitBlock("X", 0, "N", "r", "a", "page", Attrs.NONE)).isPresent());
