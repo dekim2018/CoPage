@@ -6,7 +6,7 @@ import { ApiError, api } from '../api/http'
 import { EditorBinding, keyboardExtension } from '../collab/adapter/editorBinding'
 import { schemaExtensions } from '../collab/adapter/schema'
 import { CollabClient } from '../collab/client/collabClient'
-import type { SyncStatus } from '../collab/client/collabClient'
+import type { LostEdits, SyncStatus } from '../collab/client/collabClient'
 import type { Peer } from '../collab/client/presence'
 import { canEdit } from '../collab/client/role'
 import type { PageRole } from '../collab/client/role'
@@ -23,6 +23,21 @@ const router = useRouter()
 const workspace = useWorkspace()
 // 경로(볼 수 있는 조상)와 제한 여부. 연결과 따로 읽는다. 읽지 못해도 편집은 된다.
 const pageInfo = ref<PageDetail | null>(null)
+// 살리지 못한 내 편집 (DC-3). 닫을 때까지 쌓아 보인다.
+const lost = ref<LostEdits[]>([])
+const lostTextAll = computed(() => lost.value.flatMap((item) => item.texts).join('\n'))
+
+const LOST_REASONS: Record<string, string> = {
+  rejected: '다른 사람의 편집과 겹쳐',
+  permission: '권한이 없어',
+  input: '허용하지 않는 입력이라',
+  empty: '빈 편집이라',
+  stale: '오래 연결이 끊겨 있어',
+}
+
+async function copyLost() {
+  await navigator.clipboard.writeText(lostTextAll.value)
+}
 const sharing = ref(false)
 
 /**
@@ -95,6 +110,9 @@ onMounted(() => {
         instance.setEditable(canEdit(role.value))
         binding?.render()
       },
+      onLost: (item) => {
+        lost.value = [...lost.value, item]
+      },
       onRole: (next) => {
         role.value = next
         instance.setEditable(canEdit(next))
@@ -148,6 +166,15 @@ onBeforeUnmount(() => {
       </li>
     </ul>
   </div>
+  <aside v-if="lost.length > 0" class="lost" role="status" data-testid="lost">
+    <p>
+      반영하지 못한 편집이 있다:
+      <span v-for="(item, i) in lost" :key="i">{{ LOST_REASONS[item.reason] ?? item.reason }} {{ item.count }}건 </span>
+    </p>
+    <pre v-if="lostTextAll" data-testid="lost-text">{{ lostTextAll }}</pre>
+    <button v-if="lostTextAll" type="button" @click="copyLost">글 복사</button>
+    <button type="button" @click="lost = []">닫기</button>
+  </aside>
   <ShareDialog
     v-if="sharing && pageInfo"
     :page-id="pageId"

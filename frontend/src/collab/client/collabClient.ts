@@ -8,6 +8,7 @@ import type { CommittedChange, Submission } from './clientSession'
 import { moveCursor } from './presence'
 import type { Cursor, Peer } from './presence'
 import { parseRole } from './role'
+import { lostTexts, salvage } from './salvage'
 import type { PageRole } from './role'
 
 /*
@@ -28,6 +29,17 @@ export interface CollabListener {
   onPeers(peers: readonly Peer[]): void
   /** 내 권한 등급. welcome 때, 그리고 연결 중에 바뀔 때(role 메시지) 알린다. 잃으면 서버가 4003 으로 닫는다. */
   onRole(role: PageRole): void
+  /** 거부되거나 버려진 내 편집 가운데 살리지 못한 것 (DC-3). 화면이 보관함에 보여 준다. */
+  onLost(lost: LostEdits): void
+}
+
+/** 살리지 못한 편집. */
+export interface LostEdits {
+  /** rejected(충돌), permission, input, empty: 서버가 거부한 분류. stale: 오래 떨어져 다시 맞출 수 없었다 */
+  readonly reason: string
+  /** 잃은 편집에서 사용자가 친 글. 다시 붙여 넣을 수 있게 보인다 */
+  readonly texts: readonly string[]
+  readonly count: number
 }
 
 /** 커서가 움직여도 이 간격에 한 번만 보낸다 (docs/05-PROTOCOL.md 7.6). */
@@ -44,6 +56,9 @@ export class CollabClient {
   /** 탭마다 다르다 (12.4). 같은 사람이 탭 두 개를 열면 서로 다른 참여자다. */
   readonly clientId = crypto.randomUUID()
   private session: ClientSession | null = null
+  /** 살려서 다시 넣은 편집이 다음에 보낼 묶음에 들어 있다. 그 묶음이 다시 거부되면 또 살리지 않는다(되풀이 막기). */
+  private salvagePending = false
+  private readonly salvageSeqs = new Set<number>()
   private welcomed = false
   private held = false
   private readonly queue: unknown[] = []
@@ -189,16 +204,23 @@ export class CollabClient {
       case 'ack':
         // 화면에서 빼 두었던 inflight 가 확정되면 화면 문서도 바뀐다.
         this.session?.onAck(message.clientSeq as number, message.rev as number)
+        this.settle()
         this.notify()
         break
-      case 'nack':
-        this.session?.onNack(message.clientSeq as number)
+      case 'nack': {
+        const seq = message.clientSeq as number
+        this.session?.onNack(seq)
+        // 예전 서버는 code 를 보내지 않는다. 그때는 다시 보내지 않는다.
+        this.settle({ code: typeof message.code === 'string' ? message.code : 'unknown', salvaged: this.salvageSeqs.has(seq) })
+        this.salvageSeqs.delete(seq)
         this.notify()
         break
+      }
       case 'remote': {
         const change = committed(message as unknown as CommittedJson)
         this.session?.onChange(change)
         this.movePeers(change.ops)
+        this.settle()
         this.notify()
         break
       }
@@ -232,7 +254,14 @@ export class CollabClient {
     queueMicrotask(() => this.sendPresence(this.myCursor))
     const rev = message.rev as number
     if (message.snapshot !== undefined) {
-      // 처음 열었거나, 너무 오래 떨어져 대기 편집을 합칠 수 없다(rebase: false). 확정 문서부터 다시 시작한다.
+      // 처음 열었거나, 너무 오래 떨어져 대기 편집을 합칠 수 없다(rebase: false). 확정 문서부터 다시 시작한다. 합칠 수 없는
+      // 대기 편집은 버리지 않고 보관함에 보인다(DC-3). 복사본 페이지로 남기는 일은 나중이다.
+      const stale = this.session?.pendingOps() ?? []
+      if (stale.length > 0) {
+        this.listener.onLost({ reason: 'stale', texts: lostTexts(stale), count: stale.length })
+      }
+      this.salvageSeqs.clear()
+      this.salvagePending = false
       this.session = new ClientSession(this.clientId, J.decodeDocument(message.snapshot), rev)
       this.welcomed = true
       this.notify()
@@ -244,7 +273,35 @@ export class CollabClient {
     if (resend !== null) {
       this.sendChange(resend)
     }
+    this.settle()
     this.notify()
+  }
+
+  /**
+   * 상태 기계가 버린 내 편집을 살린다 (DC-3, D-27). 다른 블록의 글과 속성 편집처럼 지금 문서에 그대로 다시 적용할 수 있는 것은
+   * 새 편집으로 다시 넣어 보내고, 나머지는 보관함에 알린다. 서버가 권한, 입력, 빈 묶음으로 거부했으면 다시 보내도 거부되므로 모두
+   * 보관함으로 간다. 이미 한 번 살려 보낸 묶음이 다시 거부되면 되풀이하지 않는다.
+   */
+  private settle(nack?: { code: string; salvaged: boolean }): void {
+    const session = this.session
+    if (session === null) {
+      return
+    }
+    const discards = session.takeDiscarded()
+    if (discards.length === 0) {
+      return
+    }
+    const resend = nack === undefined || (nack.code === 'rejected' && !nack.salvaged)
+    const { kept, lost } = resend
+      ? salvage(session.view(), discards)
+      : { kept: [], lost: discards.flatMap((d) => [...d.ops]) }
+    if (kept.length > 0) {
+      session.edit(kept)
+      this.salvagePending = true
+    }
+    if (lost.length > 0) {
+      this.listener.onLost({ reason: nack?.code ?? 'rejected', texts: lostTexts(lost), count: lost.length })
+    }
   }
 
   private flush(): void {
@@ -258,6 +315,10 @@ export class CollabClient {
   }
 
   private sendChange(submission: Submission): void {
+    if (this.salvagePending) {
+      this.salvageSeqs.add(submission.clientSeq)
+      this.salvagePending = false
+    }
     this.connection.send({
       t: 'change',
       clientSeq: submission.clientSeq,

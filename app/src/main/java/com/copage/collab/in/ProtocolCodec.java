@@ -120,6 +120,7 @@ public final class ProtocolCodec {
                 node.put("clientSeq", nack.clientSeq());
                 node.put("reason", nack.reason());
                 node.put("rev", nack.rev());
+                node.put("code", nack.code());
             }
             case ServerMessage.Remote remote -> {
                 node.setAll(change(remote.change()));

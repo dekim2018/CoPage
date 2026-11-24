@@ -3,6 +3,7 @@ import type { Document } from '../ot/document'
 import { InvalidOperationError, TransformConflictError } from '../ot/errors'
 import type { Op } from '../ot/op'
 import { transform } from '../ot/transformer'
+import type { Discard } from './salvage'
 
 /** 클라이언트가 서버로 보내는 편집 묶음. baseRev 는 이 묶음을 만들 때 클라이언트가 알고 있던 마지막 리비전이다. */
 export interface Submission {
@@ -51,6 +52,13 @@ export class ClientSession {
 
   private buffer: readonly Op[] = []
   private viewDoc: Document
+  /**
+   * 이 상태 기계가 버린 내 편집 (DC-3). 상태 기계의 동작은 Java 와 같고, 버린 것을 따로 적어 둘 뿐이다. 협업 클라이언트가
+   * takeDiscarded 로 꺼내 살릴 것을 고른다(salvage.ts).
+   */
+  private discards: Discard[] = []
+  /** 지금 inflight 를 이미 discards 에 적었는지. 죽은 inflight 는 다른 사람의 편집이 올 때 적고, nack 때 다시 적지 않는다. */
+  private inflightRecorded = false
 
   constructor(
     readonly clientId: string,
@@ -99,6 +107,7 @@ export class ClientSession {
     this.inflightSeq = this.nextSeq++
     this.inflightInView = true
     this.inflightDead = false
+    this.inflightRecorded = false
     this.buffer = []
     return { clientId: this.clientId, clientSeq: this.inflightSeq, baseRev: this.rev, ops: this.inflight }
   }
@@ -134,7 +143,7 @@ export class ClientSession {
     this.inflight = null
     if (!this.inflightInView) {
       // 화면에서 빼 두었던 묶음이 확정되었다. buffer 입장에서는 다른 사람의 편집이 온 것과 같다.
-      this.buffer = transformOrDrop(this.buffer, ops)
+      this.buffer = this.transformOrDrop(this.buffer, ops)
       this.rebuildView()
     }
   }
@@ -144,11 +153,32 @@ export class ClientSession {
     if (this.isStale(clientSeq)) {
       return
     }
+    if (!this.inflightRecorded) {
+      this.record([...(this.inflight ?? []), ...(this.inflightInView ? this.buffer : [])], null)
+    }
     this.inflight = null
     if (this.inflightInView) {
       this.buffer = []
     }
     this.rebuildView()
+  }
+
+  /** 버린 내 편집을 꺼낸다. 꺼낸 뒤에는 비어 있다. */
+  takeDiscarded(): Discard[] {
+    const discards = this.discards
+    this.discards = []
+    return discards
+  }
+
+  /** 아직 확정되지 않은 내 편집(inflight 와 buffer). 확정 문서 기준이다. 오래 떨어져 다시 맞출 수 없을 때 보관함에 쓴다. */
+  pendingOps(): readonly Op[] {
+    return [...(this.inflight !== null && this.inflightInView ? this.inflight : []), ...this.buffer]
+  }
+
+  private record(ops: readonly Op[], against: readonly Op[] | null, blocked: ReadonlySet<string> = new Set()): void {
+    if (ops.length > 0) {
+      this.discards.push({ ops, against, blocked })
+    }
   }
 
   /**
@@ -166,6 +196,9 @@ export class ClientSession {
     }
     if (this.inflightDead || this.inflight.length === 0) {
       // 보내도 거부될 묶음이거나, 변환하고 나니 할 일이 없어진 묶음이다.
+      if (this.inflightDead && !this.inflightRecorded) {
+        this.record(this.inflight, null)
+      }
       this.inflight = null
       this.rebuildView()
       return this.poll()
@@ -192,13 +225,16 @@ export class ClientSession {
       }
     }
     if (wasInView && this.inflightDead) {
-      // inflight 가 거부될 것이 확실하다. 그 위에 쌓은 buffer 는 의미를 잃었으므로 버린다.
+      // inflight 가 거부될 것이 확실하다. 그 위에 쌓은 buffer 는 의미를 잃었으므로 버린다. 둘 다 이 편집 전 확정 문서
+      // 기준이라, 이 편집(ops)에 맞춰 살릴 수 있게 적는다.
+      this.record([...(this.inflight as readonly Op[]), ...this.buffer], ops)
+      this.inflightRecorded = true
       this.inflightInView = false
       this.buffer = []
     } else if (wasInView) {
-      this.buffer = transformOrDrop(this.buffer, overInflight)
+      this.buffer = this.transformOrDrop(this.buffer, overInflight)
     } else {
-      this.buffer = transformOrDrop(this.buffer, ops)
+      this.buffer = this.transformOrDrop(this.buffer, ops)
     }
     this.rebuildView()
   }
@@ -212,7 +248,9 @@ export class ClientSession {
         if (!(e instanceof InvalidOperationError)) {
           throw e
         }
-        // 지금 확정 문서에는 적용할 수 없다. 서버의 판정이 올 때까지 화면에서 빼 둔다.
+        // 지금 확정 문서에는 적용할 수 없다. 서버의 판정이 올 때까지 화면에서 빼 둔다. buffer 는 inflight 를 적용한 상태
+        // 기준이라 inflight 가 건드린 블록의 편집은 살릴 수 없다.
+        this.record(this.buffer, null, touchedBlocks(this.inflight))
         this.inflightInView = false
         this.buffer = []
       }
@@ -223,8 +261,22 @@ export class ClientSession {
       if (!(e instanceof InvalidOperationError)) {
         throw e
       }
+      this.record(this.buffer, null)
       this.buffer = []
       this.viewDoc = base
+    }
+  }
+
+  /** pending 을 against 에 맞춰 변환한다. 충돌하면 Java 와 같이 통째로 버리고, 버린 것을 적는다. */
+  private transformOrDrop(pending: readonly Op[], against: readonly Op[]): readonly Op[] {
+    try {
+      return transform(pending, against, true).a
+    } catch (e) {
+      if (!(e instanceof TransformConflictError)) {
+        throw e
+      }
+      this.record(pending, against)
+      return []
     }
   }
 
@@ -237,13 +289,15 @@ export class ClientSession {
   }
 }
 
-function transformOrDrop(pending: readonly Op[], against: readonly Op[]): readonly Op[] {
-  try {
-    return transform(pending, against, true).a
-  } catch (e) {
-    if (!(e instanceof TransformConflictError)) {
-      throw e
+function touchedBlocks(ops: readonly Op[]): Set<string> {
+  const blocks = new Set<string>()
+  for (const op of ops) {
+    blocks.add(op.blockId)
+    if (op.op === 'split') {
+      blocks.add(op.newBlockId)
+    } else if (op.op === 'merge') {
+      blocks.add(op.intoId)
     }
-    return []
   }
+  return blocks
 }

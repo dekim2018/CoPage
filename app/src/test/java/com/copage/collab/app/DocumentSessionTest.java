@@ -654,7 +654,7 @@ class DocumentSessionTest {
         submit(a, 3, 0, new TextOp(ROOT, Delta.builder().retain(5).insert("!").build()));
         runAll();
 
-        assertEquals(new Nack(1, "권한 VIEW 으로는 이 연산을 할 수 없다", 0), viewer.last());
+        assertEquals(new Nack(1, "권한 VIEW 으로는 이 연산을 할 수 없다", 0, "permission"), viewer.last());
         List<ServerMessage> replies = a.sync.subList(1, a.sync.size());
         assertEquals(3, replies.size());
         replies.forEach(reply -> assertInstanceOf(Nack.class, reply));

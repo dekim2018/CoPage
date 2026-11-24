@@ -266,3 +266,15 @@ form {
   white-space: nowrap;
   user-select: none;
 }
+.lost {
+  border: 1px solid #f5c26b;
+  background: #fffbeb;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  font-size: 14px;
+}
+.lost pre {
+  white-space: pre-wrap;
+  margin: 4px 0;
+}
