@@ -1,6 +1,7 @@
 package com.copage.collab.it;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.copage.collab.app.CloseCodes;
@@ -14,8 +15,11 @@ import java.net.http.HttpResponse;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import javax.sql.DataSource;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -56,6 +60,12 @@ class PostgresOutageTest {
 
     @LocalServerPort
     int port;
+
+    @Autowired
+    Flyway flyway;
+
+    @Autowired
+    DataSource dataSource;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private boolean paused;
@@ -116,6 +126,11 @@ class PostgresOutageTest {
             }
         }
         throw new AssertionError("닫히지 않았다");
+    }
+
+    @Test
+    void 마이그레이션은_소켓_시간_한도가_걸린_앱의_연결_풀을_쓰지_않는다() {
+        assertNotSame(dataSource, flyway.getConfiguration().getDataSource());
     }
 
     @Test
