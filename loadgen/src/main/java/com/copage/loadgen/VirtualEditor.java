@@ -31,6 +31,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -51,6 +52,10 @@ final class VirtualEditor implements WebSocket.Listener {
         final AtomicInteger nacks = new AtomicInteger();
         final AtomicInteger changes = new AtomicInteger();
         final Map<Integer, AtomicInteger> closes = new ConcurrentHashMap<>();
+        /** 끊긴 뒤 다시 붙어 첫 ack 를 받기까지(편집 재개). */
+        final Stats resume = new Stats();
+        /** 이어 붙으려 했는데 서버가 전체 문서를 보내 대기 편집을 버린 횟수. */
+        final AtomicInteger resets = new AtomicInteger();
     }
 
     private static final long CHANGE_INTERVAL_MS = 50;
@@ -75,6 +80,16 @@ final class VirtualEditor implements WebSocket.Listener {
     /** JDK WebSocket 은 앞 전송이 끝나기 전에 다시 보내면 예외다. 보낼 것은 모두 이 사슬에 이어 붙인다. */
     private CompletableFuture<WebSocket> lastSend;
     private ScheduledFuture<?> ping;
+    private String wsBase;
+    /** null 이 아니면 끊겼을 때 새 티켓을 받아 다시 붙는다. */
+    private Supplier<String> tickets;
+    /** 지금 연결이 welcome 을 받아 보낼 수 있는 상태인지. */
+    private boolean live;
+    private boolean closing;
+    /** 재접속 흐름이 돌고 있으면 true. 시도 중 실패한 소켓의 오류가 흐름을 하나 더 띄우지 않게 한다. */
+    private boolean reconnecting;
+    /** 끊긴 시각. 다시 붙어 첫 ack 를 받으면 재개 시간을 적고 0 으로 돌린다. */
+    private long downAtNanos;
     private ClientSession session;
     private long connectStartedNanos;
     private long lastSendAt;
@@ -96,20 +111,82 @@ final class VirtualEditor implements WebSocket.Listener {
     }
 
     void connect(String wsBase, String ticket) throws Exception {
+        this.wsBase = wsBase;
         connectStartedNanos = System.nanoTime();
-        socket = HTTP.newWebSocketBuilder()
-                .buildAsync(URI.create(wsBase + "/ws/docs/" + pageId + "?ticket=" + ticket + "&v=1"), this)
-                .get(10, TimeUnit.SECONDS);
-        lastSend = CompletableFuture.completedFuture(socket);
-        ObjectNode hello = Api.MAPPER.createObjectNode();
-        hello.put("t", "hello");
-        hello.put("clientId", clientId);
-        hello.put("lastRev", 0);
-        sendText(Api.MAPPER.writeValueAsString(hello)).get(5, TimeUnit.SECONDS);
+        open(ticket);
         ping = PINGER.scheduleAtFixedRate(() -> sendText("{\"t\":\"ping\"}"), 20, 20, TimeUnit.SECONDS);
         if (!welcomed.await(30, TimeUnit.SECONDS)) {
             throw new IllegalStateException(clientId + " 가 welcome 을 받지 못했다");
         }
+    }
+
+    /** 끊기면(서버 종료 등) 새 티켓을 받아 lastRev 부터 이어 붙는다. 브라우저 클라이언트의 재접속과 같다. */
+    void reconnectWith(Supplier<String> tickets) {
+        this.tickets = tickets;
+    }
+
+    private void open(String ticket) throws Exception {
+        WebSocket opened = HTTP.newWebSocketBuilder()
+                .buildAsync(URI.create(wsBase + "/ws/docs/" + pageId + "?ticket=" + ticket + "&v=1"), this)
+                .get(10, TimeUnit.SECONDS);
+        ObjectNode hello = Api.MAPPER.createObjectNode();
+        hello.put("t", "hello");
+        hello.put("clientId", clientId);
+        CompletableFuture<WebSocket> sent;
+        synchronized (this) {
+            socket = opened;
+            partial.setLength(0);
+            lastSend = CompletableFuture.completedFuture(opened);
+            hello.put("lastRev", session == null ? 0 : session.confirmedRev());
+            hello.put("resume", session != null);
+            sent = sendText(Api.MAPPER.writeValueAsString(hello));
+        }
+        sent.get(5, TimeUnit.SECONDS);
+    }
+
+    private void lost(WebSocket which, int code) {
+        shared.closes.computeIfAbsent(code, c -> new AtomicInteger()).incrementAndGet();
+        synchronized (this) {
+            if (which != socket) {
+                return;
+            }
+            live = false;
+            // 다시 붙어도 소용없는 종료(규약 위반, 권한)는 브라우저처럼 멈춘다.
+            if (closing || tickets == null || code == 4003 || code == 4008 || code == 4010) {
+                return;
+            }
+            if (downAtNanos == 0) {
+                downAtNanos = System.nanoTime();
+            }
+            if (reconnecting) {
+                return;
+            }
+            reconnecting = true;
+        }
+        Thread.ofVirtual().start(this::reconnectLoop);
+    }
+
+    private void reconnectLoop() {
+        long deadline = System.currentTimeMillis() + 180_000;
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(250 + random.nextInt(500));
+                open(tickets.get());
+                synchronized (this) {
+                    reconnecting = false;
+                }
+                return;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception e) {
+                // 서버가 아직 뜨지 않았다. 다시 시도한다.
+            }
+        }
+        synchronized (this) {
+            reconnecting = false;
+        }
+        System.err.println(clientId + " 가 3분 안에 다시 붙지 못했다");
     }
 
     /** 글자 하나를 친다(또는 Enter, Backspace). 사람의 한 번 누름이다. */
@@ -159,7 +236,7 @@ final class VirtualEditor implements WebSocket.Listener {
     }
 
     synchronized void flush() {
-        if (session == null || System.currentTimeMillis() - lastSendAt < CHANGE_INTERVAL_MS) {
+        if (session == null || !live || System.currentTimeMillis() - lastSendAt < CHANGE_INTERVAL_MS) {
             return;
         }
         Optional<Submission> next = session.poll();
@@ -167,6 +244,7 @@ final class VirtualEditor implements WebSocket.Listener {
     }
 
     synchronized void close() {
+        closing = true;
         if (ping != null) {
             ping.cancel(false);
         }
@@ -208,26 +286,52 @@ final class VirtualEditor implements WebSocket.Listener {
 
     @Override
     public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-        shared.closes.computeIfAbsent(statusCode, code -> new AtomicInteger()).incrementAndGet();
+        lost(webSocket, statusCode);
         return CompletableFuture.completedFuture(null);
+    }
+
+    /** 서버가 갑자기 죽으면 닫힘 대신 오류로 온다. 비정상 종료(1006)로 센다. */
+    @Override
+    public void onError(WebSocket webSocket, Throwable error) {
+        lost(webSocket, 1006);
     }
 
     private synchronized void handle(JsonNode message) {
         long now = System.nanoTime();
         switch (message.get("t").stringValue()) {
             case "welcome" -> {
-                session = new ClientSession(clientId, OpJson.readDocument(message.get("snapshot")), message.get("rev").longValue());
-                shared.open.add((now - connectStartedNanos) / 1e6);
-                if (writes) {
-                    makeOwnParagraph();
+                live = true;
+                if (session == null || message.has("snapshot")) {
+                    if (session != null) {
+                        // 이어 붙지 못하고 전체 문서를 받았다. 대기 편집은 버려진다.
+                        shared.resets.incrementAndGet();
+                    }
+                    boolean first = session == null;
+                    session = new ClientSession(clientId, OpJson.readDocument(message.get("snapshot")),
+                            message.get("rev").longValue());
+                    if (first) {
+                        shared.open.add((now - connectStartedNanos) / 1e6);
+                        if (writes) {
+                            makeOwnParagraph();
+                        }
+                    }
+                } else {
+                    List<CommittedChange> missed = new ArrayList<>();
+                    message.get("ops").forEach(change -> missed.add(committed(change)));
+                    session.resync(missed).ifPresent(this::send);
                 }
                 welcomed.countDown();
+                flush();
             }
             case "ack" -> {
                 long seq = message.get("clientSeq").longValue();
                 Long sent = shared.sentAt.get(key(clientId, seq));
                 if (sent != null) {
                     shared.ack.add((now - sent) / 1e6);
+                }
+                if (downAtNanos != 0) {
+                    shared.resume.add((now - downAtNanos) / 1e6);
+                    downAtNanos = 0;
                 }
                 session.onAck(seq, message.get("rev").longValue());
                 flush();
@@ -238,8 +342,7 @@ final class VirtualEditor implements WebSocket.Listener {
                 flush();
             }
             case "remote" -> {
-                CommittedChange change = new CommittedChange(message.get("rev").longValue(), message.get("clientId").stringValue(),
-                        message.get("clientSeq").longValue(), OpJson.readOps(message.get("ops")));
+                CommittedChange change = committed(message);
                 Long sent = shared.sentAt.get(key(change.clientId(), change.clientSeq()));
                 if (sent != null) {
                     shared.remote.add((now - sent) / 1e6);
@@ -286,6 +389,11 @@ final class VirtualEditor implements WebSocket.Listener {
         int index = siblings.indexOf(block);
         String next = index + 1 < siblings.size() ? siblings.get(index + 1).pos() : null;
         return FractionalIndex.between(block.pos(), next);
+    }
+
+    private static CommittedChange committed(JsonNode node) {
+        return new CommittedChange(node.get("rev").longValue(), node.get("clientId").stringValue(),
+                node.get("clientSeq").longValue(), OpJson.readOps(node.get("ops")));
     }
 
     private static String key(String clientId, long seq) {

@@ -24,6 +24,8 @@ import java.util.concurrent.TimeUnit;
  *   <li>scenario=open-doc blocks=B opens=O: B 블록 문서를 O 번 열어 welcome 까지 시간을 잰다
  * </ul>
  *
+ * <p>reconnect=true 면 끊겼을 때 다시 붙는다(서버 강제 종료 실험).
+ *
  * <p>base(기본 http://localhost:8080), management(기본 http://127.0.0.1:8081, 관리 포트는 127.0.0.1 에만 열린다), rate(초당 누름, 기본 5).
  */
 public final class Main {
@@ -44,9 +46,10 @@ public final class Main {
         String wsBase = base.replaceFirst("^http", "ws");
         switch (scenario) {
             case "one-doc" -> typing(api, wsBase, management, 1, integer(options, "editors", 10),
-                    integer(options, "seconds", 30), integer(options, "rate", 5));
+                    integer(options, "seconds", 30), integer(options, "rate", 5), reconnect(options));
             case "many-docs" -> typing(api, wsBase, management, integer(options, "docs", 20),
-                    integer(options, "editors", 5), integer(options, "seconds", 30), integer(options, "rate", 5));
+                    integer(options, "editors", 5), integer(options, "seconds", 30), integer(options, "rate", 5),
+                    reconnect(options));
             case "open-doc" -> open(api, wsBase, management, integer(options, "blocks", 1000), integer(options, "opens", 20),
                     Boolean.parseBoolean(options.getOrDefault("cold", "false")));
             default -> throw new IllegalArgumentException("모르는 시나리오: " + scenario);
@@ -54,12 +57,16 @@ public final class Main {
         System.exit(0);
     }
 
+    private static boolean reconnect(Map<String, String> options) {
+        return Boolean.parseBoolean(options.getOrDefault("reconnect", "false"));
+    }
+
     private static int integer(Map<String, String> options, String key, int fallback) {
         return options.containsKey(key) ? Integer.parseInt(options.get(key)) : fallback;
     }
 
     private static void typing(Api api, String wsBase, String management, int docs, int editorsPerDoc, int seconds,
-            int rate) throws Exception {
+            int rate, boolean reconnect) throws Exception {
         VirtualEditor.Shared shared = new VirtualEditor.Shared();
         // 계정은 문서마다 만들지 않고 편집자 자리마다 하나씩 만들어 모든 문서에서 함께 쓴다. 가입(bcrypt)이 준비 시간을 잡아먹지 않게.
         List<Api.Account> accounts = new ArrayList<>();
@@ -76,7 +83,11 @@ public final class Main {
             List<VirtualEditor> group = new ArrayList<>();
             for (int e = 0; e < editorsPerDoc; e++) {
                 VirtualEditor editor = new VirtualEditor("d" + d + "e" + e, page, shared, d * 1000L + e);
-                editor.connect(wsBase, api.ticket(accounts.get(e), page));
+                Api.Account who = accounts.get(e);
+                editor.connect(wsBase, api.ticket(who, page));
+                if (reconnect) {
+                    editor.reconnectWith(() -> api.ticket(who, page));
+                }
                 group.add(editor);
             }
             groups.add(group);
@@ -115,6 +126,10 @@ public final class Main {
         double serverMax = api.metric(management, "collab_ack_latency_seconds_max");
 
         System.out.println("보낸 묶음 " + shared.changes.get() + ", nack " + shared.nacks.get() + ", 닫힘 " + shared.closes);
+        if (reconnect) {
+            System.out.println("재개(끊김부터 다시 붙어 첫 ack 까지) " + shared.resume.summary() + ", 대기 편집을 버린 재접속 "
+                    + shared.resets.get());
+        }
         System.out.println("ack 지연(클라이언트)    " + shared.ack.summary());
         System.out.println("남에게 닿는 지연       " + shared.remote.summary());
         System.out.printf("서버 ack 처리 평균 %.2fms (n=%.0f), 최근 최대 %.1fms%n", ackSum / ackCount * 1000, ackCount,
