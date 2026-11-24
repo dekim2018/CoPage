@@ -6,6 +6,7 @@ import { ApiError, api } from '../api/http'
 import { EditorBinding, keyboardExtension } from '../collab/adapter/editorBinding'
 import { schemaExtensions } from '../collab/adapter/schema'
 import { CollabClient } from '../collab/client/collabClient'
+import { openOfflineStore } from '../collab/client/offlineStore'
 import type { LostEdits, SyncStatus } from '../collab/client/collabClient'
 import type { Peer } from '../collab/client/presence'
 import { canEdit } from '../collab/client/role'
@@ -16,12 +17,14 @@ import EditorToolbar from '../components/EditorToolbar.vue'
 import ShareDialog from '../components/ShareDialog.vue'
 import { workspaceApi } from '../api/workspace'
 import type { PageDetail } from '../api/workspace'
+import { useAuth } from '../stores/auth'
 import { useWorkspace } from '../stores/workspace'
 
 /** shareToken 이 있으면 공유 링크로 연 화면이다(D-41). 사이드바, 경로, 공유 단추 없이 그 페이지만 연다. */
 const props = defineProps<{ workspaceId: string; pageId: string; shareToken?: string }>()
 const router = useRouter()
 const workspace = useWorkspace()
+const auth = useAuth()
 // 경로(볼 수 있는 조상)와 제한 여부. 연결과 따로 읽는다. 읽지 못해도 편집은 된다.
 const pageInfo = ref<PageDetail | null>(null)
 
@@ -102,7 +105,17 @@ const label = computed(() => {
   return ''
 })
 
-onMounted(() => {
+// 화면이 열리기 전에 떠났으면 연결을 만들지 않는다(보관소를 여는 동안 기다린다).
+let unmounted = false
+
+onMounted(async () => {
+  // 보내지 못한 편집을 이 브라우저에 남긴다 (12.4, R-6). 공유 링크로 연 화면은 남기지 않는다.
+  const user = auth.user
+  const store = user !== null && !props.shareToken ? await openOfflineStore(user.id, props.pageId) : null
+  if (unmounted) {
+    store?.release()
+    return
+  }
   const instance = new Editor({
     extensions: [...schemaExtensions, RemoteCursors, keyboardExtension(() => binding)],
     editable: false,
@@ -148,6 +161,8 @@ onMounted(() => {
         detail.value = why ?? ''
       },
     },
+    undefined,
+    store,
   )
   binding = new EditorBinding(instance, client)
   bindingRef.value = binding
@@ -156,6 +171,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  unmounted = true
   client?.stop()
   binding?.destroy()
   editor.value?.destroy()
