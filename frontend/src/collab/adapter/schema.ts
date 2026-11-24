@@ -1,4 +1,4 @@
-import { InputRule, Node } from '@tiptap/core'
+import { InputRule, Mark, Node } from '@tiptap/core'
 import type { AnyExtension, NodeViewRendererProps } from '@tiptap/core'
 import Bold from '@tiptap/extension-bold'
 import Code from '@tiptap/extension-code'
@@ -337,6 +337,35 @@ const Divider = Node.create({
 })
 
 /** 편집기에 넣을 확장. 키 처리를 맡는 어댑터 확장은 따로 붙인다. */
+/**
+ * 댓글이 달린 글자 (C-1, C-2, docs/08-FEATURES.md 10.2). 값은 스레드 ID 다. 서식이라 글자가 밀리거나 블록이 나뉘어도 따라간다.
+ * 같은 글자에 댓글이 겹치면 나중 것이 남는다(D-46).
+ */
+const CommentMark = Mark.create({
+  name: 'comment',
+  inclusive: false,
+  addAttributes: () => ({ value: { default: null } }),
+  parseHTML: () => [{ tag: 'span[data-comment]', getAttrs: (el) => ({ value: (el as HTMLElement).dataset.comment }) }],
+  renderHTML: ({ HTMLAttributes }) => [
+    'span',
+    { class: 'comment-mark', 'data-comment': HTMLAttributes.value as string },
+    0,
+  ],
+})
+
+/** 멘션 (C-4). 값은 "멘션ID:사용자ID" 다. 서버가 커밋한 뒤 그 사용자에게 알린다. */
+const MentionMark = Mark.create({
+  name: 'mention',
+  inclusive: false,
+  addAttributes: () => ({ value: { default: null } }),
+  parseHTML: () => [{ tag: 'span[data-mention]', getAttrs: (el) => ({ value: (el as HTMLElement).dataset.mention }) }],
+  renderHTML: ({ HTMLAttributes }) => [
+    'span',
+    { class: 'mention-mark', 'data-mention': HTMLAttributes.value as string },
+    0,
+  ],
+})
+
 export const schemaExtensions: AnyExtension[] = [
   PageDocument,
   Title,
@@ -363,4 +392,6 @@ export const schemaExtensions: AnyExtension[] = [
     // 서버도 이 셋만 받는다 (docs/07-SECURITY.md 9.6).
     isAllowedUri: (url) => /^(https?:|mailto:)/i.test(url.trim()),
   }),
+  CommentMark,
+  MentionMark,
 ]

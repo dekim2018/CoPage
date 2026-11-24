@@ -1,15 +1,20 @@
 package com.copage.workspace.config;
 
 import com.copage.identity.app.UserDirectory;
+import com.copage.notification.app.NotificationService;
 import com.copage.permission.app.PageGrants;
 import com.copage.permission.app.PagePermissions;
 import com.copage.permission.app.WorkspaceMembership;
 import com.copage.workspace.app.InviteService;
+import com.copage.workspace.app.TreeEvents;
+import com.copage.workspace.app.WorkspaceRepository;
 import com.copage.workspace.app.WorkspaceService;
 import com.copage.workspace.domain.WorkspaceRole;
 import com.copage.workspace.out.JdbcInviteRepository;
 import com.copage.workspace.out.JdbcWorkspaceRepository;
 import java.time.Clock;
+import java.util.Map;
+import java.util.UUID;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -48,6 +53,24 @@ public class WorkspaceConfig {
                 pageGrants,
                 work -> transactionTemplate.executeWithoutResult(status -> work.run()),
                 Clock.systemUTC());
+    }
+
+    /**
+     * 트리가 바뀌면 그 워크스페이스 멤버들의 열린 알림 연결에 tree 이벤트를 보낸다 (W-5, D-46). 볼 수 없는 페이지의 제목은 싣지
+     * 않는다. 사이드바는 부모 ID 만 받고 그 목록을 자기 권한으로 다시 읽는다.
+     */
+    @Bean
+    TreeEvents treeEvents(
+            WorkspaceService workspaceService,
+            JdbcWorkspaceRepository workspaceRepository,
+            NotificationService notificationService) {
+        TreeEvents events = (workspaceId, parentIds) -> notificationService.broadcast(
+                workspaceRepository.members(workspaceId).stream().map(WorkspaceRepository.Member::userId).toList(),
+                "tree",
+                Map.of("workspaceId", workspaceId.toString(),
+                        "parentIds", parentIds.stream().map(UUID::toString).toList()));
+        workspaceService.treeEventsTo(events);
+        return events;
     }
 
     @Bean

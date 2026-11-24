@@ -203,6 +203,14 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
     }
 
     @Override
+    public Optional<Page> findPageById(UUID pageId) {
+        return jdbc.sql("SELECT " + PAGE_COLUMNS + " FROM pages p WHERE p.id = :pageId AND p.archived_at IS NULL")
+                .param("pageId", pageId)
+                .query((rs, row) -> page(rs))
+                .optional();
+    }
+
+    @Override
     public List<Page> findPages(UUID workspaceId, Collection<UUID> pageIds) {
         if (pageIds.isEmpty()) {
             return List.of();

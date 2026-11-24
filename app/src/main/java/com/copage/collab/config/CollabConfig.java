@@ -5,6 +5,7 @@ import com.copage.collab.app.CollabMetrics;
 import com.copage.collab.app.DocumentSession;
 import com.copage.collab.app.DocumentSessions;
 import com.copage.collab.app.DocumentStore;
+import com.copage.collab.app.MentionSink;
 import com.copage.collab.app.OwnershipLease;
 import com.copage.collab.app.TicketService;
 import com.copage.collab.app.TicketStore;
@@ -16,10 +17,13 @@ import com.copage.collab.in.ProtocolCodec;
 import com.copage.collab.out.JdbcDocumentStore;
 import com.copage.collab.out.JdbcVersionLog;
 import com.copage.collab.out.MicrometerCollabMetrics;
+import com.copage.collab.out.RedisDocEvents;
 import com.copage.collab.out.RedisOwnershipLease;
 import com.copage.collab.out.RedisTicketStore;
 import com.copage.identity.app.AuthException;
 import com.copage.identity.app.AuthService;
+import com.copage.notification.app.NotificationService;
+import com.copage.notification.domain.Notification;
 import com.copage.permission.app.PagePermissions.Access;
 import com.copage.permission.app.PagePermissions;
 import com.copage.permission.app.PermissionChangeListener;
@@ -165,6 +169,37 @@ public class CollabConfig {
                 collabMetrics,
                 ownershipLease,
                 properties.handoffGrace());
+    }
+
+    /** 댓글 변경을 그 문서를 맡은 노드의 연결들에 전한다 (D-46). */
+    @Bean
+    RedisDocEvents docEvents(StringRedisTemplate redis, DocumentSessions documentSessions) {
+        return new RedisDocEvents(redis, documentSessions);
+    }
+
+    @Bean
+    RedisMessageListenerContainer docEventsListener(RedisConnectionFactory connectionFactory, RedisDocEvents docEvents) {
+        RedisMessageListenerContainer container = new RedisMessageListenerContainer();
+        container.setConnectionFactory(connectionFactory);
+        container.addMessageListener(docEvents, new ChannelTopic(RedisDocEvents.CHANNEL));
+        return container;
+    }
+
+    /**
+     * 본문 멘션을 알림으로 (C-4, D-46). 멘션된 사람이 그 페이지를 볼 수 있을 때만 보낸다. 볼 수 없는 사람에게 제목과 글이 새지
+     * 않게 하기 위해서다. 같은 멘션은 한 번만(멘션 ID).
+     */
+    @Bean
+    MentionSink mentionNotifications(
+            DocumentSessions documentSessions, PagePermissions pagePermissions, NotificationService notificationService) {
+        MentionSink sink = (docId, actorId, mentionId, mentionedUserId, preview) -> {
+            if (pagePermissions.access(mentionedUserId, docId) instanceof Access.Granted) {
+                notificationService.notify(mentionedUserId, Notification.Kind.MENTION, docId, actorId, preview,
+                        "mention:" + docId + ":" + mentionId);
+            }
+        };
+        documentSessions.mentionsTo(sink);
+        return sink;
     }
 
     @Bean

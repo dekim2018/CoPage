@@ -7,10 +7,13 @@ import com.copage.collab.domain.PageRole;
 import com.copage.collab.domain.Peer;
 import com.copage.collab.domain.ServerMessage;
 import com.copage.collab.domain.StoredChange;
+import com.copage.ot.model.Block;
 import com.copage.ot.model.Document;
+import com.copage.ot.op.Op;
 import com.copage.ot.sync.ServerDocument;
 import com.copage.ot.sync.Submission;
 import com.copage.ot.sync.SubmitResult;
+import com.copage.ot.text.Component;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -126,6 +129,10 @@ public final class DocumentSession {
     private final Scheduler scheduler;
     private final Clock clock;
     private final Unloader unloader;
+    /** 멘션 서식의 이름 (6.1). */
+    private static final String MENTION_MARK = "mention";
+
+    private final MentionSink mentions;
     private final TitleSink titles;
     private final CollabMetrics metrics;
     /** 마지막으로 알린 제목. 같은 제목을 다시 쓰지 않는다. */
@@ -159,8 +166,10 @@ public final class DocumentSession {
             Clock clock,
             TitleSink titles,
             CollabMetrics metrics,
+            MentionSink mentions,
             Unloader unloader) {
         this.docId = docId;
+        this.mentions = mentions;
         this.titles = titles;
         this.metrics = metrics;
         this.store = store;
@@ -448,6 +457,7 @@ public final class DocumentSession {
                 saveSnapshot();
             }
             publishTitle(false);
+            publishMentions(commits);
         }
         replies.forEach(Runnable::run);
     }
@@ -567,6 +577,53 @@ public final class DocumentSession {
     }
 
     /**
+     * 커밋한 묶음에서 새로 넣은 멘션을 background 에서 알린다 (C-4, D-46). mention 서식의 값은 "멘션ID:사용자ID" 다. 실패해도
+     * 편집에는 영향이 없다.
+     */
+    private void publishMentions(List<StoredChange> commits) {
+        for (StoredChange change : commits) {
+            for (Op op : change.ops()) {
+                if (!(op instanceof Op.TextOp text)) {
+                    continue;
+                }
+                for (Component component : text.delta().components()) {
+                    if (component instanceof Component.Insert insert
+                            && insert.attrs().get(MENTION_MARK) instanceof String value) {
+                        mention(change.userId(), text.blockId(), value);
+                    }
+                }
+            }
+        }
+    }
+
+    private void mention(UUID actorId, String blockId, String value) {
+        int colon = value.indexOf(':');
+        if (colon <= 0) {
+            return;
+        }
+        UUID mentioned;
+        try {
+            mentioned = UUID.fromString(value.substring(colon + 1));
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        String mentionId = value.substring(0, colon);
+        Block block = server.document().get(blockId);
+        String preview = block == null ? "" : block.text().plainText();
+        try {
+            background.execute(() -> {
+                try {
+                    mentions.mentioned(docId, actorId, mentionId, mentioned, preview);
+                } catch (RuntimeException e) {
+                    LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 멘션을 알리지 못했다", e);
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            LOG.log(System.Logger.Level.WARNING, "실행기가 닫혀 멘션을 알리지 못했다", e);
+        }
+    }
+
+    /**
      * 루트 블록의 글이 바뀌었으면 background 에서 알린다 (D-21). 커밋한 뒤에만 부른다. 실패해도 편집에는 영향이 없다. 다음에
      * 제목이 바뀌거나 세션이 다시 올라올 때 다시 쓴다.
      *
@@ -608,6 +665,15 @@ public final class DocumentSession {
         } catch (RejectedExecutionException e) {
             LOG.log(System.Logger.Level.WARNING, "실행기가 닫혀 문서 " + docId + " 의 스냅샷을 남기지 못했다", e);
         }
+    }
+
+    /** 이 문서의 모든 연결에 알린다. 편집과 상관없는 알림(댓글이 바뀜 등)이다. */
+    public void announce(ServerMessage message) {
+        executor.execute(() -> {
+            if (!closed) {
+                members.values().forEach(member -> member.connection().send(message));
+            }
+        });
     }
 
     /**

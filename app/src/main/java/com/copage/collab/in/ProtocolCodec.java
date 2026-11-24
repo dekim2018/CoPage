@@ -130,6 +130,10 @@ public final class ProtocolCodec {
                 node.put("t", "role");
                 node.put("role", role.role().name());
             }
+            case ServerMessage.CommentChanged comment -> {
+                node.put("t", "comment");
+                node.put("threadId", comment.threadId());
+            }
             case ServerMessage.Presence presence -> {
                 if (presence.left()) {
                     node.put("clientId", presence.peer().clientId());

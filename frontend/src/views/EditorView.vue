@@ -17,7 +17,9 @@ import type { PageRole } from '../collab/client/role'
 import { RemoteCursors } from '../collab/adapter/remoteCursors'
 import { FatalConnectionError } from '../collab/transport/connection'
 import BlockDragHandle from '../components/BlockDragHandle.vue'
+import CommentsPanel from '../components/CommentsPanel.vue'
 import EditorToolbar from '../components/EditorToolbar.vue'
+import MentionMenu from '../components/MentionMenu.vue'
 import ShareDialog from '../components/ShareDialog.vue'
 import SlashMenu from '../components/SlashMenu.vue'
 import VersionsPanel from '../components/VersionsPanel.vue'
@@ -60,6 +62,10 @@ async function copyLost() {
 }
 const sharing = ref(false)
 const showVersions = ref(false)
+const showComments = ref(false)
+const commentsPanel = ref<InstanceType<typeof CommentsPanel> | null>(null)
+// 멘션(C-4)할 수 있는 사람. 워크스페이스 멤버 목록이다. 볼 수 없으면(GUEST) 비어 멘션 메뉴가 뜨지 않는다.
+const people = ref<{ userId: string; name: string }[]>([])
 const versionsPanel = ref<InstanceType<typeof VersionsPanel> | null>(null)
 
 /**
@@ -163,6 +169,10 @@ onMounted(async () => {
     instance.on('update', () => {
       workspace.setTitle(props.pageId, instance.state.doc.firstChild?.textContent.trim() ?? '')
     })
+    workspaceApi.members(props.workspaceId).then(
+      (members) => (people.value = members.map((member) => ({ userId: member.userId, name: member.name }))),
+      () => (people.value = []),
+    )
     workspaceApi.page(props.pageId).then(
       (page) => (pageInfo.value = page),
       () => (pageInfo.value = null),
@@ -175,6 +185,9 @@ onMounted(async () => {
       onRemote: () => {
         instance.setEditable(canEdit(role.value))
         binding?.render()
+      },
+      onComment: () => {
+        void commentsPanel.value?.load()
       },
       onLost: (item) => {
         lost.value = [...lost.value, item]
@@ -230,6 +243,9 @@ onBeforeUnmount(() => {
   <div class="editor-head">
     <p class="status" data-testid="status" :data-status="status">{{ label }}</p>
     <p v-if="role !== null && !canEdit(role)" class="readonly" data-testid="readonly">읽기 전용</p>
+    <button v-if="role !== null && !shareToken" type="button" data-testid="comments-button" @click="showComments = !showComments">
+      댓글
+    </button>
     <button v-if="role !== null && !shareToken" type="button" data-testid="versions-button" @click="showVersions = !showVersions">
       기록
     </button>
@@ -251,6 +267,15 @@ onBeforeUnmount(() => {
     <button v-if="lostTextAll" type="button" @click="copyLost">글 복사</button>
     <button type="button" @click="lost = []">닫기</button>
   </aside>
+  <CommentsPanel
+    v-if="showComments && bindingRef && !shareToken"
+    ref="commentsPanel"
+    :doc-id="pageId"
+    :binding="bindingRef"
+    :can-comment="role !== null && role !== 'VIEW'"
+    :people="people"
+    @close="showComments = false"
+  />
   <VersionsPanel
     v-if="showVersions && !shareToken"
     ref="versionsPanel"
@@ -270,6 +295,7 @@ onBeforeUnmount(() => {
   <EditorToolbar v-if="editor && bindingRef && canEdit(role)" :editor="editor" :binding="bindingRef" />
   <SlashMenu v-if="editor && bindingRef && canEdit(role)" :editor="editor" :binding="bindingRef" />
   <BlockDragHandle v-if="editor && bindingRef && canEdit(role)" :editor="editor" :binding="bindingRef" />
+  <MentionMenu v-if="editor && bindingRef && canEdit(role)" :editor="editor" :binding="bindingRef" :people="people" />
   <EditorContent :editor="editor" class="editor-body" />
 </template>
 

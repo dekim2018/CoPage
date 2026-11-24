@@ -1,6 +1,6 @@
 # 11. REST API 목록
 
-REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 38개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
+REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 45개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
 
 오류 응답은 RFC 9457 형식(`application/problem+json`)으로 통일한다. Spring의 `ProblemDetail` 을 쓴다.
 
@@ -48,6 +48,13 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | GET | `/api/docs/{docId}/versions/{rev}` | VIEW | 200, `{rev, document}`. 그 시점의 문서(규약 JSON) | 400 음수 리비전. 404, 403 |
 | POST | `/api/docs/{docId}/versions` | EDIT | 201, 본문 `{kind: NAMED\|RESTORE, name, restoredFrom}`. 지금 마지막 리비전에 버전을 남긴다. 복원 자체는 클라이언트가 편집으로 보낸다 | 400 AUTO 이거나 NAMED 의 이름이 빔. 404, 403 |
 | POST | `/api/docs/{docId}/ws-ticket` | VIEW | 200, `{ticket, role}`. 티켓은 30초 1회용 | 404 페이지가 없거나 속하지 않음. 403 등급이 없음 |
+| GET | `/api/docs/{docId}/comments` | VIEW | 200, 스레드 목록(오래된 것부터, `{id, quote, createdAt, resolved, resolvedByName, comments: [{id, authorId, authorName, body, createdAt}]}`) (D-46) | 404, 403 |
+| POST | `/api/docs/{docId}/comments` | COMMENT | 201, 본문 `{quote, body, mentions}`. 스레드와 첫 댓글. 위치 서식은 클라이언트가 편집으로 붙인다. 멘션한 사람 중 그 페이지를 볼 수 있는 사람에게 알린다 | 400 본문이 비거나 4,000자를 넘거나 멘션이 50명을 넘음. 404, 403 |
+| POST | `/api/comments/{threadId}/replies` | COMMENT | 201, 본문 `{body, mentions}`. 스레드에 쓴 사람들에게 답글 알림 | 400, 404, 403 위와 같음 |
+| PUT | `/api/comments/{threadId}/resolved` | COMMENT | 204, 본문 `{resolved}`. false 면 다시 연다 | 404, 403 |
+| GET | `/api/notifications` | 로그인 | 200, `{unread, items: [{id, kind, docId, actorName, preview, createdAt, read}]}`. 최근 50개 | |
+| POST | `/api/notifications/read` | 로그인 | 204, 본문 `{ids}`. 빈 목록이면 전부 읽음 | |
+| GET | `/api/notifications/stream` | 로그인(Authorization 헤더) | 200, `text/event-stream`. 처음에 `ready`, 그 뒤 `notification`(새 알림), `tree`(`{workspaceId, parentIds}`, 사이드바 다시 읽기). 25초마다 주석 줄 | 401 |
 
 권한을 바꾸는 요청(멤버 역할, 내보내기, 페이지 권한, restricted, 페이지 옮기기, 휴지통으로 보내기와 꺼내기)은 커밋한 뒤 열린 편집 연결에 1초 안에 적용된다(9.4). 옮기면 새 부모의 권한을 물려받으므로, 제한된 페이지 밖으로 옮기면 더 넓게 보일 수 있다(D-39).
 
@@ -111,15 +118,15 @@ API 포트에는 `/actuator` 가 없다. 지표와 상태 확인은 관리 포�
 | GET | `/api/docs/{docId}/versions/{rev}` | 그 시점의 문서 내용 | VIEW | 구현(D-44) |
 | POST | `/api/docs/{docId}/versions` | 현재 시점에 이름 붙이기, 복원 시점 남기기 | EDIT | 구현(D-44) |
 | POST | `/api/docs/{docId}/versions/{rev}/restore` | 그 시점으로 복원 | FULL | 만들지 않음. 클라이언트가 편집으로 보낸다(D-44) |
-| GET | `/api/docs/{docId}/threads?status=` | 댓글 스레드 목록 | VIEW | 계획 |
-| POST | `/api/docs/{docId}/threads` | 스레드 생성 (첫 댓글, 원문 발췌 포함) | COMMENT | 계획 |
-| POST | `/api/threads/{threadId}/comments` | 답글 | COMMENT | 계획 |
+| GET | `/api/docs/{docId}/threads?status=` | 댓글 스레드 목록 | VIEW | 구현. 경로는 `/api/docs/{docId}/comments`, 해결한 것도 함께 준다(D-46) |
+| POST | `/api/docs/{docId}/threads` | 스레드 생성 (첫 댓글, 원문 발췌 포함) | COMMENT | 구현. 경로는 `/api/docs/{docId}/comments`(D-46) |
+| POST | `/api/threads/{threadId}/comments` | 답글 | COMMENT | 구현. 경로는 `/api/comments/{threadId}/replies`(D-46) |
 | PATCH | `/api/comments/{commentId}` | 내 댓글 수정 | 작성자 | 계획 |
 | DELETE | `/api/comments/{commentId}` | 내 댓글 삭제 | 작성자 또는 FULL | 계획 |
-| POST | `/api/threads/{threadId}/resolve` | 해결 처리. `reopen` 으로 다시 연다 | COMMENT | 계획 |
+| POST | `/api/threads/{threadId}/resolve` | 해결 처리. `reopen` 으로 다시 연다 | COMMENT | 구현. `PUT /api/comments/{threadId}/resolved`(D-46) |
 | GET | `/api/workspaces/{wsId}/search?q=` | 제목과 본문 검색 | MEMBER 또는 GUEST | 계획 |
-| GET | `/api/notifications?before=` | 알림 목록 | 로그인 | 계획 |
-| POST | `/api/notifications/read` | 읽음 처리 (여러 개) | 로그인 | 계획 |
-| GET | `/api/notifications/stream?ticket=` | 알림 SSE | 로그인 | 계획 |
+| GET | `/api/notifications?before=` | 알림 목록 | 로그인 | 구현. 최근 50개, 커서는 아직 없다(D-46) |
+| POST | `/api/notifications/read` | 읽음 처리 (여러 개) | 로그인 | 구현 |
+| GET | `/api/notifications/stream?ticket=` | 알림 SSE | 로그인 | 구현. 티켓 대신 Authorization 헤더, 사이드바 트리 변경도 같은 연결로 보낸다(D-46) |
 
-SSE 두 개도 WebSocket과 같은 이유로 1회용 티켓을 쓴다. 티켓은 `POST /api/stream-ticket` 으로 받는다.
+설계에서는 SSE 두 개(알림, 사이드바)가 WebSocket과 같은 이유로 1회용 티켓을 쓰기로 했다. 만든 것은 연결 하나이고, 브라우저의 `EventSource` 대신 `fetch` 로 열어 Authorization 헤더를 싣는다. 주소에 비밀이 남지 않으므로 티켓이 필요 없다(D-46).

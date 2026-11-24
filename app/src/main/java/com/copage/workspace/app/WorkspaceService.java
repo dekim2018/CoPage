@@ -3,8 +3,8 @@ package com.copage.workspace.app;
 import com.copage.identity.app.UserDirectory;
 import com.copage.identity.domain.User;
 import com.copage.permission.app.PageGrants;
-import com.copage.permission.app.PagePermissions;
 import com.copage.permission.app.PagePermissions.Access;
+import com.copage.permission.app.PagePermissions;
 import com.copage.permission.domain.PageLevel;
 import com.copage.workspace.app.WorkspaceException.Kind;
 import com.copage.workspace.app.WorkspaceRepository.Member;
@@ -18,8 +18,10 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -32,6 +34,8 @@ import java.util.stream.Collectors;
  * EDIT(최상위면 역할의 기본 권한)가 있어야 한다.
  */
 public final class WorkspaceService {
+
+    private static final System.Logger LOG = System.getLogger(WorkspaceService.class.getName());
 
     /** 멤버 목록 한 줄. */
     public record MemberView(UUID userId, String email, String name, WorkspaceRole role) {
@@ -59,6 +63,7 @@ public final class WorkspaceService {
     private final PageGrants grants;
     private final Transactions transactions;
     private final Clock clock;
+    private volatile TreeEvents tree = TreeEvents.NONE;
 
     public WorkspaceService(
             WorkspaceRepository repository,
@@ -169,7 +174,28 @@ public final class WorkspaceService {
      * 늦게 도착한 알림이 새 제목을 덮지 않도록 rev 가 더 클 때만 바꾼다.
      */
     public void updateTitle(UUID pageId, String title, long rev) {
-        repository.updateTitle(pageId, normalizeTitle(title), rev);
+        if (repository.updateTitle(pageId, normalizeTitle(title), rev)) {
+            repository.findPageById(pageId).ifPresent(page -> treeChanged(page.workspaceId(), page.parentId()));
+        }
+    }
+
+    /** 트리 변경을 받을 곳 (W-5, D-46). */
+    public void treeEventsTo(TreeEvents events) {
+        this.tree = events;
+    }
+
+    /** null 부모(최상위)는 워크스페이스 ID 로 적어 알린다. */
+    private void treeChanged(UUID workspaceId, UUID... parents) {
+        Set<UUID> ids = new HashSet<>();
+        for (UUID parent : parents) {
+            ids.add(parent == null ? workspaceId : parent);
+        }
+        try {
+            tree.changed(workspaceId, ids);
+        } catch (RuntimeException e) {
+            // 알리지 못해도 바뀐 것은 저장되었다. 사이드바는 다음에 펼칠 때 다시 읽는다.
+            LOG.log(System.Logger.Level.WARNING, "트리 변경을 알리지 못했다", e);
+        }
     }
 
     /**
@@ -241,7 +267,9 @@ public final class WorkspaceService {
                     ? "이 워크스페이스의 최상위에 페이지를 만들 수 없다"
                     : "부모 페이지에 편집 권한이 없다");
         }
-        return repository.createPage(workspaceId, UUID.randomUUID(), parentId, afterId, userId, now());
+        Page page = repository.createPage(workspaceId, UUID.randomUUID(), parentId, afterId, userId, now());
+        treeChanged(workspaceId, parentId);
+        return page;
     }
 
     /**
@@ -261,8 +289,10 @@ public final class WorkspaceService {
         if (target == null || !target.atLeast(PageLevel.EDIT)) {
             throw new WorkspaceException(Kind.FORBIDDEN, "새 부모 페이지에 편집 권한이 없다");
         }
+        UUID oldParent = repository.findPage(granted.workspaceId(), pageId).map(Page::parentId).orElse(null);
         Page moved = repository.movePage(granted.workspaceId(), pageId, newParentId, afterId);
         grants.treeChanged(repository.subtree(pageId));
+        treeChanged(granted.workspaceId(), oldParent, newParentId);
         return moved;
     }
 
@@ -272,8 +302,10 @@ public final class WorkspaceService {
      */
     public void trashPage(UUID userId, UUID pageId) {
         Access.Granted granted = requireLevel(userId, pageId, PageLevel.FULL, "이 페이지를 휴지통으로 보낼 권한이 없다");
+        UUID parent = repository.findPage(granted.workspaceId(), pageId).map(Page::parentId).orElse(null);
         if (repository.archive(granted.workspaceId(), pageId, now())) {
             grants.treeChanged(repository.subtree(pageId));
+            treeChanged(granted.workspaceId(), parent);
         }
     }
 
@@ -296,6 +328,7 @@ public final class WorkspaceService {
         Page restored = repository.restore(workspaceId, pageId)
                 .orElseThrow(() -> new WorkspaceException(Kind.NOT_FOUND, "휴지통에 그 페이지가 없다"));
         grants.treeChanged(repository.subtree(pageId));
+        treeChanged(workspaceId, restored.parentId());
         return restored;
     }
 

@@ -61,6 +61,9 @@ public interface WorkspaceRepository {
     /** 보관되지 않은 페이지. 다른 워크스페이스의 페이지면 비어 있다. */
     Optional<Page> findPage(UUID workspaceId, UUID pageId);
 
+    /** 워크스페이스를 모를 때. 보관되지 않은 페이지. */
+    Optional<Page> findPageById(UUID pageId);
+
     /** 보관되지 않은 페이지들. 없는 ID 는 뺀다. 순서는 정하지 않는다. */
     List<Page> findPages(UUID workspaceId, Collection<UUID> pageIds);
 

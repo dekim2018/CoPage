@@ -4,6 +4,7 @@ import com.copage.collab.domain.ClientMessage.Change;
 import com.copage.collab.domain.ClientMessage.Hello;
 import com.copage.collab.domain.Cursor;
 import com.copage.collab.domain.PageRole;
+import com.copage.collab.domain.ServerMessage;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -31,6 +32,7 @@ public final class DocumentSessions {
     private final TitleSink titles;
     private final CollabMetrics metrics;
     private final OwnershipLease lease;
+    private volatile MentionSink mentions = MentionSink.NONE;
     /** 리스를 잡은 시각. 막 잡은 문서는 넘겨 달라는 요청을 받아도 넘기지 않는다(노드 사이를 오가는 것을 막는다). */
     private final Map<UUID, Instant> acquiredAt = new ConcurrentHashMap<>();
     private final Duration handoffGrace;
@@ -180,6 +182,14 @@ public final class DocumentSessions {
         }
     }
 
+    /** 이 노드가 그 문서를 맡고 있으면 연결들에 알린다. 다른 노드의 세션에는 노드 사이 채널이 전한다(D-46). */
+    public void announce(UUID docId, ServerMessage message) {
+        DocumentSession session = sessions.get(docId);
+        if (session != null) {
+            session.announce(message);
+        }
+    }
+
     /**
      * 노드를 내릴 때 모든 세션을 넘긴다. 연결은 4009 로 닫히고 클라이언트는 다른 노드로 다시 붙는다. 그 뒤로 이 노드에 오는 연결은
      * 세션을 열지 않는다(내려가는 노드가 리스를 다시 잡지 않게).
@@ -194,6 +204,11 @@ public final class DocumentSessions {
         draining = false;
     }
 
+    /** 본문 멘션을 받을 곳 (D-46). 새로 여는 세션부터 쓴다. */
+    public void mentionsTo(MentionSink sink) {
+        this.mentions = sink;
+    }
+
     /** 시험이 세션 안을 들여다볼 때 쓴다. */
     DocumentSession session(UUID docId) {
         return sessions.get(docId);
@@ -206,7 +221,7 @@ public final class DocumentSessions {
 
     private DocumentSession create(UUID docId) {
         return new DocumentSession(
-                docId, store, policy, settings, executor, background, scheduler, clock, titles, metrics,
+                docId, store, policy, settings, executor, background, scheduler, clock, titles, metrics, mentions,
                 this::unloaded);
     }
 
