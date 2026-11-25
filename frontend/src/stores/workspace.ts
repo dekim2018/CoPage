@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { reactive, ref } from 'vue'
 import { workspaceApi } from '../api/workspace'
-import type { PageDetail, PageNode, Workspace } from '../api/workspace'
+import type { PageDetail, PageNode, Shortcut, Workspace } from '../api/workspace'
 
 /** 최상위 페이지 목록의 열쇠. */
 const ROOT = ''
@@ -39,8 +39,36 @@ export const useWorkspace = defineStore('workspace', () => {
     current.value = found ?? null
     children.clear()
     expanded.clear()
+    favorites.value = []
+    recent.value = []
     if (current.value !== null) {
-      await loadChildren(null)
+      await Promise.all([loadChildren(null), loadShortcuts()])
+    }
+  }
+
+  /** 즐겨찾기와 최근 본 페이지 (W-6). 실패해도 사이드바의 나머지는 그대로다. */
+  const favorites = ref<Shortcut[]>([])
+  const recent = ref<Shortcut[]>([])
+
+  async function loadShortcuts(): Promise<void> {
+    const workspaceId = current.value?.id
+    if (workspaceId === undefined) {
+      return
+    }
+    try {
+      const [favoriteList, recentList] = await Promise.all([
+        workspaceApi.favorites(workspaceId),
+        workspaceApi.recent(workspaceId),
+      ])
+      if (current.value?.id === workspaceId) {
+        // 이 탭에서 친 제목이 서버에 저장되기 전일 수 있다. 그것이 더 새롭다.
+        const fresh = (list: Shortcut[]) =>
+          list.map((page) => ({ ...page, title: editedTitles.get(page.id) ?? page.title }))
+        favorites.value = fresh(favoriteList)
+        recent.value = fresh(recentList)
+      }
+    } catch {
+      // 다음에 페이지를 열 때 다시 읽는다.
     }
   }
 
@@ -179,6 +207,12 @@ export const useWorkspace = defineStore('workspace', () => {
         node.title = title
       }
     }
+    // 사이드바의 바로 가기에도 바로 보인다 (W-6).
+    for (const shortcut of [...favorites.value, ...recent.value]) {
+      if (shortcut.id === pageId) {
+        shortcut.title = title
+      }
+    }
   }
 
   /**
@@ -197,11 +231,16 @@ export const useWorkspace = defineStore('workspace', () => {
     expanded.clear()
     editedTitles.clear()
     trashed.clear()
+    favorites.value = []
+    recent.value = []
   }
 
   return {
     workspaces,
     current,
+    favorites,
+    recent,
+    loadShortcuts,
     expanded,
     loadWorkspaces,
     create,

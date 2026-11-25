@@ -122,6 +122,20 @@ public interface WorkspaceRepository {
 
     List<SearchHit> search(UUID workspaceId, String needle, int limit);
 
+    /** 즐겨찾기를 켜거나 끈다 (W-6). */
+    void setFavorite(UUID userId, UUID pageId, boolean favorite, Instant now);
+
+    boolean isFavorite(UUID userId, UUID pageId);
+
+    /** 이 워크스페이스에서 즐겨찾기한 휴지통 밖의 페이지. 즐겨찾기한 순서대로. 볼 수 있는지는 부르는 쪽이 거른다. */
+    List<Page> favorites(UUID userId, UUID workspaceId);
+
+    /** 이 페이지를 지금 열었다 (W-6). */
+    void recordVisit(UUID userId, UUID pageId, Instant now);
+
+    /** 이 워크스페이스에서 최근에 연 휴지통 밖의 페이지. 최근부터 limit 개. 볼 수 있는지는 부르는 쪽이 거른다. */
+    List<Page> recent(UUID userId, UUID workspaceId, int limit);
+
     /** 이 페이지의 깊이. 최상위가 1 이다 (W-2). */
     int depthOf(UUID pageId);
 

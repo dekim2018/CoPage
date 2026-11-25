@@ -3,6 +3,8 @@ package com.copage.workspace.in;
 import com.copage.permission.domain.PageLevel;
 import com.copage.workspace.app.WorkspaceService;
 import com.copage.workspace.domain.Page;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -12,6 +14,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -34,7 +37,12 @@ class PageController {
             String title,
             boolean restricted,
             PageLevel level,
-            List<PathEntry> path) {
+            List<PathEntry> path,
+            boolean favorite) {
+    }
+
+    /** @param favorite 켤지 끌지 (W-6) */
+    record FavoriteRequest(@NotNull Boolean favorite) {
     }
 
     private final WorkspaceService workspaces;
@@ -74,7 +82,24 @@ class PageController {
     PageDetail page(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID pageId) {
         WorkspaceService.PageView view = workspaces.page(UUID.fromString(jwt.getSubject()), pageId);
         Page page = view.page();
+        UUID userId = UUID.fromString(jwt.getSubject());
         return new PageDetail(page.id(), page.workspaceId(), page.parentId(), page.title(), page.restricted(), view.level(),
-                view.path().stream().map(ancestor -> new PathEntry(ancestor.id(), ancestor.title())).toList());
+                view.path().stream().map(ancestor -> new PathEntry(ancestor.id(), ancestor.title())).toList(),
+                workspaces.isFavorite(userId, pageId));
+    }
+
+    /** 즐겨찾기를 켜고 끈다 (W-6). */
+    @PutMapping("/api/pages/{pageId}/favorite")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void favorite(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID pageId,
+            @Valid @RequestBody FavoriteRequest request) {
+        workspaces.setFavorite(UUID.fromString(jwt.getSubject()), pageId, request.favorite());
+    }
+
+    /** 이 페이지를 열었다(최근 본 페이지, W-6). 편집기가 열 때 부른다. */
+    @PostMapping("/api/pages/{pageId}/visit")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void visit(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID pageId) {
+        workspaces.recordVisit(UUID.fromString(jwt.getSubject()), pageId);
     }
 }

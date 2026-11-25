@@ -1,6 +1,7 @@
 package com.copage.collab.in;
 
 import com.copage.collab.app.DocumentStore;
+import com.copage.collab.app.RevisionGoneException;
 import com.copage.collab.app.VersionLog;
 import com.copage.collab.domain.OpJson;
 import com.copage.permission.app.PagePermissions;
@@ -71,7 +72,12 @@ class VersionController {
         if (rev < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "리비전은 0 이상이다");
         }
-        return new DocumentAt(rev, OpJson.document(store.loadAt(docId, rev)));
+        try {
+            return new DocumentAt(rev, OpJson.document(store.loadAt(docId, rev)));
+        } catch (RevisionGoneException e) {
+            // 연산 로그를 정리한 구간의 시점이다. 남겨 둔 버전의 시점은 열린다 (D-52).
+            throw new ResponseStatusException(HttpStatus.GONE, e.getMessage());
+        }
     }
 
     /** 지금 시점에 이름을 붙이거나(NAMED), 복원한 직후의 시점을 남긴다(RESTORE). AUTO 는 서버만 남긴다. */

@@ -1,6 +1,6 @@
 # 11. REST API 목록
 
-REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 48개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
+REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바뀌고, REST는 그 주변(계정, 트리, 권한, 기록, 댓글, 검색, 알림)을 맡는다. 엔드포인트는 46개로 설계했다. 지금 만든 것은 52개이고 11.0 에 모았다. 11.1~11.4 의 표는 설계 전체이고, "상태" 칸이 "계획" 인 것은 아직 없다.
 
 오류 응답은 RFC 9457 형식(`application/problem+json`)으로 통일한다. Spring의 `ProblemDetail` 을 쓴다.
 
@@ -26,7 +26,7 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | DELETE | `/api/workspaces/{wsId}/members/{userId}` | OWNER | 204. 그 워크스페이스에서 받은 페이지 권한도 지운다 | 403, 404, 409 위와 같음 |
 | GET | `/api/workspaces/{wsId}/pages?parentId=` | 워크스페이스의 모든 역할. 목록은 내가 VIEW 이상인 페이지만 | 200, 한 단계 하위 페이지(id, parentId, title, hasChildren, level) | 404 속하지 않은 워크스페이스, 없거나 볼 수 없는 부모 |
 | POST | `/api/workspaces/{wsId}/pages` | 부모의 EDIT. 최상위면 역할의 기본 권한이 EDIT 이상(OWNER, MEMBER) | 201, 만든 페이지. 본문 `{parentId, afterId}` 는 생략할 수 있다 | 400 11단계가 됨(W-2, 10단계까지). 404 속하지 않은 워크스페이스나 없는 부모. 403 등급이 모자람 |
-| GET | `/api/pages/{pageId}` | VIEW | 200, 제목, restricted, 내 등급, 경로(볼 수 있는 조상만) | 404 없거나 휴지통이거나 속하지 않음. 403 속하지만 등급이 없음 |
+| GET | `/api/pages/{pageId}` | VIEW | 200, 제목, restricted, 내 등급, 경로(볼 수 있는 조상만), 내가 즐겨찾기했는지(favorite, W-6) | 404 없거나 휴지통이거나 속하지 않음. 403 속하지만 등급이 없음 |
 | GET | `/api/pages/{pageId}/grants` | FULL | 200, 이 페이지에 준 권한과 물려받는 권한(`inheritedFrom`) | 404 없거나 볼 수 없는 페이지. 403 FULL 이 아님 |
 | PUT | `/api/pages/{pageId}/grants/{userId}` | FULL | 200, 준 권한. 멤버가 아니면 GUEST 로 넣는다 | 404 없는 사용자. 그 밖은 위와 같음 |
 | POST | `/api/pages/{pageId}/grants` | FULL | 200, 준 권한. 본문 `{email, level}` | 404 그 이메일로 가입한 사용자가 없음. 그 밖은 위와 같음 |
@@ -47,7 +47,11 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | GET | `/api/share/{token}` | 없음 | 200, `{pageId, title, level}` | 404 없거나 만료되었거나 페이지가 휴지통에 있음 |
 | POST | `/api/share/{token}/ws-ticket` | 없음(토큰이 있으면 그 사용자) | 200, `{ticket, role, pageId, title}`. 로그인했으면 자기 등급과 링크 등급 중 높은 것, 아니면 링크 등급과 임시 이름(익명 수달 등) | 404 위와 같음 |
 | GET | `/api/docs/{docId}/versions?before=` | VIEW | 200, 버전 목록(최근부터 50개, `{id, rev, kind, name, createdAt, editors}`). `before` 보다 작은 리비전만 (D-44) | 404, 403 |
-| GET | `/api/docs/{docId}/versions/{rev}` | VIEW | 200, `{rev, document}`. 그 시점의 문서(규약 JSON) | 400 음수 리비전. 404, 403 |
+| GET | `/api/docs/{docId}/versions/{rev}` | VIEW | 200, `{rev, document}`. 그 시점의 문서(규약 JSON) | 400 음수 리비전. 410 연산 로그를 정리한 구간의 시점(남긴 버전의 시점은 열린다, D-52). 404, 403 |
+| PUT | `/api/pages/{pageId}/favorite` | VIEW | 204, 본문 `{favorite}`. 즐겨찾기를 켜고 끈다(사람마다, W-6) | 404, 403 |
+| POST | `/api/pages/{pageId}/visit` | VIEW | 204. 최근 본 페이지에 적는다. 편집기가 열 때 부른다 | 404, 403 |
+| GET | `/api/workspaces/{wsId}/favorites` | 멤버 | 200, `[{id, parentId, title}]`. 즐겨찾기한 순서. 지금 볼 수 있는 페이지만 | 404 멤버가 아님 |
+| GET | `/api/workspaces/{wsId}/recent` | 멤버 | 200, `[{id, parentId, title}]`. 최근에 연 것부터 10 개. 지금 볼 수 있는 페이지만 | 404 멤버가 아님 |
 | POST | `/api/docs/{docId}/versions` | EDIT | 201, 본문 `{kind: NAMED\|RESTORE, name, restoredFrom}`. 지금 마지막 리비전에 버전을 남긴다. 복원 자체는 클라이언트가 편집으로 보낸다 | 400 AUTO 이거나 NAMED 의 이름이 빔. 404, 403 |
 | POST | `/api/docs/{docId}/ws-ticket` | VIEW | 200, `{ticket, role}`. 티켓은 30초 1회용 | 404 페이지가 없거나 속하지 않음. 403 등급이 없음 |
 | GET | `/api/docs/{docId}/comments` | VIEW | 200, 스레드 목록(오래된 것부터, `{id, quote, createdAt, resolved, resolvedByName, orphaned, comments: [{id, authorId, authorName, body, createdAt, editedAt, deleted}]}`) (D-46) | 404, 403 |
