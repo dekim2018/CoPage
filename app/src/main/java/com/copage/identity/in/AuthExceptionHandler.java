@@ -17,6 +17,8 @@ class AuthExceptionHandler {
             case BAD_CREDENTIALS, INVALID_REFRESH_TOKEN -> HttpStatus.UNAUTHORIZED;
             case LOCKED -> HttpStatus.TOO_MANY_REQUESTS;
             case NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case EMAIL_NOT_VERIFIED -> HttpStatus.FORBIDDEN;
+            case ACCOUNT_EXISTS -> HttpStatus.CONFLICT;
         };
         return ProblemDetail.forStatusAndDetail(status, e.getMessage());
     }

@@ -102,15 +102,60 @@ public final class AuthService {
             throw new AuthException(Kind.LOCKED, "로그인 실패가 많아 잠시 잠겼다. 잠시 뒤 다시 시도한다");
         }
         Optional<UserRepository.Credentials> credentials = users.findByEmail(normalized);
-        String hash = credentials.map(UserRepository.Credentials::passwordHash).orElse(dummyHash);
+        // 다른 서비스 계정으로만 가입한 사용자는 비밀번호가 없다. 같은 시간을 쓰고 실패한다.
+        boolean hasPassword = credentials.map(c -> c.passwordHash() != null).orElse(false);
+        String hash = hasPassword ? credentials.get().passwordHash() : dummyHash;
         boolean matches = passwordEncoder.matches(password, hash);
-        if (credentials.isEmpty() || !matches) {
+        if (!hasPassword || !matches) {
             // 없는 이메일도 실패로 센다. 세지 않으면 잠기는지 여부로 가입 여부를 알 수 있다.
             attempts.recordFailure(normalized);
             throw new AuthException(Kind.BAD_CREDENTIALS, "이메일이나 비밀번호가 맞지 않다");
         }
         attempts.reset(normalized);
         return issue(credentials.get().user());
+    }
+
+    /**
+     * 다른 서비스 계정으로 로그인한 사람 (A-4).
+     *
+     * @param provider 구글은 google, 깃허브는 github
+     * @param subject 그 서비스 안의 변하지 않는 사용자 ID
+     * @param emailVerified 그 서비스가 이메일을 확인했는지
+     */
+    public record ProviderLogin(String provider, String subject, String email, boolean emailVerified, String name) {
+    }
+
+    /**
+     * 다른 서비스 계정으로 로그인한다 (A-4, D-53). 이어진 계정이 있으면 그 사용자로, 없으면 확인된 이메일로 새 사용자를 만든다.
+     * 그 이메일로 비밀번호 가입한 계정이 있으면 잇지 않는다. 이 서비스의 비밀번호 가입은 이메일을 확인하지 않아서, 남의 이메일로
+     * 먼저 가입해 둔 계정에 진짜 주인의 구글 로그인이 붙으면 계정을 빼앗긴다.
+     *
+     * @throws AuthException EMAIL_NOT_VERIFIED 이메일을 확인받지 않음, ACCOUNT_EXISTS 그 이메일의 비밀번호 계정이 있음
+     */
+    public Session loginWithProvider(ProviderLogin login) {
+        Optional<User> linked = users.findByIdentity(login.provider(), login.subject());
+        if (linked.isPresent()) {
+            return issue(linked.get());
+        }
+        if (!login.emailVerified() || login.email() == null || login.email().isBlank()) {
+            throw new AuthException(Kind.EMAIL_NOT_VERIFIED, "확인된 이메일이 없다");
+        }
+        String email = normalizeEmail(login.email());
+        if (users.findByEmail(email).isPresent()) {
+            throw new AuthException(Kind.ACCOUNT_EXISTS, "그 이메일로 가입한 계정이 있다. 비밀번호로 로그인한다");
+        }
+        String name = login.name() == null || login.name().isBlank() ? email.substring(0, email.indexOf('@')) : login.name();
+        User user = new User(UUID.randomUUID(), email, name.length() > 50 ? name.substring(0, 50) : name.trim(),
+                clock.instant().truncatedTo(ChronoUnit.MICROS));
+        try {
+            users.createWithIdentity(user, login.provider(), login.subject());
+        } catch (UserRepository.DuplicateEmailException e) {
+            // 같은 계정의 로그인이 동시에 둘 들어와 다른 쪽이 먼저 만들었을 수 있다.
+            return users.findByIdentity(login.provider(), login.subject())
+                    .map(this::issue)
+                    .orElseThrow(() -> new AuthException(Kind.ACCOUNT_EXISTS, "그 이메일로 가입한 계정이 있다"));
+        }
+        return issue(user);
     }
 
     /** Refresh 토큰으로 새 토큰을 받는다. 쓴 Refresh 토큰은 다시 쓸 수 없다. */

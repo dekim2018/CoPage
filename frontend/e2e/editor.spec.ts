@@ -757,3 +757,10 @@ test('다른 사람이 페이지를 만들면 내 사이드바에 바로 보인�
   await expect(b.getByTestId('tree-item')).toHaveCount(1)
   await expect(b.getByTestId('tree-item')).toContainText('새 회의록')
 })
+
+test('다른 서비스 로그인이 실패해 돌아오면 로그인 화면에 까닭이 보인다', async ({ page }) => {
+  // 이 시험 환경에는 켜진 서비스가 없어 단추는 없고, 돌아온 까닭만 보인다.
+  await page.goto('/login?oauthError=account-exists')
+  await expect(page.getByTestId('oauth-error')).toContainText('그 이메일로 비밀번호 가입한 계정이 있다')
+  await expect(page.locator('[data-testid^=oauth-]').filter({ hasNotText: '계정' })).toHaveCount(0)
+})

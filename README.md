@@ -29,7 +29,7 @@ Java 25, Spring Boot 4.2, Spring Security 7.2, PostgreSQL 17, Redis 7, Vue 3, Ti
 | 2 | 협업 서버 | 완료 |
 | 3 | 워크스페이스와 권한 | 대부분. 초대 링크, 공유 링크, 옮기기와 사이드바 끌기, 휴지통과 30일 뒤 비우기, 사이드바 실시간 반영(D-46, D-47). 초대 메일과 페이지 깊이 제한은 없다 |
 | 4 | 오프라인과 다중 노드 | 완료. 브라우저 보관(D-42), 소유 리스와 양도, 노드 사이 권한 전달, 프록시 해시(D-43), 노드 두세 대의 장애 실험([docs/CHAOS.md](docs/CHAOS.md)). 여러 노드로 띄우기: `deploy/cluster/compose.yaml` |
-| 5 | 부가 기능 | 완료. 버전 기록과 복원(D-44), 되돌리기, 슬래시 메뉴, 블록 끌기(D-45), 댓글, 멘션과 알림(D-46), 검색과 프로필(D-47) |
+| 5 | 부가 기능 | 완료. 버전 기록과 복원(D-44), 되돌리기, 슬래시 메뉴, 블록 끌기(D-45), 댓글, 멘션과 알림(D-46), 검색과 프로필(D-47). P2 의 즐겨찾기와 최근 본 페이지(D-52), 구글과 깃허브 로그인(D-53)도 했다 |
 | 6 | 측정과 개선 | 완료. 노트북의 측정값을 [docs/01-PLAN.md](docs/01-PLAN.md) 1.4 와 [PERFORMANCE-REVIEW](docs/review/PERFORMANCE-REVIEW.md) 에 적었다(검색, 연산 로그 크기, 스냅샷 간격, 노드 둘, 2코어 4GB 로 묶은 노드). 실제 서버에서는 배포 뒤에 다시 잰다 |
 | 7 | 배포 | 준비 완료. 서버 한 대 운영 구성([deploy/prod](deploy/prod), [docs/DEPLOY.md](docs/DEPLOY.md))을 로컬에서 띄워 확인했다. 시연 영상은 [docs/demo/copage-demo.mp4](docs/demo/copage-demo.mp4). 실제 AWS 서버와 도메인은 직접 만든다 |
 
