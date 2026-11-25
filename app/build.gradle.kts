@@ -50,3 +50,16 @@ tasks.test {
     // 측정용 시험(SnapshotIntervalBench 등)은 -Dcopage.bench=true 일 때만 돈다.
     System.getProperty("copage.bench")?.let { systemProperty("copage.bench", it) }
 }
+
+// ErrDeck(같은 사람이 만든 모니터링 서비스) SDK (D-53). 에러, 성능 추적, 지표를 ErrDeck 으로 보낸다. 패키지가 CI 에 없으므로
+// -Perrdeck=true 로 빌드할 때만 넣는다. 먼저 ErrDeck 저장소에서 ./gradlew :core:publishToMavenLocal :sdk-spring:publishToMavenLocal
+// 넣지 않고 빌드하면 application.yml 의 errdeck 설정은 아무도 읽지 않는다.
+if (providers.gradleProperty("errdeck").orNull == "true") {
+    repositories {
+        mavenLocal()
+    }
+    dependencies {
+        implementation("com.errdeck:errdeck-sdk-spring:0.1.0-SNAPSHOT")
+    }
+}
+

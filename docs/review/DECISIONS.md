@@ -413,3 +413,12 @@ W-5(P1, SSE)는 별도 작업으로 둔다. 화면을 다시 열거나 펼치면
 - 노드 둘: 같은 노트북 안이라 처리량이 아니라 노드 사이 비용을 봤고 재는 흔들림 안이었다. 실제 서버 여러 대에서 재는 것은 배포 뒤로 남긴다
 - 시연 영상: Playwright 로 두 사람의 화면을 녹화해 좌우로 붙였다(`frontend/demo`, `docs/demo/copage-demo.mp4`, 21초). 동시 편집, 마크다운 단축 입력, 댓글과 멘션 알림, 답글, 검색이 나온다. 평소 화면 시험에는 들지 않는다. 녹화하다 찾은 것: 검색 결과의 한 줄 미리보기가 사이드바(240px)를 넓혀 본문을 덮었다(그리드 항목의 최소 폭, 고쳤다)
 
+### D-53 ErrDeck 연결(로컬) (추천 채택)
+
+- 무엇: 같은 사람이 만든 모니터링 서비스 ErrDeck 의 SDK 를 붙였다. 서버는 처리하지 못한 예외와 ERROR 로그, 요청의 성능 추적(경로 패턴, SQL, 나가는 호출), 화면은 처리하지 못한 예외, 페이지 이동과 API 호출의 추적을 보낸다. 화면의 API 호출에 `traceparent` 를 붙여 서버의 요청과 같은 추적으로 잇는다(같은 출처만). 지표는 ErrDeck 의 프로메테우스가 관리 포트를 긁는다
+- Sentry(D-49)와의 관계: 그대로 둔다. 둘 다 DSN 을 줄 때만 켜진다. 같은 가리기 규칙을 쓴다: 서버는 `errdeck.redact-paths` 에 공유와 초대 토큰, ticket, Bearer 를 정규식으로 주고, 화면은 `scrub` 을 그대로 넘긴다. 쿠키와 인증 헤더, 쿼리의 토큰 이름은 SDK 가 기본으로 가린다
+- 의존성: ErrDeck SDK 는 공개 저장소에 올라가 있지 않다. 서버는 `-Perrdeck=true` 로 빌드할 때만 `mavenLocal()` 의 SDK 를 넣는다(CI 는 넣지 않고 빌드한다). 화면은 빌드한 SDK 파일(ESM 하나와 타입, gzip 5KB 남짓)을 `frontend/src/monitoring/errdeck-sdk` 에 함께 두고, DSN 이 있을 때만 동적으로 내려받는다. 버린 안: GitHub Packages(받는 쪽 CI 에 읽기 토큰을 둬야 한다. 실제 서버에 올릴 때 다시 본다), 화면의 `file:../../ErrDeck` 의존성(CI 에서 깨진다)
+- 요청 시간 히스토그램(`http.server.requests`)을 켰다. ErrDeck 의 요약 카드와 성능 화면이 p95 를 여기서 계산한다. 시계열이 경로 수 x 버킷 수만큼 는다
+- 확인(로컬, 확인용 DB 와 Redis 를 따로 띄움): 화면의 페이지 이동 트랜잭션과 서버의 요청 트랜잭션이 같은 trace_id 로 이어졌다. 확인용 DB 를 멈추자 `CannotGetJdbcConnectionException`(culprit `JdbcPermissionRepository#chain`)이 이슈가 되었다. 화면 예외의 메시지의 `/s/{토큰}` 과 `ticket=` 이 가려졌다. ErrDeck 의 통합 화면에 CoPage 의 이슈와 요약 카드가 보였다. 스프링 부트 4.2 에서 SDK(4.1 로 빌드)가 문제 없이 떴다
+- 확인 중 찾은 것: ErrDeck 화면 SDK 가 예외 메시지는 가리지 않아 ErrDeck 쪽에서 고쳤다. 화면 e2e 의 기본 포트(5174)에 확인용 개발 서버를 띄우면 e2e 가 그 서버를 재사용하므로 다른 포트를 쓴다
+

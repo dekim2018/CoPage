@@ -12,7 +12,8 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "e2e": "playwright test",
-    "perf": "vitest run -c vitest.perf.config.ts"
+    "perf": "vitest run -c vitest.perf.config.ts",
+    "errdeck:sync": "cd ../../ErrDeck/sdk-vue && npm run build && cd - && cp ../../ErrDeck/sdk-vue/dist/*.js ../../ErrDeck/sdk-vue/dist/*.d.ts src/monitoring/errdeck-sdk/ && echo \"export * from './index'\" > src/monitoring/errdeck-sdk/errdeck-vue.d.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",
