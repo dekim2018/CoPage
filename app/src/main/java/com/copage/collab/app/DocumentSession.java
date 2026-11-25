@@ -146,6 +146,9 @@ public final class DocumentSession {
     private final BodySink bodies;
     /** 마지막으로 알린 뒤 커밋이 있었는지. 실행기 스레드에서만 읽고 쓴다. */
     private boolean bodyDirty;
+    /** 마지막으로 알린 본문과 댓글 스레드. 실행기 스레드에서만 읽고 쓴다. 본문은 세션을 올릴 때 한 번은 알린다(null). */
+    private String lastBody;
+    private Set<String> lastThreads = Set.of();
     private boolean bodyScheduled;
     private final TitleSink titles;
     private final CollabMetrics metrics;
@@ -625,6 +628,10 @@ public final class DocumentSession {
             }
         }
         if (!marked.isEmpty()) {
+            // 받는 쪽은 이제 이 스레드들이 본문에 있다고 안다. 다음 다 훑기에서 없으면 바뀐 것이다(붙이자마자 지운 경우).
+            Set<String> known = new HashSet<>(lastThreads);
+            known.addAll(marked);
+            lastThreads = known;
             try {
                 background.execute(() -> {
                     try {
@@ -738,10 +745,23 @@ public final class DocumentSession {
         String body = plainBody(server.document());
         Set<String> threads = commentThreads(server.document());
         long rev = server.rev();
+        // 바뀌지 않은 것은 다시 쓰지 않는다. 서식만 바꾼 편집은 본문이 같다 (D-51).
+        boolean bodyChanged = !body.equals(lastBody);
+        boolean threadsChanged = !threads.equals(lastThreads);
+        if (!bodyChanged && !threadsChanged) {
+            return;
+        }
+        lastBody = body;
+        lastThreads = threads;
         try {
             background.execute(() -> {
                 try {
-                    bodies.update(docId, body, threads, rev);
+                    if (bodyChanged) {
+                        bodies.update(docId, body, rev);
+                    }
+                    if (threadsChanged) {
+                        bodies.commentThreads(docId, threads);
+                    }
                 } catch (RuntimeException e) {
                     LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 검색 본문을 쓰지 못했다", e);
                 }

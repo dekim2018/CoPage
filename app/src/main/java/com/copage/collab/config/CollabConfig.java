@@ -218,7 +218,7 @@ public class CollabConfig {
     /** 검색 본문은 workspace 모듈이 쓴다 (F-1, D-47). 제목과 같은 길이다. */
     @Bean
     BodySink searchBodies(DocumentSessions documentSessions, WorkspaceService workspaceService) {
-        BodySink sink = (docId, body, commentThreads, rev) -> workspaceService.updateBody(docId, body, rev);
+        BodySink sink = workspaceService::updateBody;
         documentSessions.addBodySink(sink);
         return sink;
     }
