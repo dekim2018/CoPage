@@ -1,6 +1,7 @@
 package com.copage.collab.out;
 
 import com.copage.collab.app.DocumentStore;
+import com.copage.collab.app.RevisionGoneException;
 import com.copage.collab.domain.OpJson;
 import com.copage.collab.domain.StoredChange;
 import com.copage.ot.model.Document;
@@ -73,6 +74,12 @@ public final class JdbcDocumentStore implements DocumentStore {
 
     @Override
     public Document loadAt(UUID docId, long rev) {
+        // 로그를 지운 구간의 시점은 그 리비전의 스냅샷이 있을 때만 연다. 앞의 스냅샷에서 지운 로그를 건너뛰면 틀린 문서가 된다.
+        long compacted = compactedThrough(docId);
+        if (rev < compacted && jdbc.sql("SELECT count(*) FROM doc_snapshots WHERE doc_id = :docId AND rev = :rev")
+                .param("docId", docId).param("rev", rev).query(Long.class).single() == 0) {
+            throw new RevisionGoneException(rev);
+        }
         Optional<StoredSnapshot> snapshot = jdbc.sql("""
                         SELECT rev, content FROM doc_snapshots
                         WHERE doc_id = :docId AND rev <= :rev ORDER BY rev DESC LIMIT 1
@@ -98,6 +105,15 @@ public final class JdbcDocumentStore implements DocumentStore {
             document = document.apply(change.ops());
         }
         return document;
+    }
+
+    @Override
+    public long compactedThrough(UUID docId) {
+        return jdbc.sql("SELECT through_rev FROM doc_compactions WHERE doc_id = :docId")
+                .param("docId", docId)
+                .query(Long.class)
+                .optional()
+                .orElse(0L);
     }
 
     @Override
@@ -200,8 +216,9 @@ public final class JdbcDocumentStore implements DocumentStore {
                     .update();
             jdbc.sql("""
                             DELETE FROM doc_snapshots
-                            WHERE doc_id = :docId AND rev NOT IN (
-                                SELECT rev FROM doc_snapshots WHERE doc_id = :docId ORDER BY rev DESC LIMIT :kept)
+                            WHERE doc_id = :docId AND NOT pinned AND rev NOT IN (
+                                SELECT rev FROM doc_snapshots WHERE doc_id = :docId AND NOT pinned
+                                ORDER BY rev DESC LIMIT :kept)
                             """)
                     .param("docId", docId)
                     .param("kept", snapshotsKept)

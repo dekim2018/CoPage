@@ -193,6 +193,48 @@ public final class WorkspaceService {
         }
     }
 
+    /** 최근 본 페이지 목록의 길이 (W-6). */
+    static final int RECENT_PAGES = 10;
+
+    /** 즐겨찾기를 켜거나 끈다 (W-6). 볼 수 있는 페이지만. */
+    public void setFavorite(UUID userId, UUID pageId, boolean favorite) {
+        requireLevel(userId, pageId, PageLevel.VIEW, "이 페이지에 권한이 없다");
+        repository.setFavorite(userId, pageId, favorite, now());
+    }
+
+    public boolean isFavorite(UUID userId, UUID pageId) {
+        return repository.isFavorite(userId, pageId);
+    }
+
+    /** 이 페이지를 열었다고 적는다 (W-6). 볼 수 있는 페이지만. */
+    public void recordVisit(UUID userId, UUID pageId) {
+        requireLevel(userId, pageId, PageLevel.VIEW, "이 페이지에 권한이 없다");
+        repository.recordVisit(userId, pageId, now());
+    }
+
+    /**
+     * 즐겨찾기 (W-6). 지금 볼 수 있는 페이지만 보인다. 권한을 잃거나 하위로 숨겨진(조상이 휴지통) 페이지는 빠진다.
+     */
+    public List<Page> favorites(UUID userId, UUID workspaceId) {
+        roleOf(workspaceId, userId);
+        return visible(userId, workspaceId, repository.favorites(userId, workspaceId));
+    }
+
+    /** 최근 본 페이지 (W-6). 최근부터 10 개. 지금 볼 수 있는 페이지만. */
+    public List<Page> recent(UUID userId, UUID workspaceId) {
+        roleOf(workspaceId, userId);
+        // 볼 수 없게 된 것을 거르고도 10 개가 되게 넉넉히 읽는다.
+        List<Page> pages = visible(userId, workspaceId, repository.recent(userId, workspaceId, RECENT_PAGES * 3));
+        return pages.size() > RECENT_PAGES ? pages.subList(0, RECENT_PAGES) : pages;
+    }
+
+    private List<Page> visible(UUID userId, UUID workspaceId, List<Page> pages) {
+        return pages.stream()
+                .filter(page -> permissions.access(userId, page.id()) instanceof Access.Granted granted
+                        && granted.workspaceId().equals(workspaceId))
+                .toList();
+    }
+
     /** 문서 세션이 알린 검색 본문을 쓴다 (D-47). 리비전이 더 큰 것만 쓴다. */
     public void updateBody(UUID pageId, String body, long rev) {
         repository.updateBody(pageId, body, rev, now());

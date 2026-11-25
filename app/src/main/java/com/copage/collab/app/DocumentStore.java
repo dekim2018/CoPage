@@ -27,6 +27,11 @@ public interface DocumentStore {
      */
     Document loadAt(UUID docId, long rev);
 
+    /** 연산 로그를 어디까지 지웠는지 (D-52). 지운 적이 없으면 0. */
+    default long compactedThrough(UUID docId) {
+        return 0;
+    }
+
     /** fromRev 다음부터 최신까지의 확정 묶음. */
     List<StoredChange> changesSince(UUID docId, long fromRev);
 

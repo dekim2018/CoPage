@@ -71,6 +71,18 @@ function switchTo(event: Event) {
       </select>
       <template v-if="store.current">
         <SearchBox :workspace-id="workspaceId" />
+        <section v-if="store.favorites.length > 0" class="shortcuts" data-testid="favorites">
+          <h3>즐겨찾기</h3>
+          <RouterLink v-for="page in store.favorites" :key="page.id" :to="`/w/${workspaceId}/p/${page.id}`">
+            {{ page.title || '제목 없음' }}
+          </RouterLink>
+        </section>
+        <section v-if="store.recent.length > 0" class="shortcuts" data-testid="recent">
+          <h3>최근 본 페이지</h3>
+          <RouterLink v-for="page in store.recent" :key="page.id" :to="`/w/${workspaceId}/p/${page.id}`">
+            {{ page.title || '제목 없음' }}
+          </RouterLink>
+        </section>
         <button v-if="canCreate" type="button" class="new-page" @click="createRoot">새 페이지</button>
         <PageTree :workspace-id="workspaceId" :parent-id="null" />
         <p v-if="store.moveError" class="error" data-testid="move-error">{{ store.moveError }}</p>

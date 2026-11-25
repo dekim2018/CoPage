@@ -166,6 +166,44 @@ class PageTreeFlowTest extends TestInfra {
         assertEquals(400, send("POST", "/api/pages/" + b + "/move", first, team.owner).status());
     }
 
+    private List<String> shortcuts(Team team, String kind, Account who) throws Exception {
+        List<String> ids = new ArrayList<>();
+        send("GET", "/api/workspaces/" + team.id + "/" + kind, null, who).body()
+                .forEach(page -> ids.add(page.get("id").stringValue()));
+        return ids;
+    }
+
+    @Test
+    void 즐겨찾기와_최근_본_페이지는_볼_수_있는_것만_보이고_최근부터_나온다() throws Exception {
+        Team team = new Team();
+        String a = team.page(null);
+        String b = team.page(null);
+        String c = team.page(null);
+
+        assertEquals(204, send("PUT", "/api/pages/" + b + "/favorite", Map.of("favorite", true), team.member).status());
+        assertEquals(204, send("PUT", "/api/pages/" + a + "/favorite", Map.of("favorite", true), team.member).status());
+        assertEquals(List.of(b, a), shortcuts(team, "favorites", team.member), "즐겨찾기한 순서");
+        assertTrue(send("GET", "/api/pages/" + a, null, team.member).body().get("favorite").booleanValue());
+        assertEquals(List.of(), shortcuts(team, "favorites", team.owner), "사람마다 따로다");
+
+        for (String page : List.of(a, b, c, a)) {
+            assertEquals(204, send("POST", "/api/pages/" + page + "/visit", null, team.member).status());
+            Thread.sleep(5);
+        }
+        assertEquals(List.of(a, c, b), shortcuts(team, "recent", team.member), "최근에 연 것부터, 한 번씩");
+
+        // 제한하면 멤버에게서 빠지고, 휴지통에 보내면 모두에게서 빠진다.
+        send("PUT", "/api/pages/" + a + "/restricted", Map.of("restricted", true), team.owner);
+        assertEquals(List.of(b), shortcuts(team, "favorites", team.member));
+        assertEquals(List.of(c, b), shortcuts(team, "recent", team.member));
+        send("DELETE", "/api/pages/" + b, null, team.owner);
+        assertEquals(List.of(), shortcuts(team, "favorites", team.member));
+
+        assertEquals(204, send("PUT", "/api/pages/" + c + "/favorite", Map.of("favorite", false), team.member).status());
+        assertEquals(404, send("PUT", "/api/pages/" + a + "/favorite", Map.of("favorite", true), account()).status());
+        assertEquals(404, send("GET", "/api/workspaces/" + team.id + "/recent", null, account()).status());
+    }
+
     @Test
     void 페이지는_10단계까지_중첩하고_옮겨서도_넘을_수_없다() throws Exception {
         Team team = new Team();

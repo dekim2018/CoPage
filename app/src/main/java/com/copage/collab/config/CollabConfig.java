@@ -6,6 +6,7 @@ import com.copage.collab.app.CollabMetrics;
 import com.copage.collab.app.DocumentSession;
 import com.copage.collab.app.DocumentSessions;
 import com.copage.collab.app.DocumentStore;
+import com.copage.collab.app.LogCompactor;
 import com.copage.collab.app.MentionSink;
 import com.copage.collab.app.OwnershipLease;
 import com.copage.collab.app.TicketService;
@@ -15,6 +16,7 @@ import com.copage.collab.app.VersionLog;
 import com.copage.collab.domain.PageRole;
 import com.copage.collab.in.CollabWebSocketHandler;
 import com.copage.collab.in.ProtocolCodec;
+import com.copage.collab.out.JdbcLogCompaction;
 import com.copage.collab.out.JdbcDocumentStore;
 import com.copage.collab.out.JdbcVersionLog;
 import com.copage.collab.out.MicrometerCollabMetrics;
@@ -232,6 +234,37 @@ public class CollabConfig {
      * 자동 버전을 남기는 주기 작업 (D-44). 편집이 2분 조용하거나 마지막 버전에서 10분이 지난 문서에 하나. 여러 노드가 함께 돌려도
      * 한 번만 남는다.
      */
+    @Bean
+    LogCompactor logCompactor(
+            JdbcClient jdbcClient, TransactionTemplate transactionTemplate, JsonMapper jsonMapper,
+            DocumentStore documentStore) {
+        return new LogCompactor(new JdbcLogCompaction(jdbcClient, transactionTemplate, jsonMapper), documentStore,
+                Clock.systemUTC());
+    }
+
+    /** 세션의 일정(리스 갱신 등)을 맡은 스케줄러를 막지 않게 정리 작업은 따로 돈다. */
+    @Bean(destroyMethod = "shutdownNow")
+    ScheduledExecutorService collabJobs() {
+        return Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().name("collab-jobs").daemon().factory());
+    }
+
+    /**
+     * 한 시간마다 log-retention(기본 30일)보다 오래된 연산 로그를 고정 스냅샷으로 접고 지운다 (D-52). 한 번에 문서 200 개까지.
+     */
+    @Bean
+    ScheduledFuture<?> logCompactionJob(LogCompactor logCompactor, ScheduledExecutorService collabJobs) {
+        return collabJobs.scheduleWithFixedDelay(() -> {
+            try {
+                int docs = logCompactor.compactOlderThan(properties.logRetention(), 200);
+                if (docs > 0) {
+                    LOG.log(System.Logger.Level.INFO, "문서 " + docs + " 개의 오래된 연산 로그를 정리했다");
+                }
+            } catch (RuntimeException e) {
+                LOG.log(System.Logger.Level.WARNING, "연산 로그를 정리하지 못했다", e);
+            }
+        }, 10, 60, TimeUnit.MINUTES);
+    }
+
     @Bean
     ScheduledFuture<?> autoVersionJob(VersionLog versionLog, ScheduledExecutorService collabScheduler) {
         return collabScheduler.scheduleWithFixedDelay(() -> {

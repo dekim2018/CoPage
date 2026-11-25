@@ -36,6 +36,18 @@ const auth = useAuth()
 // 경로(볼 수 있는 조상)와 제한 여부. 연결과 따로 읽는다. 읽지 못해도 편집은 된다.
 const pageInfo = ref<PageDetail | null>(null)
 
+/** 즐겨찾기를 켜고 끈다 (W-6). 사이드바의 목록도 다시 읽는다. */
+async function toggleFavorite() {
+  const page = pageInfo.value
+  if (page === null) {
+    return
+  }
+  const next = !page.favorite
+  await workspaceApi.setFavorite(page.id, next)
+  page.favorite = next
+  await workspace.loadShortcuts()
+}
+
 // 이 탭에서 이 페이지의 조상을 휴지통으로 보냈다. 편집기는 권한을 다시 계산해 닫히므로 오류 화면에 남지 않고 첫 화면으로 간다.
 watch(
   () => pageInfo.value?.path.some((ancestor) => workspace.trashed.has(ancestor.id)) ?? false,
@@ -177,6 +189,11 @@ onMounted(async () => {
       (page) => (pageInfo.value = page),
       () => (pageInfo.value = null),
     )
+    // 최근 본 페이지에 적고 사이드바의 목록을 다시 읽는다 (W-6).
+    workspaceApi.visit(props.pageId).then(
+      () => workspace.loadShortcuts(),
+      () => undefined,
+    )
   }
   client = new CollabClient(
     props.pageId,
@@ -243,6 +260,17 @@ onBeforeUnmount(() => {
   <div class="editor-head">
     <p class="status" data-testid="status" :data-status="status">{{ label }}</p>
     <p v-if="role !== null && !canEdit(role)" class="readonly" data-testid="readonly">읽기 전용</p>
+    <button
+      v-if="pageInfo && !shareToken"
+      type="button"
+      class="favorite-toggle"
+      data-testid="favorite-toggle"
+      :aria-pressed="pageInfo.favorite"
+      :title="pageInfo.favorite ? '즐겨찾기에서 빼기' : '즐겨찾기'"
+      @click="toggleFavorite"
+    >
+      {{ pageInfo.favorite ? '★' : '☆' }}
+    </button>
     <button v-if="role !== null && !shareToken" type="button" data-testid="comments-button" @click="showComments = !showComments">
       댓글
     </button>
