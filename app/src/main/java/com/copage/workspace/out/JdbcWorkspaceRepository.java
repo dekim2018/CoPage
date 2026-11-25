@@ -474,6 +474,64 @@ public final class JdbcWorkspaceRepository implements WorkspaceRepository {
     }
 
     @Override
+    public void setFavorite(UUID userId, UUID pageId, boolean favorite, Instant now) {
+        if (favorite) {
+            jdbc.sql("""
+                            INSERT INTO page_favorites (user_id, page_id, created_at) VALUES (:userId, :pageId, :now)
+                            ON CONFLICT DO NOTHING
+                            """)
+                    .param("userId", userId).param("pageId", pageId).param("now", Timestamp.from(now))
+                    .update();
+        } else {
+            jdbc.sql("DELETE FROM page_favorites WHERE user_id = :userId AND page_id = :pageId")
+                    .param("userId", userId).param("pageId", pageId)
+                    .update();
+        }
+    }
+
+    @Override
+    public boolean isFavorite(UUID userId, UUID pageId) {
+        return jdbc.sql("SELECT count(*) FROM page_favorites WHERE user_id = :userId AND page_id = :pageId")
+                .param("userId", userId).param("pageId", pageId)
+                .query(Long.class).single() > 0;
+    }
+
+    @Override
+    public List<Page> favorites(UUID userId, UUID workspaceId) {
+        return jdbc.sql("SELECT " + PAGE_COLUMNS + """
+                         FROM page_favorites f JOIN pages p ON p.id = f.page_id
+                        WHERE f.user_id = :userId AND p.workspace_id = :workspaceId AND p.archived_at IS NULL
+                        ORDER BY f.created_at, p.id
+                        """)
+                .param("userId", userId).param("workspaceId", workspaceId)
+                .query((rs, row) -> page(rs))
+                .list();
+    }
+
+    @Override
+    public void recordVisit(UUID userId, UUID pageId, Instant now) {
+        jdbc.sql("""
+                        INSERT INTO page_visits (user_id, page_id, visited_at) VALUES (:userId, :pageId, :now)
+                        ON CONFLICT (user_id, page_id) DO UPDATE SET visited_at = EXCLUDED.visited_at
+                        """)
+                .param("userId", userId).param("pageId", pageId).param("now", Timestamp.from(now))
+                .update();
+    }
+
+    @Override
+    public List<Page> recent(UUID userId, UUID workspaceId, int limit) {
+        return jdbc.sql("SELECT " + PAGE_COLUMNS + """
+                         FROM page_visits v JOIN pages p ON p.id = v.page_id
+                        WHERE v.user_id = :userId AND p.workspace_id = :workspaceId AND p.archived_at IS NULL
+                        ORDER BY v.visited_at DESC, p.id
+                        LIMIT :limit
+                        """)
+                .param("userId", userId).param("workspaceId", workspaceId).param("limit", limit)
+                .query((rs, row) -> page(rs))
+                .list();
+    }
+
+    @Override
     public int depthOf(UUID pageId) {
         return jdbc.sql("""
                         WITH RECURSIVE up (id, parent_id, depth) AS (

@@ -439,6 +439,11 @@ public final class DocumentSession {
         if (!missed.isEmpty() && missed.get(0).committedAt().plus(settings.rebaseMaxAge()).isBefore(clock.instant())) {
             return new ServerMessage.Welcome(rev, role, false, server.document(), null, peers);
         }
+        // 놓친 묶음에 구멍이 있다(그 구간의 로그를 정리했다, D-52). 이어 붙일 수 없다.
+        long expected = lastRev + 1;
+        if ((missed.isEmpty() && lastRev < rev) || (!missed.isEmpty() && missed.get(0).rev() != expected)) {
+            return new ServerMessage.Welcome(rev, role, false, server.document(), null, peers);
+        }
         return new ServerMessage.Welcome(rev, role, true, null, missed, peers);
     }
 

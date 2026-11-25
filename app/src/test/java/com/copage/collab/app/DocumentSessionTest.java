@@ -98,6 +98,8 @@ class DocumentSessionTest {
         boolean failLoad;
         boolean failRead;
         int seqReads;
+        /** 이 리비전까지의 로그를 지웠다고 흉내 낸다 (D-52). */
+        long compactedThrough;
 
         @Override
         public Snapshot load(UUID docId) {
@@ -109,7 +111,7 @@ class DocumentSessionTest {
 
         @Override
         public List<StoredChange> changesSince(UUID docId, long fromRev) {
-            return delegate.changesSince(docId, fromRev);
+            return delegate.changesSince(docId, fromRev).stream().filter(c -> c.rev() > compactedThrough).toList();
         }
 
         @Override
@@ -396,6 +398,24 @@ class DocumentSessionTest {
         Welcome recent = join("E", 5, PageRole.EDIT).last(Welcome.class);
         assertTrue(recent.rebase());
         assertEquals(List.of(), recent.ops());
+    }
+
+    @Test
+    void 놓친_묶음의_로그를_정리했으면_rebase_false_로_전체_문서를_받는다() {
+        FakeConnection a = join("A");
+        for (int i = 1; i <= 3; i++) {
+            submit(a, i, i - 1, paragraph("B" + i, "가"));
+            runAll();
+        }
+        store.compactedThrough = 2;
+
+        Welcome gap = join("C", 1, PageRole.EDIT).last(Welcome.class);
+        assertFalse(gap.rebase(), "리비전 2 가 지워져 이어 붙일 수 없다");
+        assertNotNull(gap.snapshot());
+
+        Welcome edge = join("D", 2, PageRole.EDIT).last(Welcome.class);
+        assertTrue(edge.rebase(), "놓친 것(3)은 다 있다");
+        assertEquals(1, edge.ops().size());
     }
 
     @Test

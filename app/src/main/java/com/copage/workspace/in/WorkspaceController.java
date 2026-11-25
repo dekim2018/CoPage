@@ -73,6 +73,13 @@ class WorkspaceController {
         }
     }
 
+    /** 사이드바의 바로 가기(즐겨찾기, 최근 본 페이지) 한 줄. */
+    record ShortcutResponse(UUID id, UUID parentId, String title) {
+        static ShortcutResponse of(Page page) {
+            return new ShortcutResponse(page.id(), page.parentId(), page.title());
+        }
+    }
+
     /** @param snippet 본문에서 찾은 곳 앞뒤의 글. 제목에만 있으면 본문의 앞부분이나 빈 글 */
     record SearchResponse(UUID id, UUID parentId, String title, String snippet) {
         static SearchResponse of(WorkspaceService.SearchResult result) {
@@ -165,6 +172,18 @@ class WorkspaceController {
     @GetMapping("/{workspaceId}/trash")
     List<TrashResponse> trash(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID workspaceId) {
         return workspaces.trash(userId(jwt), workspaceId).stream().map(TrashResponse::of).toList();
+    }
+
+    /** 즐겨찾기 (W-6). 볼 수 있는 페이지만. */
+    @GetMapping("/{workspaceId}/favorites")
+    List<ShortcutResponse> favorites(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID workspaceId) {
+        return workspaces.favorites(userId(jwt), workspaceId).stream().map(ShortcutResponse::of).toList();
+    }
+
+    /** 최근 본 페이지 (W-6). 최근부터 10 개. */
+    @GetMapping("/{workspaceId}/recent")
+    List<ShortcutResponse> recent(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID workspaceId) {
+        return workspaces.recent(userId(jwt), workspaceId).stream().map(ShortcutResponse::of).toList();
     }
 
     /** 제목과 본문 검색 (F-1, F-2, D-47). 볼 수 있는 페이지만. */

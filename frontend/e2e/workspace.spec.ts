@@ -96,3 +96,29 @@ test('프로필에서 고른 커서 색이 상대의 접속자 목록에 보인�
   const peer = b.getByTestId('peers').locator('li[title="수정한 이름"]')
   await expect(peer).toHaveCSS('background-color', 'rgb(70, 167, 88)')
 })
+
+test('별을 누르면 사이드바의 즐겨찾기에 들어가고, 연 페이지는 최근 본 페이지에 최근부터 보인다', async ({ browser }) => {
+  const a = await newUser(browser, 'a')
+  const docId = await sharedPage(a)
+  await open(a, docId)
+  await newPage(a, '첫째 문서', '')
+  await newPage(a, '둘째 문서', '')
+
+  const recent = a.getByTestId('recent').getByRole('link')
+  await expect(recent.first()).toHaveText('둘째 문서')
+  await expect(recent.nth(1)).toHaveText('첫째 문서')
+
+  await expect(a.getByTestId('favorites')).toHaveCount(0)
+  await a.getByTestId('favorite-toggle').click()
+  await expect(a.getByTestId('favorite-toggle')).toHaveAttribute('aria-pressed', 'true')
+  await expect(a.getByTestId('favorites').getByRole('link')).toHaveText(['둘째 문서'])
+
+  // 즐겨찾기를 눌러 다른 페이지로 갔다가 돌아오면 최근 순서가 바뀐다.
+  await recent.nth(1).click()
+  await expect(a.getByTestId('status')).toHaveAttribute('data-status', 'saved')
+  await expect(recent.first()).toHaveText('첫째 문서')
+  await a.getByTestId('favorites').getByRole('link').click()
+  await expect(a.getByTestId('favorite-toggle')).toHaveAttribute('aria-pressed', 'true')
+  await a.getByTestId('favorite-toggle').click()
+  await expect(a.getByTestId('favorites')).toHaveCount(0)
+})

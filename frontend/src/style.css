@@ -379,3 +379,36 @@ form {
   outline: 2px solid #fff;
   outline-offset: -4px;
 }
+
+/* 사이드바의 바로 가기: 즐겨찾기, 최근 본 페이지 (W-6) */
+.shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.shortcuts h3 {
+  margin: 4px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.6;
+}
+.shortcuts a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+  text-decoration: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.shortcuts a:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+.favorite-toggle {
+  border: 0;
+  background: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #d4a72c;
+}

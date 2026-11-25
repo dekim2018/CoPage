@@ -64,7 +64,7 @@ ack는 DB 커밋 뒤에만 보낸다. 다른 사람에게 보내는 `remote` 도
 
 - 연산 로그는 90일 동안 전부 보관한다. 오프라인 재접속 허용 기간 7일을 충분히 덮는다.
 - 90일이 지난 구간은 하루에 하나의 버전 스냅샷만 남기고 연산을 지운다. 지우는 작업은 매일 새벽에 문서 단위로 나눠 실행한다.
-- 연산 하나의 평균 크기와 페이지당 하루 연산 수는 부하 실험에서 재서 용량 계산식에 넣는다. 아직 재지 않았다. 로그를 지우는 작업도 아직 없다.
+- 연산 하나의 크기와 용량은 PERFORMANCE-REVIEW 2.6 에 쟀다. 30일(log-retention)보다 오래된 연산은 한 시간마다 정리한다(D-52): 지울 지점과 남길 버전(이름 붙인 것과 복원 시점은 모두, 자동 시점은 하루 하나)의 문서를 고정 스냅샷으로 남기고 그 앞의 로그를 지운다. 지운 구간의 다른 시점은 열 수 없다(410).
 
 시간 범위로 파티션을 나누면 오래된 로그를 파티션째 지울 수 있어 편하다. 하지만 PostgreSQL은 파티션 테이블의 유일 제약에 파티션 키를 포함하라고 요구한다. 그러면 (문서, 리비전) 유일 제약이 파티션 전체에 걸쳐 보장되지 않고, 5.3의 마지막 방어선이 깨진다. 그래서 1차에는 파티션을 나누지 않는다. 나중에 나눈다면 `doc_id` 해시 파티션을 쓴다. 이 경우 파티션 키가 기본 키에 들어 있어 제약이 유지된다.
 
@@ -80,7 +80,10 @@ ack는 DB 커밋 뒤에만 보낸다. 다른 사람에게 보내는 `remote` 도
 | `page_grants` | page_id(pages, 지우면 함께), user_id(users), level(VIEW, COMMENT, EDIT, FULL), granted_by(users), created_at | 기본 키 (page_id, user_id). 색인 (user_id) | V4 |
 | `share_links` | id, page_id(유일), token_hash(유일), level(VIEW, COMMENT, EDIT), expires_at(없으면 끌 때까지), created_by, created_at | 토큰은 SHA-256 해시. 끄면 행을 지운다(revoked_at 은 두지 않았다) | 구현 (V7, D-41) |
 | `doc_ops` | 8.1 참고 | doc_id 는 페이지 ID 지만 외래 키를 걸지 않는다(V3 이전 문서가 남아 있다) | V1 |
-| `doc_snapshots` | 8.1 참고 |  | V1 |
+| `doc_snapshots` | 8.1 참고. pinned(고정) | 고정 스냅샷은 최근 몇 개만 남기는 정리에서 빠진다(D-52) | V1, pinned 는 V13 |
+| `doc_compactions` | doc_id, through_rev, compacted_at | 연산 로그를 어디까지 지웠는지 | 구현 (V13, D-52) |
+| `page_favorites` | user_id, page_id, created_at | 즐겨찾기(W-6). 페이지나 사용자를 지우면 함께 지워진다 | 구현 (V13) |
+| `page_visits` | user_id, page_id, visited_at | 최근 본 페이지(W-6). 사람과 페이지마다 마지막으로 연 때 하나 | 구현 (V13) |
 | `doc_versions` | id, doc_id, rev, kind(AUTO, NAMED, RESTORE), name, created_by, created_at. (doc_id, rev, kind) 유일 | 버전 기록 목록. 과거 시점은 그 리비전 이하의 스냅샷과 로그로 만든다 | 구현 (V8, D-44) |
 | `comment_threads` | id, doc_id(pages 외래 키), quote, created_by, created_at, resolved_at, resolved_by, anchored_at, orphaned | quote는 댓글을 달 당시의 원문. 해결은 시각과 사람으로 둔다(status 칸 대신). anchored_at 은 본문에서 서식을 처음 본 때, orphaned 는 한때 있던 서식이 지금은 없음 | 구현 (V9, D-46. anchored_at, orphaned 는 V12, D-50) |
 | `comments` | id, thread_id, author_id, body, created_at, edited_at, deleted_at | 지우면 body 를 비우고 deleted_at 을 남긴다. 남은 댓글이 없는 스레드는 지운다 | 구현 (V9, D-46. 고치기와 지우기 V11, D-49) |

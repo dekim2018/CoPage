@@ -31,6 +31,15 @@ export interface PageDetail {
   level: PageRole
   /** 볼 수 있는 조상. 루트 쪽부터 */
   path: { id: string; title: string }[]
+  /** 내가 즐겨찾기했는지 (W-6) */
+  favorite: boolean
+}
+
+/** 사이드바의 바로 가기(즐겨찾기, 최근 본 페이지) 한 줄 (W-6). */
+export interface Shortcut {
+  id: string
+  parentId: string | null
+  title: string
 }
 
 export interface Member {
@@ -140,6 +149,11 @@ export const workspaceApi = {
   trashPage: (pageId: string) => api<void>(`/api/pages/${pageId}`, { method: 'DELETE' }),
   restorePage: (pageId: string) => api<PageDetail>(`/api/pages/${pageId}/restore`, { method: 'POST' }),
   trash: (workspaceId: string) => api<TrashedPage[]>(`/api/workspaces/${workspaceId}/trash`),
+  favorites: (workspaceId: string) => api<Shortcut[]>(`/api/workspaces/${workspaceId}/favorites`),
+  recent: (workspaceId: string) => api<Shortcut[]>(`/api/workspaces/${workspaceId}/recent`),
+  setFavorite: (pageId: string, favorite: boolean) =>
+    api<void>(`/api/pages/${pageId}/favorite`, { method: 'PUT', ...json({ favorite }) }),
+  visit: (pageId: string) => api<void>(`/api/pages/${pageId}/visit`, { method: 'POST' }),
   search: (workspaceId: string, query: string) =>
     api<SearchHit[]>(`/api/workspaces/${workspaceId}/search?q=${encodeURIComponent(query)}`),
   updateProfile: (change: { name?: string; color?: string }) =>
