@@ -9,13 +9,21 @@ import java.util.UUID;
  */
 public interface BodySink {
 
-    BodySink NONE = (docId, body, commentThreads, rev) -> { };
+    BodySink NONE = (docId, body, rev) -> { };
 
     /**
+     * 본문이 바뀌었다. 세션이 마지막으로 알린 것과 같으면 부르지 않는다 (D-51).
+     *
      * @param body 제목을 뺀 모든 블록의 글을 화면 순서로 줄바꿈으로 이은 것
-     * @param commentThreads 보이는 글자에 붙은 comment 서식의 값(스레드 ID). 여기 없는 스레드는 원문이 지워졌다 (D-50)
      */
-    void update(UUID docId, String body, Set<String> commentThreads, long rev);
+    void update(UUID docId, String body, long rev);
+
+    /**
+     * 보이는 글자에 붙은 comment 서식의 값(스레드 ID)들이 세션이 마지막으로 알린 것과 달라졌다(처음에는 빈 것과 비교한다). 여기
+     * 없는 스레드는 원문이 지워졌다 (D-50, D-51).
+     */
+    default void commentThreads(UUID docId, Set<String> threads) {
+    }
 
     /**
      * 방금 커밋한 편집이 이 스레드들의 comment 서식을 붙였다 (D-50). 본문을 다 훑는 update 를 기다리지 않고 바로 알린다. 붙이자마자

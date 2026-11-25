@@ -15,6 +15,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Semaphore;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 /**
@@ -40,26 +42,46 @@ public final class DocumentSessions {
 
     /** 본문을 받는 곳들(검색, 댓글 위치). 하나가 실패해도 다른 곳에는 간다. */
     private final List<BodySink> bodySinks = new CopyOnWriteArrayList<>();
+    /**
+     * 본문을 받는 곳들은 DB 에 쓴다. 활성 문서마다 몇 초에 한 번이라, 동시에 도는 수를 묶지 않으면 커밋과 같은 연결 풀을 다투다
+     * 커밋이 연결을 얻지 못해 세션을 버린다(2코어, 문서 500 개 측정에서 찾았다, D-51). 동시에 BACKGROUND_WRITES 개까지만 돈다.
+     */
+    private static final int BACKGROUND_WRITES = 2;
+    private final Semaphore backgroundWrites = new Semaphore(BACKGROUND_WRITES, true);
+
     private final BodySink bodies = new BodySink() {
         @Override
-        public void update(UUID docId, String body, Set<String> commentThreads, long rev) {
-            for (BodySink sink : bodySinks) {
-                try {
-                    sink.update(docId, body, commentThreads, rev);
-                } catch (RuntimeException e) {
-                    LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 본문을 알리지 못했다", e);
-                }
-            }
+        public void update(UUID docId, String body, long rev) {
+            each(docId, sink -> sink.update(docId, body, rev));
         }
 
         @Override
-        public void commentMarked(UUID docId, Set<String> commentThreads) {
-            for (BodySink sink : bodySinks) {
-                try {
-                    sink.commentMarked(docId, commentThreads);
-                } catch (RuntimeException e) {
-                    LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 댓글 서식을 알리지 못했다", e);
+        public void commentThreads(UUID docId, Set<String> threads) {
+            each(docId, sink -> sink.commentThreads(docId, threads));
+        }
+
+        @Override
+        public void commentMarked(UUID docId, Set<String> threads) {
+            each(docId, sink -> sink.commentMarked(docId, threads));
+        }
+
+        private void each(UUID docId, Consumer<BodySink> call) {
+            try {
+                backgroundWrites.acquire();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            try {
+                for (BodySink sink : bodySinks) {
+                    try {
+                        call.accept(sink);
+                    } catch (RuntimeException e) {
+                        LOG.log(System.Logger.Level.WARNING, "문서 " + docId + " 의 본문을 알리지 못했다", e);
+                    }
                 }
+            } finally {
+                backgroundWrites.release();
             }
         }
     };

@@ -46,8 +46,13 @@ public class CommentConfig {
     BodySink commentAnchors(DocumentSessions documentSessions, CommentService commentService) {
         BodySink sink = new BodySink() {
             @Override
-            public void update(UUID docId, String body, Set<String> commentThreads, long rev) {
-                commentService.anchorsSeen(docId, commentThreads);
+            public void update(UUID docId, String body, long rev) {
+                // 본문은 검색이 쓴다. 댓글은 스레드 목록이 바뀔 때만 본다.
+            }
+
+            @Override
+            public void commentThreads(UUID docId, Set<String> threads) {
+                commentService.anchorsSeen(docId, threads);
             }
 
             @Override

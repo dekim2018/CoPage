@@ -47,4 +47,6 @@ tasks.test {
     dependsOn(vectors)
     val dir = project(":ot-core").layout.buildDirectory.dir("vectors")
     systemProperty("copage.vectors.dir", dir.get().asFile.absolutePath)
+    // 측정용 시험(SnapshotIntervalBench 등)은 -Dcopage.bench=true 일 때만 돈다.
+    System.getProperty("copage.bench")?.let { systemProperty("copage.bench", it) }
 }

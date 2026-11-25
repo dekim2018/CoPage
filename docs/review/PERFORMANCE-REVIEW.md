@@ -112,6 +112,46 @@ PostgreSQL 17(로컬 compose)에 페이지 10,000 개를 넣고(본문 평균 91
 
 계산: 한 사람이 쉬지 않고 칠 때 화면은 50ms 마다 묶어 보낸다(D-34). 묶음 하나가 행 하나이므로 많아야 초당 20행, 시간당 72,000행, 약 28MB 다. 실제 편집은 쉬는 시간이 길어 이보다 훨씬 적다. 디스크 30GB 서버에서 데이터에 20GB 를 쓰면 약 5,000만 행, 쉬지 않고 친 시간으로 700시간이다. 로그는 지우지 않는다(버전 기록이 리비전을 가리킨다, D-44). 그 전에 오래된 로그를 스냅샷으로 접는 작업이 필요하다(하지 않았다).
 
+### 2.7 스냅샷 간격 (D-51)
+
+세션을 정상으로 내리면 그때 스냅샷을 남기므로, 스냅샷 뒤 연산을 다시 적용하는 것은 서버가 갑자기 죽은 뒤 처음 열 때다. 간격이 N 이면 그때 다시 적용하는 연산은 많아야 N 개다. 블록 2,000 개 문서에 한 글자 넣기 연산을 K 개 쌓고 실제 PostgreSQL 로 열었다(`SnapshotIntervalBench`, 7번씩, 중앙값).
+
+| 스냅샷 뒤 연산 K | 열기 중앙값 | 최대 |
+| --- | --- | --- |
+| 0 | 31.6ms | 69.6ms |
+| 50 | 24.2ms | 31.2ms |
+| 200 | 28.4ms | 53.0ms |
+| 1,000 | 64.5ms | 73.4ms |
+| 5,000 | 231.5ms | 245.9ms |
+
+스냅샷 하나를 남기는 데 53.5ms(최대 88.4ms), 크기 26KB 다. 스냅샷은 그 문서의 실행 흐름에서 남기므로 그동안 그 문서의 ack 가 늦는다. 간격 200 에서는 다시 적용이 거의 공짜이고(200 개까지 차이가 재는 흔들림 안), 스냅샷은 묶음 200 개에 한 번(0.5%)이라 ack p99 에 들지 않는다. 간격을 1,000 으로 늘리면 스냅샷 비용은 5분의 1 이 되지만 죽은 뒤 열기가 30ms 남짓 늘어난다. 지금 값(200)을 그대로 둔다.
+
+### 2.8 노드 둘 (D-51)
+
+`deploy/cluster` 로 nginx 뒤에 노드 둘을 띄우고 같은 시험을 노드 하나(node2 를 내림)와 비교했다. 모두 같은 노트북 안이라 노드를 늘려도 CPU 가 늘지 않는다. 늘어나는 처리량이 아니라 노드 사이 비용(소유 리스, 문서별 라우팅)을 보는 측정이다.
+
+| 시험 | 노드 하나 | 노드 둘 |
+| --- | --- | --- |
+| 문서 100 개 x 3명, 초당 2번 | ack p99 17.3ms, 100/100 수렴 | ack p99 14.4ms, 17.0ms(두 번), 100/100 수렴 |
+| 문서 1개 x 50명, 초당 5번 | ack p99 15.6ms | ack p99 17.9ms, 19.3ms |
+
+노드 사이 비용은 재는 흔들림 안이다. 찾은 것: nginx 의 기본 `worker_connections`(512)로는 편집자 300 명에서 연결이 끊겼다(웹소켓 하나가 연결 둘을 쓴다). 실험 구성을 8,192 로 올렸다. 운영 구성(Caddy)에는 이런 낮은 기본 한도가 없다. 노드 둘의 첫 실행은 p99 69.5ms 였는데 막 뜬 node2 가 데워지지 않은 탓으로 보고(같은 시험의 다음 실행 14.4ms) 표에서 뺐다.
+
+### 2.9 2코어, 4GB 로 묶은 노드 하나 (D-51)
+
+t3.medium(2 vCPU, 4GB)을 흉내 내 서버, PostgreSQL, Redis 를 같은 두 코어에 묶고(`--cpuset-cpus 0,1`), 메모리를 서버 1.6GB(힙 1GB), PostgreSQL 1.5GB, Redis 256MB 로 묶었다. 1.4 의 수용량 조건(문서 500 x 4명, 초당 1번, 60초)이다. 노트북 안의 컨테이너라 실제 서버의 디스크와 네트워크는 아니다.
+
+| | 고치기 전 | 고친 뒤 |
+| --- | --- | --- |
+| 수렴 | 494/500 | 500/500 |
+| 닫힌 연결 | 4009 로 24 개(커밋 실패로 세션을 버림 6번) | 없음 |
+| ack p50, p95, p99, 최대 | 2.3ms, 489ms, 1,143ms, 3,175ms | 1.4ms, 27ms, 75ms, 233ms |
+| 서버 ack 처리 평균 | 72.3ms | 3.7ms |
+| 힙(살아 있는 연결 2,000) | 532MB | 513MB |
+| CPU 최대(두 코어 = 200%) | 서버 131%, PostgreSQL 62% | 서버 125%, PostgreSQL 54% |
+
+고친 것: 검색 본문(D-47)과 댓글 위치(D-50)를 쓰는 백그라운드 작업이 활성 문서마다 5초에 한 번, 동시 실행 수 제한 없이(가상 스레드) DB 에 썼다. 문서 500 개에서 이것들이 커밋과 같은 연결 풀(10개)을 다투다 커밋이 3초 안에 연결을 얻지 못해 세션을 버렸다(`CannotGetJdbcConnectionException`). 백그라운드 쓰기를 동시에 2개로 묶고, 본문이나 댓글 스레드 목록이 바뀌지 않았으면 쓰지 않게 했다. 처음에는 CPU 를 컨테이너마다 나눠(서버 1.4, PostgreSQL 0.4) 쟀는데, PostgreSQL 이 자기 몫에 묶여 결과가 훨씬 나빴다(커밋 실패 376번). 실제 서버는 두 코어를 나눠 쓰므로 같은 코어에 묶는 방식으로 바꿨다.
+
 ## 3. 고친 것의 전후
 
 ### 3.1 PERF-1 원격 편집 반영 (#41, D-26)
@@ -179,7 +219,7 @@ PostgreSQL 17(로컬 compose)에 페이지 10,000 개를 넣고(본문 평균 91
 | 문서 열기 p95 | 500ms 이하, 블록 2,000개, 스냅샷 뒤 연산 200개 | 첫 열기 93ms, 이어지는 열기 p95 25.5ms | **맞지만 조건이 다르다.** 스냅샷 뒤 연산 200개를 만들지 않았다. 브라우저 화면 그리기는 들어가지 않는다 |
 | 노드 장애 후 편집 재개 | 10초 이내, 소유 노드 강제 종료 | p99 4.4~6.3초(서버 시작 포함) | **노드 1대를 다시 띄우는 경우만 맞는다.** 다른 노드가 넘겨받는 경우(리스 만료 대기 포함)는 다중 노드가 없어 재지 않았다 |
 | 확정된 연산 유실 | 0건, 노드 강제 종료와 네트워크 단절 | 강제 종료 실험 0, PostgreSQL 정지 0, 클라이언트 단절 0 | **노드 1대 기준 맞는다.** 노드 사이 네트워크 단절은 하지 않았다 |
-| 노드 1대 수용량 | 열린 문서 500, 연결 2,000, 4GB 서버, 힙 1GB | 문서 500, 연결 2,000, 힙 1GB 에서 수렴, 살아 있는 힙 437MB | **힙 1GB 로는 맞는다.** 4GB 서버(N-5: 노드 2대, PostgreSQL, Redis, 프록시를 한 서버에)에서는 재지 않았다. 노트북의 10코어와 메모리를 썼다 |
+| 노드 1대 수용량 | 열린 문서 500, 연결 2,000, 4GB 서버, 힙 1GB | 문서 500, 연결 2,000, 힙 1GB 에서 수렴, 살아 있는 힙 437MB | **힙 1GB 로는 맞는다.** 2코어와 4GB 로 묶은 컨테이너(2.9)에서도 맞는다(500/500, ack p99 75ms). 실제 서버에서는 아직 재지 않았다 |
 
 ## 5. 수렴 시험의 실제 횟수
 
@@ -221,6 +261,23 @@ java -Xmx1g -jar app/build/libs/app-0.1.0-SNAPSHOT.jar --spring.profiles.active=
 
 # DB 지연, 느린 클라이언트 (Testcontainers, Toxiproxy)
 ./gradlew :app:test --tests '*DbLatencyTest' --tests '*SlowClientTest'
+
+# 스냅샷 간격 (2.7)
+./gradlew :app:test --tests '*SnapshotIntervalBench' -Dcopage.bench=true -i
+
+# 노드 둘 (2.8). 관리 포트가 컨테이너 안에만 있어 지표는 비운다
+docker compose -p copage-cluster -f deploy/cluster/compose.yaml up -d --build postgres redis node1 node2 proxy
+./gradlew :loadgen:installDist
+loadgen/build/install/loadgen/bin/loadgen base=http://localhost:8088 management=http://localhost:8088 scenario=many-docs docs=100 editors=3 seconds=30 rate=2
+
+# 2코어, 4GB (2.9). 위 클러스터의 PostgreSQL, Redis 를 두 코어에 묶고 서버 하나를 같은 코어로 띄운다
+docker update --cpus 2 --cpuset-cpus 0,1 --memory 1500m --memory-swap 1500m copage-cluster-postgres-1
+docker update --cpus 2 --cpuset-cpus 0,1 --memory 256m --memory-swap 256m copage-cluster-redis-1
+docker run -d --name copage-4g --network copage-cluster_cluster --cpuset-cpus 0,1 --memory 1600m --memory-swap 1600m \
+  -p 18095:8080 -p 18096:8081 -e SPRING_DATASOURCE_URL=jdbc:postgresql://172.30.0.10:5432/copage \
+  -e SPRING_DATA_REDIS_HOST=172.30.0.11 -e SPRING_PROFILES_ACTIVE=dev -e COPAGE_MANAGEMENT_ADDRESS=0.0.0.0 \
+  -e JAVA_TOOL_OPTIONS=-Xmx1g -e COPAGE_JWT_SECRET=<32바이트 이상> copage-cluster-node1
+loadgen/build/install/loadgen/bin/loadgen base=http://localhost:18095 management=http://localhost:18096 scenario=many-docs docs=500 editors=4 rate=1 seconds=60
 
 # 화면 반영 (PERF-1)
 cd frontend && npm run perf

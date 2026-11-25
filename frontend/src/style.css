@@ -305,6 +305,8 @@ form {
 .search {
   position: relative;
   margin-bottom: 8px;
+  /* 사이드바 칸(240px)의 항목은 기본 최소 폭이 내용 폭이라, 한 줄로 둔 미리보기 글이 사이드바를 넓혔다 (D-51). */
+  min-width: 0;
 }
 .search-input {
   width: 100%;
@@ -319,6 +321,8 @@ form {
   overflow-y: auto;
 }
 .search-hit {
+  min-width: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -336,6 +340,7 @@ form {
   font-weight: 600;
 }
 .search-snippet {
+  display: block;
   font-size: 12px;
   opacity: 0.7;
   overflow: hidden;

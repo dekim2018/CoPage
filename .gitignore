@@ -21,6 +21,7 @@ bin/
 node_modules/
 dist/
 test-results/
+demo-results/
 playwright-report/
 
 # 환경 설정
