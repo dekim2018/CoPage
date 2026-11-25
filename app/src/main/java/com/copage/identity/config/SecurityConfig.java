@@ -1,8 +1,12 @@
 package com.copage.identity.config;
 
 import com.copage.identity.app.AuthService;
+import com.copage.identity.in.OAuthLoginHandlers;
+import com.copage.identity.in.OAuthUserService;
+import com.copage.identity.out.RedisAuthorizationRequests;
 import com.copage.web.WebProperties;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import java.util.UUID;
 import javax.crypto.SecretKey;
@@ -10,9 +14,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
@@ -27,10 +35,12 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 필터 체인 (docs/07-SECURITY.md 9.2). 경로에 따라 셋으로 나눈다.
@@ -130,6 +140,60 @@ public class SecurityConfig {
                         .jwt(jwt -> jwt.decoder(jwtDecoder)))
                 .build();
     }
+
+    /**
+     * 구글, 깃허브 로그인 (A-4, D-54). /oauth2/authorization/{서비스} 로 보내고 /login/oauth2/code/{서비스} 로 돌아온다. 서버 세션을
+     * 쓰지 않는다: 도중의 요청은 Redis 에, 로그인 결과는 Refresh 쿠키로 남긴다. 받은 서비스의 토큰은 쓰지 않아 들고 있지 않는다.
+     * 켜진 서비스가 없으면 이 경로는 막힌다.
+     */
+    @Bean
+    @Order(2)
+    SecurityFilterChain oauthLogin(
+            HttpSecurity http,
+            OAuthProviders providers,
+            AuthService authService,
+            AuthProperties properties,
+            OAuthProperties oauth,
+            StringRedisTemplate redis,
+            JsonMapper jsonMapper) throws Exception {
+        http.securityMatcher("/oauth2/**", "/login/oauth2/**")
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .securityContext(c -> c.securityContextRepository(new RequestAttributeSecurityContextRepository()));
+        if (providers.repository() == null) {
+            return http.authorizeHttpRequests(auth -> auth.anyRequest().denyAll()).build();
+        }
+        OAuthLoginHandlers handlers = new OAuthLoginHandlers(authService, properties);
+        return http.authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .oauth2Login(login -> login
+                        .clientRegistrationRepository(providers.repository())
+                        .authorizedClientRepository(NO_AUTHORIZED_CLIENTS)
+                        .authorizationEndpoint(endpoint -> endpoint
+                                .authorizationRequestRepository(new RedisAuthorizationRequests(redis, jsonMapper)))
+                        .userInfoEndpoint(userInfo -> userInfo.userService(new OAuthUserService(oauth.githubEmailsUrl())))
+                        .successHandler(handlers)
+                        .failureHandler(handlers))
+                .build();
+    }
+
+    /** 다른 서비스의 토큰은 로그인할 때 한 번 쓰고 들고 있지 않는다. */
+    private static final OAuth2AuthorizedClientRepository NO_AUTHORIZED_CLIENTS = new OAuth2AuthorizedClientRepository() {
+        @Override
+        public <T extends OAuth2AuthorizedClient> T loadAuthorizedClient(
+                String clientRegistrationId, Authentication principal, HttpServletRequest request) {
+            return null;
+        }
+
+        @Override
+        public void saveAuthorizedClient(OAuth2AuthorizedClient authorizedClient, Authentication principal,
+                HttpServletRequest request, HttpServletResponse response) {
+        }
+
+        @Override
+        public void removeAuthorizedClient(String clientRegistrationId, Authentication principal,
+                HttpServletRequest request, HttpServletResponse response) {
+        }
+    };
 
     @Bean
     @Order(2)

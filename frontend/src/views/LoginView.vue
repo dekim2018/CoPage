@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError } from '../api/http'
+import OAuthButtons from '../components/OAuthButtons.vue'
 import { useAuth } from '../stores/auth'
 
 const auth = useAuth()
@@ -30,5 +31,6 @@ async function submit() {
     <button type="submit">로그인</button>
     <p v-if="error" class="error">{{ error }}</p>
   </form>
+  <OAuthButtons />
   <p><RouterLink :to="{ path: '/signup', query: route.query }">가입하기</RouterLink></p>
 </template>

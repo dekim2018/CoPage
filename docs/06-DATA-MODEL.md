@@ -72,7 +72,8 @@ ack는 DB 커밋 뒤에만 보낸다. 다른 사람에게 보내는 `remote` 도
 
 | 테이블 | 주요 컬럼 | 비고 | 상태 |
 | --- | --- | --- | --- |
-| `users` | id, email(유일), password_hash, name, created_at, cursor_color | 이메일은 앞뒤 공백을 빼고 소문자로 저장. cursor_color 는 고르지 않았으면 NULL(ID 로 정한 색) | V2, cursor_color 는 V10 (A-3) |
+| `users` | id, email(유일), password_hash, name, created_at, cursor_color | 이메일은 앞뒤 공백을 빼고 소문자로 저장. cursor_color 는 고르지 않았으면 NULL(ID 로 정한 색). password_hash 는 다른 서비스 계정으로만 가입했으면 NULL | V2, cursor_color 는 V10 (A-3), password_hash NULL 허용은 V14 (A-4) |
+| `user_identities` | provider, subject, user_id, email, created_at. (provider, subject) 기본 키 | 구글, 깃허브 계정과 사용자를 잇는다. subject 는 그 서비스 안의 변하지 않는 ID 다(이메일이 바뀌어도 같은 사용자) | 구현 (V14, D-54) |
 | `workspaces` | id, name, owner_id(users), created_at | owner_id 는 만든 사람이다. 권한 판단에는 쓰지 않고 `workspace_members.role` 만 본다 | V3 |
 | `workspace_members` | workspace_id(workspaces, 지우면 함께), user_id(users), role(OWNER, MEMBER, GUEST), created_at | 기본 키 (workspace_id, user_id). 색인 (user_id) | V3 |
 | `workspace_invites` | id, workspace_id, email, role, token_hash(유일), created_by, created_at, expires_at, accepted_at, accepted_by | 토큰은 SHA-256 해시로 저장. 7일 뒤 만료 | 구현 (V6, D-40). 가입한 사용자를 바로 넣는 경로(D-22)도 남아 있다 |

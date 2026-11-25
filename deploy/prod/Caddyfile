@@ -10,6 +10,14 @@
 		}
 	}
 
+	# 구글, 깃허브 로그인 (A-4, D-54). 서비스에 등록할 돌아오는 주소는 https://도메인/login/oauth2/code/{google|github}
+	handle /oauth2/* {
+		reverse_proxy app:8080
+	}
+	handle /login/oauth2/* {
+		reverse_proxy app:8080
+	}
+
 	# 문서 편집 WebSocket
 	handle /ws/* {
 		reverse_proxy app:8080

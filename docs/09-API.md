@@ -13,6 +13,7 @@ REST는 본문 편집을 다루지 않는다. 본문은 WebSocket으로만 바�
 | 메서드 | 경로 | 인증과 권한 | 성공 | 주요 오류 |
 | --- | --- | --- | --- | --- |
 | POST | `/api/auth/signup` | 없음 | 201, 사용자 | 409 이미 가입한 이메일. 400 비밀번호가 8~64자가 아니거나 UTF-8 로 72 바이트를 넘음 |
+| GET | `/api/auth/providers` | 없음 | 200, 켜진 다른 서비스 이름 목록. 하나도 없으면 빈 목록 (A-4, D-54) |  |
 | POST | `/api/auth/login` | 없음 | 200, Access 토큰과 사용자. Refresh 토큰은 쿠키(`copage_refresh`, 경로 `/api/auth`) | 401 이메일이나 비밀번호가 틀림(어느 쪽인지 알리지 않는다). 429 실패가 많아 잠김 |
 | POST | `/api/auth/refresh` | Refresh 쿠키, Origin 검사 | 200, 새 Access 토큰과 새 쿠키 | 401 쿠키가 없거나 틀림(쿠키를 지운다). 409 동시 재발급(쿠키를 지우지 않는다). 403 허용하지 않은 Origin |
 | POST | `/api/auth/logout` | Refresh 쿠키, Origin 검사. Access 토큰이 있으면 남은 시간 동안 막는다 | 204 | 403 허용하지 않은 Origin |
@@ -75,6 +76,8 @@ API 포트에는 `/actuator` 가 없다. 지표와 상태 확인은 관리 포�
 | --- | --- | --- | --- |
 | POST | `/api/auth/signup` | 가입 | 구현 |
 | POST | `/api/auth/login` | 로그인. Access 토큰은 본문, Refresh 토큰은 쿠키 | 구현 |
+| GET | `/api/auth/providers` | 켜진 다른 서비스 로그인(`["google", "github"]` 중) | 구현(A-4, D-54) |
+| GET | `/oauth2/authorization/{provider}` | 그 서비스로 보낸다. 돌아오는 곳은 `/login/oauth2/code/{provider}`. 성공하면 Refresh 쿠키를 주고 `/` 로, 실패하면 `/login?oauthError=email-not-verified\|account-exists\|failed` 로 | 구현(A-4, D-54) |
 | POST | `/api/auth/refresh` | 토큰 재발급과 회전 | 구현 |
 | POST | `/api/auth/logout` | 로그아웃 | 구현 |
 | GET | `/api/me` | 내 정보 | 구현 |

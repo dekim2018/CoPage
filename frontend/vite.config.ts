@@ -10,6 +10,9 @@ export default defineConfig({
     proxy: {
       '/api': { target: backend, changeOrigin: false },
       '/ws': { target: backend.replace(/^http/, 'ws'), ws: true },
+      // 구글, 깃허브 로그인(A-4). 서비스에 등록하는 돌아오는 주소도 개발 서버의 주소다.
+      '/oauth2': { target: backend, changeOrigin: false },
+      '/login/oauth2': { target: backend, changeOrigin: false },
     },
   },
 })

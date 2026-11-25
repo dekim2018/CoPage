@@ -13,6 +13,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
+    // 구글, 깃허브 로그인 (A-4, D-54). 클라이언트 ID 를 주었을 때만 켜진다.
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-client")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     // 초대 메일 (W-1, D-50). 메일 서버를 설정했을 때만 쓴다.
     implementation("org.springframework.boot:spring-boot-starter-mail")

@@ -105,6 +105,12 @@ copage:
     node-id: ${COPAGE_NODE_ID:}
     # 로그인 없이 부를 수 있는 경로(가입, 로그인, 공유 링크, 초대 보기)의 IP 별 빈도 제한 (D-48).
     rate-limit: ${COPAGE_RATE_LIMIT:true}
+  # 구글, 깃허브 로그인 (A-4, D-54). ID 와 비밀을 둘 다 주면 켜진다.
+  oauth:
+    google-client-id: ${COPAGE_GOOGLE_CLIENT_ID:}
+    google-client-secret: ${COPAGE_GOOGLE_CLIENT_SECRET:}
+    github-client-id: ${COPAGE_GITHUB_CLIENT_ID:}
+    github-client-secret: ${COPAGE_GITHUB_CLIENT_SECRET:}
   auth:
     # 32 바이트 이상. 저장소에 두지 않는다. 없으면 서버가 뜨지 않는다.
     jwt-secret: ${COPAGE_JWT_SECRET:}

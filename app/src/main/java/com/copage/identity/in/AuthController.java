@@ -3,6 +3,7 @@ package com.copage.identity.in;
 import com.copage.identity.app.AuthException;
 import com.copage.identity.app.AuthService;
 import com.copage.identity.config.AuthProperties;
+import com.copage.identity.config.OAuthProviders;
 import com.copage.identity.domain.User;
 import com.copage.web.WebProperties;
 import jakarta.servlet.http.HttpServletRequest;
@@ -13,6 +14,7 @@ import jakarta.validation.constraints.Size;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -23,6 +25,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -64,9 +67,12 @@ class AuthController {
     private final AuthProperties properties;
     private final JwtDecoder jwtDecoder;
     private final OriginCheck origins;
+    private final OAuthProviders providers;
 
-    AuthController(AuthService auth, AuthProperties properties, JwtDecoder jwtDecoder, WebProperties web) {
+    AuthController(AuthService auth, AuthProperties properties, JwtDecoder jwtDecoder, WebProperties web,
+            OAuthProviders providers) {
         this.auth = auth;
+        this.providers = providers;
         this.properties = properties;
         this.jwtDecoder = jwtDecoder;
         this.origins = new OriginCheck(web.allowedOrigins());
@@ -75,6 +81,12 @@ class AuthController {
     private static ResponseEntity<ProblemDetail> foreignOrigin() {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "허용하지 않은 출처의 요청이다"));
+    }
+
+    /** 켜진 다른 서비스 로그인 (A-4, D-54). 로그인 화면이 단추를 그린다. */
+    @GetMapping("/providers")
+    List<String> providers() {
+        return providers.ids();
     }
 
     @PostMapping("/signup")
@@ -146,14 +158,19 @@ class AuthController {
         long expiresIn = Duration.between(Instant.now(), session.accessTokenExpiresAt()).toSeconds();
         TokenResponse body = new TokenResponse(
                 session.accessToken(), "Bearer", Math.max(0, expiresIn), UserResponse.of(session.user()));
-        ResponseCookie cookie = ResponseCookie.from(REFRESH_COOKIE, session.refreshToken())
+        return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, refreshCookie(properties, session.refreshToken()).toString())
+                .body(body);
+    }
+
+    /** Refresh 토큰 쿠키. 다른 서비스 계정 로그인(OAuthLoginHandlers)도 같은 것을 쓴다. */
+    static ResponseCookie refreshCookie(AuthProperties properties, String refreshToken) {
+        return ResponseCookie.from(REFRESH_COOKIE, refreshToken)
                 .httpOnly(true)
                 .secure(properties.cookieSecure())
                 .sameSite("Strict")
                 .path(COOKIE_PATH)
                 .maxAge(properties.refreshTokenTtl())
                 .build();
-        return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cookie.toString()).body(body);
     }
 
     private ResponseCookie clearCookie() {
