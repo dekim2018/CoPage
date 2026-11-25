@@ -15,7 +15,7 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 구글, 깃허브 로그인 도중의 요청(상태 값, PKCE 검증값, nonce)을 Redis 에 state 로 둔다 (A-4, D-53). 서버 세션에 두면 노드가
+ * 구글, 깃허브 로그인 도중의 요청(상태 값, PKCE 검증값, nonce)을 Redis 에 state 로 둔다 (A-4, D-54). 서버 세션에 두면 노드가
  * 여럿일 때 돌아오는 요청이 다른 노드로 가서 실패한다. 10분 뒤 사라지고, 한 번 쓰면 지운다. 값은 글자뿐이라 JSON 으로 둔다
  * (자바 직렬화를 쓰지 않는다).
  */

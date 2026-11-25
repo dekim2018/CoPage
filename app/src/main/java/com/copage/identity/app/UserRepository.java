@@ -18,7 +18,7 @@ public interface UserRepository {
 
     void recolor(UUID id, String color);
 
-    /** 다른 서비스 계정(구글, 깃허브)으로 이어진 사용자 (A-4, D-53). */
+    /** 다른 서비스 계정(구글, 깃허브)으로 이어진 사용자 (A-4, D-54). */
     Optional<User> findByIdentity(String provider, String subject);
 
     /**

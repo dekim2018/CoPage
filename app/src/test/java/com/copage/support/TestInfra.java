@@ -24,7 +24,7 @@ public abstract class TestInfra {
 
     private static PostgreSQLContainer startPostgres() {
         // 설정이 다른 시험마다 스프링 컨텍스트가 따로 뜨고, 캐시에 남은 컨텍스트가 연결 풀(10개)을 그대로 쥔다. 기본 한도(100)로는
-        // 시험 클래스가 늘자 "too many clients" 가 났다(D-53).
+        // 시험 클래스가 늘자 "too many clients" 가 났다(D-54).
         PostgreSQLContainer container = new PostgreSQLContainer("postgres:17");
         container.withCommand("postgres", "-c", "max_connections=400");
         container.start();

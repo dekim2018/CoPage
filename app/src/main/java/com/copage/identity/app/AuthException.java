@@ -20,7 +20,7 @@ public class AuthException extends RuntimeException {
         NOT_FOUND,
         /** 다른 서비스가 이메일을 확인해 주지 않았다 (A-4). */
         EMAIL_NOT_VERIFIED,
-        /** 그 이메일로 비밀번호 가입한 계정이 있다. 자동으로 잇지 않는다 (A-4, D-53). */
+        /** 그 이메일로 비밀번호 가입한 계정이 있다. 자동으로 잇지 않는다 (A-4, D-54). */
         ACCOUNT_EXISTS
     }
 

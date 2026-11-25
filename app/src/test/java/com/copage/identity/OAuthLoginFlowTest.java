@@ -30,7 +30,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 다른 서비스 계정 로그인 (A-4, D-53). 이 시험이 띄운 가짜 OAuth 서비스(인가, 토큰, 사용자 정보)로 처음부터 끝까지 지난다.
+ * 다른 서비스 계정 로그인 (A-4, D-54). 이 시험이 띄운 가짜 OAuth 서비스(인가, 토큰, 사용자 정보)로 처음부터 끝까지 지난다.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class OAuthLoginFlowTest extends TestInfra {

@@ -88,7 +88,7 @@ public class IdentityConfig {
     }
 
     /**
-     * 다른 서비스 로그인 (A-4, D-53). 스프링의 표준 설정(spring.security.oauth2.client.registration.*)으로 만든 것이 있으면 그것을
+     * 다른 서비스 로그인 (A-4, D-54). 스프링의 표준 설정(spring.security.oauth2.client.registration.*)으로 만든 것이 있으면 그것을
      * 쓰고(시험의 가짜 서비스), 없으면 COPAGE_GOOGLE_*, COPAGE_GITHUB_* 로 만든다. 구글은 OIDC 로 확인된 이메일을 받고, 깃허브는
      * 이메일 목록을 읽을 수 있게 user:email 을 청한다.
      */

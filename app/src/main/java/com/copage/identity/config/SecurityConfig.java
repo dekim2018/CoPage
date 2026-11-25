@@ -142,7 +142,7 @@ public class SecurityConfig {
     }
 
     /**
-     * 구글, 깃허브 로그인 (A-4, D-53). /oauth2/authorization/{서비스} 로 보내고 /login/oauth2/code/{서비스} 로 돌아온다. 서버 세션을
+     * 구글, 깃허브 로그인 (A-4, D-54). /oauth2/authorization/{서비스} 로 보내고 /login/oauth2/code/{서비스} 로 돌아온다. 서버 세션을
      * 쓰지 않는다: 도중의 요청은 Redis 에, 로그인 결과는 Refresh 쿠키로 남긴다. 받은 서비스의 토큰은 쓰지 않아 들고 있지 않는다.
      * 켜진 서비스가 없으면 이 경로는 막힌다.
      */

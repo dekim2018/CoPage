@@ -13,7 +13,7 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.client.RestClient;
 
 /**
- * OIDC 가 아닌 서비스의 사용자 정보 (A-4, D-53). 깃허브는 공개 이메일이 없을 수 있고 확인 여부도 주지 않아, 이메일 목록에서
+ * OIDC 가 아닌 서비스의 사용자 정보 (A-4, D-54). 깃허브는 공개 이메일이 없을 수 있고 확인 여부도 주지 않아, 이메일 목록에서
  * 확인된 주 이메일을 골라 email, email_verified 로 채운다. 다른 서비스는 받은 그대로다.
  */
 public final class OAuthUserService extends DefaultOAuth2UserService {

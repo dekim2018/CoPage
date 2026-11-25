@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 /**
- * 구글, 깃허브로 계속하기 (A-4, D-53). 서버에 켜진 서비스만 단추를 그린다. 누르면 그 서비스로 갔다가 돌아오고, 서버가 Refresh
+ * 구글, 깃허브로 계속하기 (A-4, D-54). 서버에 켜진 서비스만 단추를 그린다. 누르면 그 서비스로 갔다가 돌아오고, 서버가 Refresh
  * 쿠키를 준 뒤 첫 화면으로 보낸다. 실패하면 로그인 화면으로 까닭(oauthError)을 실어 돌아온다.
  */
 const route = useRoute()

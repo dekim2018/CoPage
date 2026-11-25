@@ -18,7 +18,7 @@ import org.springframework.security.web.authentication.AuthenticationFailureHand
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 
 /**
- * 구글, 깃허브 로그인이 끝났을 때 (A-4, D-53). 성공하면 비밀번호 로그인과 같은 Refresh 쿠키를 주고 화면 첫 주소로 보낸다. 화면은
+ * 구글, 깃허브 로그인이 끝났을 때 (A-4, D-54). 성공하면 비밀번호 로그인과 같은 Refresh 쿠키를 주고 화면 첫 주소로 보낸다. 화면은
  * 뜰 때 그 쿠키로 Access 토큰을 받는다(새로고침과 같은 길). 실패하면 로그인 화면으로 까닭을 실어 보낸다.
  */
 public final class OAuthLoginHandlers implements AuthenticationSuccessHandler, AuthenticationFailureHandler {

@@ -83,7 +83,7 @@ class AuthController {
                 .body(ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "허용하지 않은 출처의 요청이다"));
     }
 
-    /** 켜진 다른 서비스 로그인 (A-4, D-53). 로그인 화면이 단추를 그린다. */
+    /** 켜진 다른 서비스 로그인 (A-4, D-54). 로그인 화면이 단추를 그린다. */
     @GetMapping("/providers")
     List<String> providers() {
         return providers.ids();

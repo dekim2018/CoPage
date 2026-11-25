@@ -29,7 +29,7 @@ Java 25, Spring Boot 4.2, Spring Security 7.2, PostgreSQL 17, Redis 7, Vue 3, Ti
 | 2 | 협업 서버 | 완료 |
 | 3 | 워크스페이스와 권한 | 대부분. 초대 링크, 공유 링크, 옮기기와 사이드바 끌기, 휴지통과 30일 뒤 비우기, 사이드바 실시간 반영(D-46, D-47). 초대 메일과 페이지 깊이 제한은 없다 |
 | 4 | 오프라인과 다중 노드 | 완료. 브라우저 보관(D-42), 소유 리스와 양도, 노드 사이 권한 전달, 프록시 해시(D-43), 노드 두세 대의 장애 실험([docs/CHAOS.md](docs/CHAOS.md)). 여러 노드로 띄우기: `deploy/cluster/compose.yaml` |
-| 5 | 부가 기능 | 완료. 버전 기록과 복원(D-44), 되돌리기, 슬래시 메뉴, 블록 끌기(D-45), 댓글, 멘션과 알림(D-46), 검색과 프로필(D-47). P2 의 즐겨찾기와 최근 본 페이지(D-52), 구글과 깃허브 로그인(D-53)도 했다 |
+| 5 | 부가 기능 | 완료. 버전 기록과 복원(D-44), 되돌리기, 슬래시 메뉴, 블록 끌기(D-45), 댓글, 멘션과 알림(D-46), 검색과 프로필(D-47). P2 의 즐겨찾기와 최근 본 페이지(D-52), 구글과 깃허브 로그인(D-54)도 했다 |
 | 6 | 측정과 개선 | 완료. 노트북의 측정값을 [docs/01-PLAN.md](docs/01-PLAN.md) 1.4 와 [PERFORMANCE-REVIEW](docs/review/PERFORMANCE-REVIEW.md) 에 적었다(검색, 연산 로그 크기, 스냅샷 간격, 노드 둘, 2코어 4GB 로 묶은 노드). 실제 서버에서는 배포 뒤에 다시 잰다 |
 | 7 | 배포 | 준비 완료. 서버 한 대 운영 구성([deploy/prod](deploy/prod), [docs/DEPLOY.md](docs/DEPLOY.md))을 로컬에서 띄워 확인했다. 시연 영상은 [docs/demo/copage-demo.mp4](docs/demo/copage-demo.mp4). 실제 AWS 서버와 도메인은 직접 만든다 |
 
@@ -87,6 +87,28 @@ curl -X POST localhost:8080/api/docs/<pageId>/ws-ticket -H 'Authorization: Beare
 # ws://localhost:8080/ws/docs/<pageId>?ticket=...&v=1
 # {"t":"hello","clientId":"tab-1","lastRev":0,"resume":false}
 ```
+
+## ErrDeck 으로 모니터링(로컬)
+
+같은 사람이 만든 모니터링 서비스 [ErrDeck](https://github.com/dekim2018/ErrDeck) 에 에러, 성능 추적, 지표를 보낼 수 있다(D-53). 기본으로는 꺼져 있고 CI 는 SDK 없이 빌드한다. ErrDeck 저장소가 같은 상위 폴더(`../ErrDeck`)에 있다고 본다.
+
+```bash
+# ErrDeck 쪽: SDK 를 로컬 메이븐에 넣고, ErrDeck 을 띄우고, CoPage 프로젝트와 DSN 을 만든다
+(cd ../ErrDeck && ./gradlew :core:publishToMavenLocal :sdk-spring:publishToMavenLocal \
+  && docker compose --profile core --profile obs up -d --build \
+  && docker compose exec -T postgres psql -U errdeck < scripts/seed/systems.sql \
+  && docker compose exec -T postgres psql -U errdeck < scripts/seed/copage-local.sql)   # 마지막 출력이 DSN 두 개
+
+# 서버: SDK 를 넣어 빌드하고 DSN 을 준다. 관리 포트를 0.0.0.0 으로 열어야 ErrDeck 의 프로메테우스(도커 안)가 지표를 긁는다
+./gradlew -Perrdeck=true :app:bootJar
+ERRDECK_DSN=http://{키}@localhost:18080/{copage-app 프로젝트} COPAGE_MANAGEMENT_ADDRESS=0.0.0.0 COPAGE_JWT_SECRET=... \
+  java -jar app/build/libs/app-0.1.0-SNAPSHOT.jar
+
+# 화면
+cd frontend && VITE_ERRDECK_DSN=http://{키}@localhost:18080/{copage-web 프로젝트} npm run dev
+```
+
+ErrDeck 콘솔(`../ErrDeck/web` 의 `npm run dev`, 5173)의 전체 보기에 CoPage 의 이슈와 요약 카드가, 성능 화면에 화면의 페이지 이동부터 서버 요청까지 이어진 추적이 보인다. 화면 SDK 를 고쳤으면 `npm run errdeck:sync` 로 다시 가져온다. e2e 가 5174 를 쓰므로 확인용 화면은 다른 포트로 띄운다.
 
 ## 빌드와 테스트
 

@@ -52,6 +52,11 @@ management:
     health:
       probes:
         enabled: true
+  # 요청 시간을 히스토그램으로 낸다. ErrDeck 의 요약 카드와 성능 화면이 p95 를 여기서 계산한다(D-53).
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
   # 메일 서버가 잠깐 멈췄다고 서버 전체를 DOWN 으로 보지 않는다. 초대 메일은 실패해도 링크로 건넬 수 있다 (D-50).
   health:
     mail:
@@ -69,6 +74,24 @@ sentry:
     minimum-event-level: error
     minimum-breadcrumb-level: info
 
+# ErrDeck (D-53). -Perrdeck=true 로 빌드하고 ERRDECK_DSN 을 줄 때만 켜진다. Sentry 와 같은 규칙으로 가린다: 공유와 초대 토큰,
+# 티켓, Bearer 토큰. 쿠키와 인증 헤더, 쿼리의 토큰은 SDK 가 기본으로 가린다.
+errdeck:
+  dsn: ${ERRDECK_DSN:}
+  environment: ${COPAGE_ENVIRONMENT:local}
+  release: ${COPAGE_RELEASE:local}
+  in-app-packages: com.copage
+  redact-paths:
+    - (/s/)[^/?#\s"']+
+    - (/invite/)[^/?#\s"']+
+    - (/api/share/)[^/?#\s"']+
+    - (/api/invites/)[^/?#\s"']+
+    - ((?:[?&]|\b)ticket=)[^&#\s"']*
+    - (Bearer\s+)[A-Za-z0-9._~+/=-]+
+  tracing:
+    # 요청이 시작될 때 추적할 비율. 뽑히지 않아도 에러와 1초 넘는 요청은 남는다.
+    sample-rate: ${ERRDECK_TRACE_SAMPLE_RATE:0.1}
+
 copage:
   # 초대 메일 (W-1, D-50). 메일 서버는 SPRING_MAIL_HOST, SPRING_MAIL_PORT, SPRING_MAIL_USERNAME, SPRING_MAIL_PASSWORD 로 준다.
   # 셋(메일 서버, 보내는 주소, 화면 주소)이 다 있어야 보낸다. 없으면 링크를 직접 건넨다.
@@ -82,7 +105,7 @@ copage:
     node-id: ${COPAGE_NODE_ID:}
     # 로그인 없이 부를 수 있는 경로(가입, 로그인, 공유 링크, 초대 보기)의 IP 별 빈도 제한 (D-48).
     rate-limit: ${COPAGE_RATE_LIMIT:true}
-  # 구글, 깃허브 로그인 (A-4, D-53). ID 와 비밀을 둘 다 주면 켜진다.
+  # 구글, 깃허브 로그인 (A-4, D-54). ID 와 비밀을 둘 다 주면 켜진다.
   oauth:
     google-client-id: ${COPAGE_GOOGLE_CLIENT_ID:}
     google-client-secret: ${COPAGE_GOOGLE_CLIENT_SECRET:}
