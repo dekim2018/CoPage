@@ -367,4 +367,91 @@ class CommentFlowTest extends TestInfra {
         send("PUT", "/api/pages/" + team.page + "/grants/" + guest.id(), Map.of("level", "EDIT"), team.owner);
         assertEquals(2, unread(guest), "등급이 바뀌면 다시 알린다");
     }
+
+    /** 페이지에 COMMENT 만 받은 사람을 만든다. 받은 알림은 읽어 둔다. */
+    private Account commenter(Team team) throws Exception {
+        Account commenter = account("댓글만");
+        assertEquals(200, send("PUT", "/api/pages/" + team.page + "/grants/" + commenter.id(), Map.of("level", "COMMENT"),
+                team.owner).status());
+        send("POST", "/api/notifications/read", Map.of("ids", List.of()), commenter);
+        return commenter;
+    }
+
+    @Test
+    void 댓글_권한으로_댓글과_답글을_달고_해결하지만_남의_댓글은_지우지_못한다() throws Exception {
+        Team team = new Team();
+        Account commenter = commenter(team);
+
+        Response created = comment(team.page, "원문", "여기 확인", List.of(team.owner.id()), commenter);
+        assertEquals(201, created.status());
+        String thread = created.body().get("id").stringValue();
+        assertEquals(1, unread(team.owner), "댓글 권한으로 단 멘션도 알린다");
+        assertEquals(201, send("POST", "/api/comments/" + thread + "/replies", Map.of("body", "덧붙임"), commenter)
+                .status());
+        assertEquals(204, send("PUT", "/api/comments/" + thread + "/resolved", Map.of("resolved", true), commenter)
+                .status());
+        send("PUT", "/api/comments/" + thread + "/resolved", Map.of("resolved", false), commenter);
+
+        String others = send("POST", "/api/comments/" + thread + "/replies", Map.of("body", "주인 답"), team.owner).body()
+                .get("id").stringValue();
+        assertEquals(403, send("DELETE", "/api/comments/" + others, null, commenter).status(), "지우기는 쓴 사람이나 FULL");
+        assertEquals(403, send("PATCH", "/api/comments/" + others, Map.of("body", "고침"), commenter).status());
+        assertEquals(3, send("GET", "/api/docs/" + team.page + "/comments", null, commenter).body().get(0)
+                .get("comments").size());
+    }
+
+    @Test
+    void 댓글_권한의_연결은_comment_서식만_확정되고_글자를_넣거나_지우면_nack_를_받는다() throws Exception {
+        Team team = new Team();
+        Account commenter = commenter(team);
+        String ownerTicket = send("POST", "/api/docs/" + team.page + "/ws-ticket", null, team.owner).body()
+                .get("ticket").stringValue();
+        TestClient writer = new TestClient("owner");
+        writer.connect(URI.create("ws://localhost:" + port + "/ws/docs/" + team.page + "?ticket=" + ownerTicket + "&v=1"));
+        while (!writer.connected()) {
+            writer.process(5_000);
+        }
+        writer.edit(List.of(new TextOp(team.page, Delta.builder().insert("검토할 문장").build())));
+        while (writer.session.hasPending()) {
+            writer.process(5_000);
+        }
+
+        JsonNode ticket = send("POST", "/api/docs/" + team.page + "/ws-ticket", null, commenter).body();
+        assertEquals("COMMENT", ticket.get("role").stringValue());
+        RawClient client = new RawClient(false);
+        JsonNode welcome = client.connect(URI.create("ws://localhost:" + port + "/ws/docs/" + team.page + "?ticket="
+                + ticket.get("ticket").stringValue() + "&v=1"), "commenter");
+        assertEquals("COMMENT", welcome.get("role").stringValue());
+        long rev = welcome.get("rev").longValue();
+
+        client.send(change(1, rev, team.page, "{\"insert\":\"끼어듦\"}"));
+        JsonNode inserted = client.await("nack", 3_000).message();
+        assertEquals(1, inserted.get("clientSeq").longValue());
+        assertEquals("permission", inserted.get("code").stringValue());
+        assertEquals(rev, inserted.get("rev").longValue(), "거부한 묶음은 리비전을 올리지 않는다");
+
+        client.send(change(2, rev, team.page, "{\"delete\":2}"));
+        assertEquals("permission", client.await("nack", 3_000).message().get("code").stringValue());
+
+        String thread = comment(team.page, "검토", "이 단어", List.of(), commenter).body().get("id").stringValue();
+        client.send(change(3, rev, team.page, "{\"retain\":2,\"attrs\":{\"comment\":\"" + thread + "\"}}"));
+        JsonNode ack = client.await("ack", 3_000).message();
+        assertEquals(3, ack.get("clientSeq").longValue());
+        assertEquals(rev + 1, ack.get("rev").longValue());
+
+        // 확정된 서식은 본문에 남아, 세션이 스레드에 위치가 붙었다고 적는다.
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (jdbc.sql("SELECT anchored_at IS NOT NULL FROM comment_threads WHERE id = :id")
+                .param("id", UUID.fromString(thread)).query(Boolean.class).single() == Boolean.FALSE
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(100);
+        }
+        assertEquals(Boolean.TRUE, jdbc.sql("SELECT anchored_at IS NOT NULL FROM comment_threads WHERE id = :id")
+                .param("id", UUID.fromString(thread)).query(Boolean.class).single());
+    }
+
+    private static String change(int clientSeq, long baseRev, String blockId, String delta) {
+        return "{\"t\":\"change\",\"clientSeq\":" + clientSeq + ",\"baseRev\":" + baseRev
+                + ",\"ops\":[{\"op\":\"text\",\"blockId\":\"" + blockId + "\",\"delta\":[" + delta + "]}]}";
+    }
 }
