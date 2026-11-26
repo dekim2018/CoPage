@@ -102,7 +102,7 @@ API 포트에는 `/actuator` 가 없다. 지표와 상태 확인은 관리 포�
 | DELETE | `/api/pages/{pageId}` | 휴지통으로 | FULL | 구현(#80) |
 | POST | `/api/pages/{pageId}/restore` | 휴지통에서 복구 | FULL | 구현(#80) |
 | GET | `/api/workspaces/{wsId}/trash` | 휴지통 목록 | 워크스페이스의 모든 역할, 보내기 전에 볼 수 있던 페이지만 | 구현(#80) |
-| GET | `/api/workspaces/{wsId}/events?ticket=` | 사이드바용 SSE (트리 변경) | MEMBER 또는 GUEST | 계획 |
+| GET | `/api/workspaces/{wsId}/events?ticket=` | 사이드바용 SSE (트리 변경) | MEMBER 또는 GUEST | 만들지 않음. 알림 SSE(`/api/notifications/stream`)가 `tree` 이벤트를 함께 보낸다(D-46) |
 
 워크스페이스에 속하지 않은 사용자에게는 워크스페이스가 있는지도 알리지 않는다. 없는 워크스페이스와 같은 404 를 준다. 페이지 접근은 9.4 의 등급으로 판단한다. 목록은 내가 VIEW 이상인 페이지만 주고 각 페이지에 내 등급(`level`)을 붙인다. 볼 수 없는 페이지는 없는 페이지와 같은 404 다. 페이지를 만들려면 부모의 EDIT(최상위면 역할의 기본 권한)가 필요하다. 목록의 `hasChildren` 은 권한을 보지 않고 센다. 볼 수 없는 하위 페이지만 있어도 `true` 이고, 펼치면 빈 목록이 올 수 있다. 페이지의 `title` 은 루트 블록(제목 줄)의 글이다. 편집이 커밋된 뒤 따로 쓰므로 목록에는 아주 조금 늦게 보인다. 제목을 동기화하기 전에 만들고 그 뒤 한 번도 열지 않은 페이지는 빈 문자열이다.
 

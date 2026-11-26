@@ -82,11 +82,52 @@ API는 쿠키가 아니라 헤더로 인증하므로 CSRF 토큰을 쓰지 않�
 - 워크스페이스에서 내보내면 그 워크스페이스에서 받은 페이지 권한도 지운다
 - 바꾼 뒤에는 영향받는 페이지(바뀐 페이지와 하위, 역할 변경이면 워크스페이스 전체)와 사용자를 `PermissionChangeListener` 로 알린다. 열린 연결에 적용하는 일은 collab 이 한다
 
-열린 연결에는 1초 안에 적용한다(S-5). collab 이 `PermissionChangeListener` 를 구현해, 영향받는 페이지의 열린 세션 가운데 그 사용자의 연결만 다시 계산한다. 계산(저장소 읽기)은 세션 실행 흐름 밖에서 하고, 적용은 실행 흐름에서 한다. 내려가거나 올라가면 `role` 메시지, 잃으면 4003 이다. 노드 1대에서 잰 값은 내리기 9ms, 회수 16ms, 제한 16ms, 내보내기 9ms 다(`LiveRevocationTest`, 2026-11-24, 로컬 개발 기기). 노드가 여럿이면 다른 노드의 세션은 알림을 받지 못한다. 로드맵 4단계에서 넓힌다(D-17).
+열린 연결에는 1초 안에 적용한다(S-5). collab 이 `PermissionChangeListener` 를 구현해, 영향받는 페이지의 열린 세션 가운데 그 사용자의 연결만 다시 계산한다. 계산(저장소 읽기)은 세션 실행 흐름 밖에서 하고, 적용은 실행 흐름에서 한다. 내려가거나 올라가면 `role` 메시지, 잃으면 4003 이다. 노드 1대에서 잰 값은 내리기 9ms, 회수 16ms, 제한 16ms, 내보내기 9ms 다(`LiveRevocationTest`, 2026-11-24, 로컬 개발 기기). 노드가 여럿이면 바꾼 노드가 `copage:perm` 채널(Redis pub/sub)로 다른 노드에 건넨다(D-43). 다른 노드에서 바꾼 권한이 43ms 에 적용되었다(`MultiNodeTest`). 채널 메시지를 놓친 노드의 연결은 다음 재접속 때 새 티켓으로 바른 등급을 받는다.
 
 권한 캐시는 두지 않는다(D-11, [ADR 0015](./adr/0015-permission-per-request-without-cache.md)). 캐시를 지우는 시점을 잘못 잡으면 회수한 권한이 남는다. 부하 측정에서 계산이 병목으로 보이면 `perm:{pageId}:{userId}` 키로 Redis 에 짧게 캐시하고, 권한이나 트리가 바뀌면 영향받는 페이지의 캐시를 지운다.
 
 REST 쪽은 처음에 메서드 보안(`@PreAuthorize`)으로 거르려 했다. 지금은 쓰지 않는다. 서비스(`WorkspaceService`, `PageGrants`, `TicketController`)가 `PagePermissions.access` 에 직접 묻고, 결과(`NotFound`, `Denied`, `Granted`)를 404, 403, 등급으로 바꾼다. 결과가 sealed 타입이라 switch 에서 빠진 경우를 컴파일러가 잡는다.
+
+### 9.4.1 권한 표와 시험 대조 (2026-11-26)
+
+로드맵 3단계의 완료 기준("권한 표의 모든 칸이 통합 테스트로 검증된다")을 칸마다 대조했다. ○ 는 실제 서버와 DB 를 거치는 통합 테스트가 있다는 뜻이다. △ 는 단위 테스트만 있거나 바로 옆 칸의 시험으로 대신 확인한다는 뜻이다. × 는 시험이 없다는 뜻이다. 시험 이름은 `클래스.메서드` 의 앞부분이다.
+
+워크스페이스 역할
+
+| 칸 | 결과 | 시험 |
+| --- | --- | --- |
+| OWNER 워크스페이스 삭제 | × | 기능이 없다. 삭제 API(09-API 11.2)도, 화면도 없다 |
+| OWNER 만 멤버를 넣고 초대한다 | ○ | `WorkspaceFlowTest.OWNER_가_가입한_사용자를…`(MEMBER 는 403), `InviteFlowTest.초대는_OWNER_만_만들고_취소한다` |
+| OWNER 만 역할을 바꾸고 내보낸다. 마지막 OWNER 는 남는다 | ○ | `GrantFlowTest.역할을_내리거나_내보내면…`(MEMBER 의 PATCH 는 403), `GrantFlowTest.마지막_OWNER_는…`(동시에 내리기 포함), `RemoveMemberAtomicityTest` |
+| OWNER 의 기본 권한은 FULL, 경계가 있어도 FULL | ○ | `PermissionFlowTest.티켓은…`, `PermissionFlowTest.제한된_페이지는…`(제한된 페이지에서 OWNER 티켓이 FULL) |
+| MEMBER 는 페이지를 만들고 제한되지 않은 페이지를 편집한다(기본 EDIT) | ○ | `WorkspaceFlowTest.OWNER_가_가입한_사용자를…`, `PermissionFlowTest.제한된_페이지는_멤버에게도_막히고_부여받으면_열린다` |
+| GUEST 는 초대받은 페이지만(기본 없음) | ○ | `PermissionFlowTest.게스트는_받은_페이지만_보고…`, `GrantFlowTest.멤버가_아닌_사람에게_주면_GUEST_로…`, `WorkspaceFlowTest`(GUEST 의 최상위 생성과 멤버 목록은 403) |
+
+페이지 권한
+
+| 등급 | 읽기 | 댓글 | 본문 편집 | 공유 설정, 삭제, 복원 |
+| --- | --- | --- | --- | --- |
+| VIEW | ○ 티켓의 등급이 VIEW(`GrantFlowTest`, `ShareLinkFlowTest` 의 비로그인 VIEW) | ○ 403(`CommentFlowTest.댓글은_COMMENT_부터…`) | ○ nack(`CollabWebSocketIntegrationTest.읽기_권한으로_보낸_편집은…`) | △ EDIT 의 403 으로 대신한다. 셋 다 같은 `atLeast(FULL)` 검사다 |
+| COMMENT | ○ 티켓의 등급이 COMMENT(`PermissionFlowTest`, `GrantFlowTest`) | ○ 댓글, 답글, 해결. 남의 댓글은 고치거나 지우지 못한다(`CommentFlowTest.댓글_권한으로_댓글과_답글을…`) | ○ 글자를 넣거나 지우면 nack(`permission`), `comment` 서식만 바꾸면 ack 받고 스레드에 위치가 붙는다(`CommentFlowTest.댓글_권한의_연결은_comment_서식만…`), 규칙의 사례는 `ChangePolicyTest`(단위) | △ VIEW 와 같다 |
+| EDIT | ○ | ○ `CommentFlowTest` | ○ `CollabWebSocketIntegrationTest` 외 다수 | ○ 403: 공유(`GrantFlowTest.공유_설정은_FULL_만_바꾼다`, `ShareLinkFlowTest`), restricted, 휴지통으로 보내기와 꺼내기(`PageTreeFlowTest`), 옮기기 |
+| FULL | ○ | ○ 남의 댓글 지우기까지(`CommentFlowTest.쓴_사람만_고치고…`) | ○ | ○ 위 시험의 성공 쪽 |
+
+버전 복원은 이 표와 다르게 FULL 이 아니라 EDIT 부터 된다(10.1, D-44). 복원 버튼만 FULL 에게 보이고, 서버는 EDIT 이면 받는다. `VersionFlowTest` 는 VIEW 의 403 과 OWNER 의 복원만 확인한다.
+
+계산 규칙과 바꾸는 규칙
+
+| 칸 | 결과 | 시험 |
+| --- | --- | --- |
+| 1~3. 경계, 역할 기본 권한, 경계까지의 부여 중 가장 높은 것 | ○ | `PermissionRulesTest`(단위, 사례 전부), `PagePermissionsTest`(DB), `PermissionFlowTest`, `GrantFlowTest.권한_목록은…` |
+| 없는 것과 볼 수 없는 것을 구분하지 않는다(404), 휴지통의 하위도 404 | ○ | `PermissionFlowTest.티켓은_페이지가_없거나…`, `PagePermissionsTest.조상이_휴지통에_있으면…` |
+| 4. 공유 링크는 그 페이지 하나에만 적용되고 FULL 은 줄 수 없다 | ○ | `ShareLinkFlowTest`(하위 티켓 404, FULL 은 400, 만료, 끄기). `PermissionRulesTest` 에는 링크 사례가 없다 |
+| 멤버가 아닌 사람에게 주면 GUEST | ○ | `GrantFlowTest.멤버가_아닌_사람에게_주면…` |
+| restricted 를 켠 사람의 FULL 을 남긴다 | ○ | `GrantFlowTest.물려받은_FULL_로_제한한_사람은…` |
+| 내보내면 그 워크스페이스의 페이지 권한도 지운다 | ○ | `GrantFlowTest.역할을_내리거나_내보내면…`, `RemoveMemberAtomicityTest` |
+| 열린 연결에 1초 안에 적용(S-5) | ○ | `LiveRevocationTest`(내리기, 회수, 제한, 내보내기), `ShareLinkFlowTest.링크로_연_연결은…`, `PageTreeFlowTest.제한된_페이지_아래로_옮기면…`, `MultiNodeTest.다른_노드에서_바꾼_권한도…` |
+| 등급이 내려간 뒤 온 묶음은 새 등급으로 검사(D-20) | △ | `DocumentSessionTest.권한이_내려가면_그_연결에만_role_을_보내고…`(단위) |
+
+남은 칸은 워크스페이스 삭제 하나다. 기능부터 없다. COMMENT 등급의 두 칸은 2026-11-26 에 통합 테스트를 더했다.
 
 ## 9.5 연산 단위 인가
 
@@ -98,7 +139,7 @@ WebSocket은 한 번 열리면 오래 유지된다. 연결할 때 한 번만 검
 | COMMENT | `text` 연산 중 `comment` 서식만 바꾸는 `retain` 으로만 이루어진 것. 글자를 넣거나 지우는 조각이 하나라도 있으면 거부 |
 | EDIT, FULL | 전부 |
 
-권한이 바뀌면 `permission` 모듈이 `PermissionChangeListener` 포트로 알린다(9.4). 해당 문서의 세션은 그 사용자의 등급을 다시 계산해서, 바뀐 사람에게는 `role` 메시지를 보내고 접근이 없어진 사람은 4003으로 끊는다. 등급이 내려간 뒤 도착한 묶음은 새 등급으로 검사해 nack 한다(D-20). 노드가 여럿이 되면 `perm:changed` 채널(Redis pub/sub)로 넓힌다(4단계).
+권한이 바뀌면 `permission` 모듈이 `PermissionChangeListener` 포트로 알린다(9.4). 해당 문서의 세션은 그 사용자의 등급을 다시 계산해서, 바뀐 사람에게는 `role` 메시지를 보내고 접근이 없어진 사람은 4003으로 끊는다. 등급이 내려간 뒤 도착한 묶음은 새 등급으로 검사해 nack 한다(D-20). 노드가 여럿이면 `copage:perm` 채널로 다른 노드에 건넨다(D-43, 9.4).
 
 ## 9.6 입력 검증
 
